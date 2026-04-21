@@ -5,6 +5,7 @@ export const sessions = sqliteTable("sessions", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   model: text("model").notNull(),
+  tokensTotal: integer("tokens_total").notNull().default(0),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .default(sql`(unixepoch('now') * 1000)`),

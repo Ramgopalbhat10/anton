@@ -14,6 +14,7 @@ export type SessionSummary = {
   id: string;
   title: string;
   model: string;
+  tokensTotal: number;
   createdAt: number;
   updatedAt: number;
 };

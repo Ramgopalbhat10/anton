@@ -24,6 +24,7 @@ export default async function SessionPage({
       initialMessages={messages}
       initialModel={session.model as ModelId}
       initialTitle={session.title}
+      initialTokensTotal={session.tokensTotal}
     />
   );
 }

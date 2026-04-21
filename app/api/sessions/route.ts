@@ -9,6 +9,7 @@ export async function GET() {
       id: s.id,
       title: s.title,
       model: s.model,
+      tokensTotal: s.tokensTotal,
       createdAt: s.createdAt.getTime(),
       updatedAt: s.updatedAt.getTime(),
     })),
