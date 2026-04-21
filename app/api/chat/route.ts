@@ -1,20 +1,16 @@
-import { convertToModelMessages, streamText, type UIMessage } from "ai";
-import { DEFAULT_MODEL, openrouter } from "@/src/lib/providers";
+import { convertToModelMessages } from "ai";
+import { runAgent, type AntonUIMessage } from "@/src/agent/loop";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
-
-const SYSTEM_PROMPT =
-  "You are Anton, a focused coding assistant. Answer concisely, use fenced code blocks for code, and prefer short, correct answers over long, hedged ones.";
+export const maxDuration = 120;
 
 export async function POST(req: Request) {
-  const { messages, model }: { messages: UIMessage[]; model?: string } =
+  const { messages, model }: { messages: AntonUIMessage[]; model?: string } =
     await req.json();
 
-  const result = streamText({
-    model: openrouter(model ?? DEFAULT_MODEL),
-    system: SYSTEM_PROMPT,
+  const result = runAgent({
     messages: await convertToModelMessages(messages),
+    model,
   });
 
   return result.toUIMessageStreamResponse();
