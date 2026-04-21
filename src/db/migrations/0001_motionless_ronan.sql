@@ -1,0 +1,1 @@
+ALTER TABLE `sessions` ADD `tokens_total` integer DEFAULT 0 NOT NULL;

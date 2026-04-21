@@ -1,4 +1,4 @@
-import { asc, desc, eq } from "drizzle-orm";
+import { asc, desc, eq, sql } from "drizzle-orm";
 import type { UIMessage } from "ai";
 
 import { db } from "./client";
@@ -32,11 +32,24 @@ export function createSession(input: {
   const now = new Date();
   const row: Session = {
     ...input,
+    tokensTotal: 0,
     createdAt: now,
     updatedAt: now,
   };
   db.insert(sessions).values(row).run();
   return row;
+}
+
+export function addSessionTokens(id: string, delta: number): void {
+  if (!Number.isFinite(delta) || delta <= 0) return;
+  db
+    .update(sessions)
+    .set({
+      tokensTotal: sql`${sessions.tokensTotal} + ${Math.round(delta)}`,
+      updatedAt: new Date(),
+    })
+    .where(eq(sessions.id, id))
+    .run();
 }
 
 export function touchSession(id: string, model?: string): void {

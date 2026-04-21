@@ -19,6 +19,7 @@ interface ChatProps {
   initialMessages?: AntonUIMessage[];
   initialModel?: ModelId;
   initialTitle?: string;
+  initialTokensTotal?: number;
 }
 
 export function Chat({
@@ -26,8 +27,9 @@ export function Chat({
   initialMessages,
   initialModel,
   initialTitle,
+  initialTokensTotal = 0,
 }: ChatProps) {
-  const { refresh } = useSessionStore();
+  const { sessions, refresh } = useSessionStore();
   const persistedRef = useRef(sessionIdProp !== undefined);
 
   const [sessionId] = useState<string>(() => sessionIdProp ?? generateId());
@@ -68,14 +70,19 @@ export function Chat({
 
   const streaming = status === "streaming" || status === "submitted";
   const headerTitle = initialTitle ?? (sessionIdProp ? "Session" : "New chat");
+  const tokensTotal =
+    sessions.find((s) => s.id === sessionId)?.tokensTotal ?? initialTokensTotal;
 
   return (
     <div className="flex-1 flex flex-col min-w-0">
-      <header className="flex items-center justify-between px-4 py-3 border-b border-border">
-        <h1 className="text-sm font-semibold tracking-tight truncate">
+      <header className="flex items-center justify-between px-4 py-3 border-b border-border gap-3">
+        <h1 className="text-sm font-semibold tracking-tight truncate min-w-0">
           {headerTitle}
         </h1>
-        <ModelPicker value={model} onChange={setModel} disabled={streaming} />
+        <div className="flex items-center gap-3 shrink-0">
+          <TokenCounter tokens={tokensTotal} pending={streaming} />
+          <ModelPicker value={model} onChange={setModel} disabled={streaming} />
+        </div>
       </header>
 
       <MessageList
@@ -105,4 +112,30 @@ function generateId(): string {
     return crypto.randomUUID();
   }
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+function TokenCounter({
+  tokens,
+  pending,
+}: {
+  tokens: number;
+  pending: boolean;
+}) {
+  if (tokens <= 0 && !pending) return null;
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background/60 px-2 py-1 text-[11px] font-mono text-muted-foreground"
+      title="Total tokens used in this session"
+    >
+      <span className="size-1.5 rounded-full bg-muted-foreground/50" aria-hidden />
+      {formatTokens(tokens)}
+      <span className="text-muted-foreground/70">tok</span>
+    </span>
+  );
+}
+
+function formatTokens(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
 }

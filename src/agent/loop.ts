@@ -1,6 +1,7 @@
 import {
   streamText,
   stepCountIs,
+  type LanguageModelUsage,
   type ModelMessage,
   type UIMessage,
   type InferUITools,
@@ -47,9 +48,11 @@ export type AntonUIMessage = UIMessage<
 export function runAgent({
   messages,
   model,
+  onFinish,
 }: {
   messages: ModelMessage[];
   model?: string;
+  onFinish?: (result: { totalUsage: LanguageModelUsage }) => void;
 }) {
   return streamText({
     model: openrouter(model ?? DEFAULT_MODEL),
@@ -57,5 +60,8 @@ export function runAgent({
     messages,
     tools: antonTools,
     stopWhen: stepCountIs(MAX_STEPS),
+    onFinish: onFinish
+      ? ({ totalUsage }) => onFinish({ totalUsage })
+      : undefined,
   });
 }

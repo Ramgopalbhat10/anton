@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   getToolName,
   isToolUIPart,
   type ChatAddToolApproveResponseFunction,
 } from "ai";
+import { Check, Copy } from "lucide-react";
 import type { AntonUIMessage } from "@/src/agent/loop";
 import { cn } from "@/lib/utils";
+import { Markdown } from "./markdown";
 import { ToolCard } from "./tool-card";
 
 interface MessageListProps {
@@ -66,9 +68,19 @@ function MessageBubble({
   onApproval: ChatAddToolApproveResponseFunction;
 }) {
   const isUser = message.role === "user";
+  const plainText = message.parts
+    .filter((p) => p.type === "text")
+    .map((p) => (p as { text: string }).text)
+    .join("\n\n")
+    .trim();
 
   return (
-    <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
+    <div
+      className={cn(
+        "group/msg flex flex-col gap-1",
+        isUser ? "items-end" : "items-start",
+      )}
+    >
       <div
         className={cn(
           "max-w-[80%] rounded-lg text-sm break-words space-y-2",
@@ -79,11 +91,14 @@ function MessageBubble({
       >
         {message.parts.map((part, i) => {
           if (part.type === "text") {
-            return (
-              <div key={i} className="whitespace-pre-wrap">
-                {part.text}
-              </div>
-            );
+            if (isUser) {
+              return (
+                <div key={i} className="whitespace-pre-wrap">
+                  {part.text}
+                </div>
+              );
+            }
+            return <Markdown key={i}>{part.text}</Markdown>;
           }
           if (isToolUIPart(part)) {
             const name = getToolName(part);
@@ -107,6 +122,40 @@ function MessageBubble({
           return null;
         })}
       </div>
+      {!isUser && plainText.length > 0 && (
+        <CopyMessageButton text={plainText} />
+      )}
     </div>
+  );
+}
+
+function CopyMessageButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const onClick = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      // noop
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/msg:opacity-100 focus:opacity-100"
+      aria-label={copied ? "Copied" : "Copy message"}
+    >
+      {copied ? (
+        <>
+          <Check className="size-3" /> copied
+        </>
+      ) : (
+        <>
+          <Copy className="size-3" /> copy
+        </>
+      )}
+    </button>
   );
 }

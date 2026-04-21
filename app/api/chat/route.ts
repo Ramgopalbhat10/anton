@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { runAgent, type AntonUIMessage } from "@/src/agent/loop";
 import {
+  addSessionTokens,
   createSession,
   deriveTitleFromMessages,
   getSession,
@@ -48,6 +49,12 @@ export async function POST(req: Request) {
   const result = runAgent({
     messages: await convertToModelMessages(uiMessages),
     model,
+    onFinish: ({ totalUsage }) => {
+      const delta = totalUsage.totalTokens;
+      if (typeof delta === "number" && delta > 0) {
+        addSessionTokens(sessionId, delta);
+      }
+    },
   });
 
   return result.toUIMessageStreamResponse<AntonUIMessage>({
