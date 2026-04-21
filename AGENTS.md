@@ -101,7 +101,7 @@ Never log the API key. Never commit `.env.local`, `anton.db`, or anything under 
 
 ## Roadmap phase
 
-Phase 1 (streaming chat MVP) is shipped. Phase 2 (agent loop + tools + permission gate) is next — see `README.md` for the full roadmap. Do not implement later phases ahead of time.
+Phases 1–3 (streaming chat MVP, agent loop + tools + permission gate, persistent sessions) are shipped. Phase 4 (markdown, diff viewer, token counter, QoL) is next — see `README.md` for the full roadmap. Do not implement later phases ahead of time.
 
 <!-- BEGIN:nextjs-agent-rules -->
 # This is NOT the Next.js you know

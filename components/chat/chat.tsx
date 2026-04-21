@@ -1,40 +1,80 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import {
   DefaultChatTransport,
   lastAssistantMessageIsCompleteWithApprovalResponses,
 } from "ai";
+
 import { DEFAULT_MODEL, type ModelId } from "@/src/lib/providers";
 import type { AntonUIMessage } from "@/src/agent/loop";
 import { MessageList } from "./message-list";
 import { Composer } from "./composer";
 import { ModelPicker } from "./model-picker";
+import { useSessionStore } from "./session-store";
 
-export function Chat() {
-  const [model, setModel] = useState<ModelId>(DEFAULT_MODEL as ModelId);
+interface ChatProps {
+  sessionId?: string;
+  initialMessages?: AntonUIMessage[];
+  initialModel?: ModelId;
+  initialTitle?: string;
+}
 
-  const { messages, sendMessage, status, stop, error, addToolApprovalResponse } =
-    useChat<AntonUIMessage>({
-      transport: new DefaultChatTransport({
+export function Chat({
+  sessionId: sessionIdProp,
+  initialMessages,
+  initialModel,
+  initialTitle,
+}: ChatProps) {
+  const { refresh } = useSessionStore();
+  const persistedRef = useRef(sessionIdProp !== undefined);
+
+  const [sessionId] = useState<string>(() => sessionIdProp ?? generateId());
+  const [model, setModel] = useState<ModelId>(
+    (initialModel ?? DEFAULT_MODEL) as ModelId,
+  );
+
+  const transport = useMemo(
+    () =>
+      new DefaultChatTransport<AntonUIMessage>({
         api: "/api/chat",
-        body: () => ({ model }),
+        body: () => ({ sessionId, model }),
       }),
-      sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
-    });
+    [sessionId, model],
+  );
+
+  const {
+    messages,
+    sendMessage,
+    status,
+    stop,
+    error,
+    addToolApprovalResponse,
+  } = useChat<AntonUIMessage>({
+    transport,
+    messages: initialMessages,
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
+    onFinish: () => {
+      if (!persistedRef.current) {
+        persistedRef.current = true;
+        if (typeof window !== "undefined") {
+          window.history.replaceState(null, "", `/s/${sessionId}`);
+        }
+      }
+      void refresh();
+    },
+  });
 
   const streaming = status === "streaming" || status === "submitted";
+  const headerTitle = initialTitle ?? (sessionIdProp ? "Session" : "New chat");
 
   return (
-    <div className="flex-1 flex flex-col max-w-3xl w-full mx-auto">
+    <div className="flex-1 flex flex-col min-w-0">
       <header className="flex items-center justify-between px-4 py-3 border-b border-border">
-        <div className="flex items-center gap-2">
-          <h1 className="text-sm font-semibold tracking-tight">Anton</h1>
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            Phase 2
-          </span>
-        </div>
+        <h1 className="text-sm font-semibold tracking-tight truncate">
+          {headerTitle}
+        </h1>
         <ModelPicker value={model} onChange={setModel} disabled={streaming} />
       </header>
 
@@ -58,4 +98,11 @@ export function Chat() {
       />
     </div>
   );
+}
+
+function generateId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
