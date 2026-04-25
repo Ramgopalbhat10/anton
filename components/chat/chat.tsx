@@ -7,7 +7,7 @@ import {
   lastAssistantMessageIsCompleteWithApprovalResponses,
 } from "ai";
 
-import { DEFAULT_MODEL, type ModelId } from "@/src/lib/providers";
+import { DEFAULT_MODEL_ID, type ModelId } from "@/src/lib/models";
 import type { AntonUIMessage } from "@/src/agent/loop";
 import { MessageList } from "./message-list";
 import { Composer } from "./composer";
@@ -34,7 +34,7 @@ export function Chat({
 
   const [sessionId] = useState<string>(() => sessionIdProp ?? generateId());
   const [model, setModel] = useState<ModelId>(
-    (initialModel ?? DEFAULT_MODEL) as ModelId,
+    (initialModel ?? DEFAULT_MODEL_ID) as ModelId,
   );
 
   const transport = useMemo(

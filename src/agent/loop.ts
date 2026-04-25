@@ -7,6 +7,7 @@ import {
   type InferUITools,
 } from "ai";
 import { openrouter, DEFAULT_MODEL } from "@/src/lib/providers";
+import { listMemories } from "@/src/db/queries";
 import { antonTools } from "./tools";
 import { workspaceRelative, ensureWorkspaceRoot } from "./sandbox";
 
@@ -23,20 +24,37 @@ function systemPrompt(): string {
     "Absolute paths and `..` traversal are rejected by the sandbox before execution.",
     "",
     "Tools available:",
-    "- `read_file(path, startLine?, endLine?)` — read a text file. Prefer narrow ranges for large files.",
-    "- `write_file(path, content)` — overwrite a file. Destructive; the user must approve each call.",
-    "- `bash(command, timeoutMs?)` — run a shell command in the workspace. Destructive; requires approval. `sudo` is forbidden.",
-    "- `grep(pattern, path?, glob?, caseInsensitive?)` — ripgrep-style search. Use this before reading large files.",
-    "- `glob(pattern, path?)` — list files matching a glob like `**/*.ts`.",
+    "- `read_file(path, startLine?, endLine?)` - read a text file. Prefer narrow ranges for large files.",
+    "- `write_file(path, content)` - overwrite a file. Destructive; the user must approve each call.",
+    "- `bash(command, timeoutMs?)` - run a shell command in the workspace. Destructive; requires approval. `sudo` is forbidden.",
+    "- `grep(pattern, path?, glob?, caseInsensitive?)` - ripgrep-style search. Use this before reading large files.",
+    "- `glob(pattern, path?)` - list files matching a glob like `**/*.ts`.",
+    "- `list_memory(limit?)` - list project-wide memories that apply across sessions.",
+    "- `remember(content)` - save a concise project-wide memory. Destructive; the user must approve each call.",
+    "- `forget_memory(id)` - delete one project-wide memory. Destructive; the user must approve each call.",
+    "",
+    ...projectMemoryPromptLines(),
     "",
     "Conventions:",
     "- Answer concisely. Prefer short, correct answers over long hedged ones.",
     "- Plan first for multi-step tasks: explore (`glob`, `grep`, `read_file`) before editing (`write_file`).",
+    "- Use memory only for durable project preferences or facts that should carry across sessions.",
     "- When you finish, summarize what you changed and why in one short paragraph.",
-    "- Do not guess file contents — read them first.",
+    "- Do not guess file contents - read them first.",
     "- Never ask the user for approval in prose; the harness shows an approval UI for risky tools.",
     "- If a tool returns `{ ok: false, error }`, report the error and try a different approach; do not retry the exact same call.",
   ].join("\n");
+}
+
+function projectMemoryPromptLines(): string[] {
+  const memories = listMemories(10);
+  if (memories.length === 0) {
+    return ["Project memory:", "- No saved memories yet."];
+  }
+  return [
+    "Project memory:",
+    ...memories.map((memory) => `- [${memory.id}] ${memory.content}`),
+  ];
 }
 
 export type AntonUIMessage = UIMessage<

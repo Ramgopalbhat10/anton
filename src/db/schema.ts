@@ -26,7 +26,20 @@ export const messages = sqliteTable("messages", {
     .default(sql`(unixepoch('now') * 1000)`),
 });
 
+export const memories = sqliteTable("memories", {
+  id: text("id").primaryKey(),
+  content: text("content").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch('now') * 1000)`),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch('now') * 1000)`),
+});
+
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
 export type Message = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
+export type Memory = typeof memories.$inferSelect;
+export type NewMemory = typeof memories.$inferInsert;

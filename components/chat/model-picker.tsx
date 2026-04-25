@@ -1,6 +1,6 @@
 "use client";
 
-import { MODEL_CATALOG, type ModelId } from "@/src/lib/providers";
+import { MODEL_CATALOG, type ModelId } from "@/src/lib/models";
 import { cn } from "@/lib/utils";
 
 interface ModelPickerProps {
