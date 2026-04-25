@@ -1,4 +1,5 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import { DEFAULT_MODEL_ID } from "./models";
 
 const apiKey = process.env.OPENROUTER_API_KEY;
 
@@ -13,13 +14,4 @@ export const openrouter = createOpenRouter({
 });
 
 export const DEFAULT_MODEL =
-  process.env.DEFAULT_MODEL ?? "anthropic/claude-sonnet-4.5";
-
-export const MODEL_CATALOG = [
-  { id: "anthropic/claude-sonnet-4.5", label: "Claude Sonnet 4.5" },
-  { id: "anthropic/claude-haiku-4.5", label: "Claude Haiku 4.5" },
-  { id: "openai/gpt-5", label: "GPT-5" },
-  { id: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro" },
-] as const;
-
-export type ModelId = (typeof MODEL_CATALOG)[number]["id"];
+  process.env.DEFAULT_MODEL ?? DEFAULT_MODEL_ID;

@@ -1,6 +1,6 @@
 # Anton
 
-A mini AI coding agent harness — built as a learning project to understand how production AI agent systems (Claude Code, Codex, Devin, Hermes, OpenClaw) work under the hood.
+A mini AI coding agent harness - built as a learning project to understand how production AI agent systems (Claude Code, Codex, Devin, Hermes, OpenClaw) work under the hood.
 
 ## Stack
 
@@ -33,9 +33,9 @@ pnpm dev                            # http://localhost:3000
 
 ## Roadmap
 
-- **Phase 0** — scaffold (done)
-- **Phase 1** — streaming chat MVP (no tools)
-- **Phase 2** — agent loop + tools (`read_file`, `write_file`, `bash`, `grep`, `glob`) + permission gate
-- **Phase 3** — persistent sessions
-- **Phase 4** — markdown, diff viewer, token counter, QoL
-- **Phase 5** — memory / skills / sub-agents / MCP
+- **Phase 0** - scaffold (done)
+- **Phase 1** - streaming chat MVP (no tools) (done)
+- **Phase 2** - agent loop + tools (`read_file`, `write_file`, `bash`, `grep`, `glob`) + permission gate (done)
+- **Phase 3** - persistent sessions (done)
+- **Phase 4** - markdown, diff viewer, token counter, QoL (done)
+- **Phase 5** - memory / skills / sub-agents / MCP (in progress: project-wide memory slice)

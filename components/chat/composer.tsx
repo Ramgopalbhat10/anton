@@ -54,6 +54,7 @@ export function Composer({ onSend, onStop, disabled, streaming }: ComposerProps)
           ref={textareaRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
+          onInput={(e) => setInput(e.currentTarget.value)}
           onKeyDown={onKeyDown}
           placeholder="Message Anton... (Enter to send, Shift+Enter for newline)"
           rows={1}

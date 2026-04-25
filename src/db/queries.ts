@@ -1,8 +1,15 @@
 import { asc, desc, eq, sql } from "drizzle-orm";
 import type { UIMessage } from "ai";
+import { randomUUID } from "node:crypto";
 
 import { db } from "./client";
-import { messages, sessions, type Session } from "./schema";
+import {
+  memories,
+  messages,
+  sessions,
+  type Memory,
+  type Session,
+} from "./schema";
 
 export type StoredMessage<UI extends UIMessage = UIMessage> = {
   id: string;
@@ -71,6 +78,39 @@ export function renameSession(id: string, title: string): Session | undefined {
 
 export function deleteSession(id: string): void {
   db.delete(sessions).where(eq(sessions.id, id)).run();
+}
+
+export function listMemories(limit = 20): Memory[] {
+  const safeLimit = Number.isFinite(limit)
+    ? Math.max(1, Math.min(100, Math.trunc(limit)))
+    : 20;
+  return db
+    .select()
+    .from(memories)
+    .orderBy(desc(memories.updatedAt))
+    .limit(safeLimit)
+    .all();
+}
+
+export function createMemory(content: string): Memory {
+  const now = new Date();
+  const trimmed = content.trim();
+  if (!trimmed) {
+    throw new Error("memory content must not be empty");
+  }
+  const row: Memory = {
+    id: randomUUID(),
+    content: trimmed,
+    createdAt: now,
+    updatedAt: now,
+  };
+  db.insert(memories).values(row).run();
+  return row;
+}
+
+export function deleteMemory(id: string): boolean {
+  const result = db.delete(memories).where(eq(memories.id, id)).run();
+  return result.changes > 0;
 }
 
 export function loadMessages<UI extends UIMessage>(
