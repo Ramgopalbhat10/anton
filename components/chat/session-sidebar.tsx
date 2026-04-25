@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import {
   Check,
+  FolderCog,
   Pencil,
   Plus,
   Trash2,
@@ -12,16 +13,28 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import {
   useSessionStore,
   type SessionSummary,
 } from "./session-store";
+import { ProjectContextDialog } from "./project-context-dialog";
 
 export function SessionSidebar() {
   const { sessions, loading, error } = useSessionStore();
   const params = useParams<{ sessionId?: string }>();
   const activeId = params?.sessionId;
+  const [contextOpen, setContextOpen] = useState(false);
 
   return (
     <aside className="hidden md:flex w-64 shrink-0 flex-col border-r border-border bg-background/80">
@@ -61,6 +74,19 @@ export function SessionSidebar() {
           </div>
         )}
       </div>
+      <div className="border-t border-border p-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start text-xs"
+          onClick={() => setContextOpen(true)}
+        >
+          <FolderCog />
+          Project Context
+        </Button>
+      </div>
+      <ProjectContextDialog open={contextOpen} onOpenChange={setContextOpen} />
     </aside>
   );
 }
@@ -76,6 +102,7 @@ function SessionRow({
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(session.title);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const commit = async () => {
     const trimmed = draft.trim();
@@ -92,10 +119,7 @@ function SessionRow({
     setEditing(false);
   };
 
-  const onDelete = async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!confirm("Delete this session? This cannot be undone.")) return;
+  const onDelete = async () => {
     await remove(session.id);
     if (isActive) router.push("/");
   };
@@ -164,13 +188,39 @@ function SessionRow({
         </button>
         <button
           type="button"
-          onClick={onDelete}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setDeleteOpen(true);
+          }}
           className="shrink-0 rounded p-1 text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-destructive/20 hover:text-destructive"
           aria-label="Delete"
         >
           <Trash2 className="size-3.5" />
         </button>
       </Link>
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete session?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the chat session and its messages. This cannot be
+              undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void onDelete();
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </li>
   );
 }

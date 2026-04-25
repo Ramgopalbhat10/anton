@@ -7,6 +7,7 @@ import {
   forgetMemoryTool,
   listMemoryTool,
   rememberTool,
+  updateMemoryTool,
 } from "./memory";
 import { listSkillsTool, readSkillTool } from "./skills";
 
@@ -18,6 +19,7 @@ export const antonTools = {
   glob: globTool,
   list_memory: listMemoryTool,
   remember: rememberTool,
+  update_memory: updateMemoryTool,
   forget_memory: forgetMemoryTool,
   list_skills: listSkillsTool,
   read_skill: readSkillTool,

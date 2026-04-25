@@ -32,6 +32,7 @@ function systemPrompt(): string {
     "- `glob(pattern, path?)` - list files matching a glob like `**/*.ts`.",
     "- `list_memory(limit?)` - list project-wide memories that apply across sessions.",
     "- `remember(content)` - save a concise project-wide memory. Destructive; the user must approve each call.",
+    "- `update_memory(id, content)` - update one existing project-wide memory. Destructive; the user must approve each call.",
     "- `forget_memory(id)` - delete one project-wide memory. Destructive; the user must approve each call.",
     "- `list_skills()` - list project-local skills under `skills/<slug>/SKILL.md`.",
     "- `read_skill(slug)` - read one project-local skill before applying it.",

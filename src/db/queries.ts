@@ -108,6 +108,19 @@ export function createMemory(content: string): Memory {
   return row;
 }
 
+export function updateMemory(id: string, content: string): Memory | undefined {
+  const trimmed = content.trim();
+  if (!trimmed) {
+    throw new Error("memory content must not be empty");
+  }
+  db
+    .update(memories)
+    .set({ content: trimmed, updatedAt: new Date() })
+    .where(eq(memories.id, id))
+    .run();
+  return db.select().from(memories).where(eq(memories.id, id)).get();
+}
+
 export function deleteMemory(id: string): boolean {
   const result = db.delete(memories).where(eq(memories.id, id)).run();
   return result.changes > 0;
