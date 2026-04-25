@@ -17,6 +17,8 @@ export const RISK_LEVELS: Record<string, RiskLevel> = {
   list_memory: "safe",
   remember: "risky",
   forget_memory: "risky",
+  list_skills: "safe",
+  read_skill: "safe",
 };
 
 // Commands we refuse to execute in `bash` even after approval — the user

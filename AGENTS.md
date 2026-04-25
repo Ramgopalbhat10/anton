@@ -47,17 +47,20 @@ src/
     loop.ts                  # streamText wrapper + system prompt (Phase 2)
     sandbox.ts               # path resolution + validation (Phase 2)
     permissions.ts           # permission middleware (Phase 2)
-    tools/                   # read-file, write-file, bash, grep, glob (Phase 2)
+    skills.ts                # workspace skill discovery (Phase 5)
+    tools/                   # read-file, write-file, bash, grep, glob, memory, skills
   db/
     schema.ts                # Drizzle tables
     client.ts                # better-sqlite3 + drizzle
     migrations/              # generated; do not hand-edit
     migrate.ts               # migration runner
   lib/
-    providers.ts             # openrouter client + MODEL_CATALOG
+    models.ts                # client-safe model catalog
+    providers.ts             # server-side openrouter client
 lib/
   utils.ts                   # cn() (clsx + tailwind-merge)
-workspace/                   # default WORKSPACE_ROOT — agent-writable, gitignored
+workspace/                   # default WORKSPACE_ROOT - agent-writable, gitignored
+  skills/<slug>/SKILL.md     # optional project-local skills (Phase 5)
 ```
 
 Path aliases: `@/*` → project root, so `@/components/...`, `@/lib/utils`, `@/src/db/schema`.
@@ -94,14 +97,14 @@ Never log the API key. Never commit `.env.local`, `anton.db`, or anything under 
 - Prefer editing existing files over creating new ones; do not scaffold files "for later".
 - No default exports for components — named exports only.
 - Server-only code never imports from `components/` or `app/` client code; client components never import from `src/db/` or `src/agent/`.
-- Tool definitions are `tool({ description, inputSchema: z.object({...}), execute })`. Keep them pure; side-effects live in `execute`. Every risky tool carries `riskLevel: "risky"` so the permission gate can intercept it.
+- Tool definitions are `tool({ description, inputSchema: z.object({...}), execute })`. Keep them pure; side-effects live in `execute`. Every risky tool carries `needsApproval: true` so the permission gate can intercept it.
 - UI renders messages from `message.parts` (v6 UIMessage shape), not `message.content`. Tool calls render as collapsible cards, never as raw JSON.
 - Streaming custom data (permission requests, tool progress) uses AI SDK custom data parts through `toUIMessageStreamResponse`, not ad-hoc JSON frames.
 - Comments explain **why**, not what. Default is no comment.
 
 ## Roadmap phase
 
-Phases 1–3 (streaming chat MVP, agent loop + tools + permission gate, persistent sessions) are shipped. Phase 4 (markdown, diff viewer, token counter, QoL) is next — see `README.md` for the full roadmap. Do not implement later phases ahead of time.
+Phases 1-4 (streaming chat MVP, agent loop + tools + permission gate, persistent sessions, markdown, diff viewer, token counter, QoL) are shipped. Phase 5 is in progress with project-wide memory and workspace skills; sub-agents and MCP are still pending. See `README.md` for the full roadmap.
 
 <!-- BEGIN:nextjs-agent-rules -->
 # This is NOT the Next.js you know

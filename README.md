@@ -38,4 +38,4 @@ pnpm dev                            # http://localhost:3000
 - **Phase 2** - agent loop + tools (`read_file`, `write_file`, `bash`, `grep`, `glob`) + permission gate (done)
 - **Phase 3** - persistent sessions (done)
 - **Phase 4** - markdown, diff viewer, token counter, QoL (done)
-- **Phase 5** - memory / skills / sub-agents / MCP (in progress: project-wide memory slice)
+- **Phase 5** - memory / skills / sub-agents / MCP (in progress: project-wide memory and workspace skills)

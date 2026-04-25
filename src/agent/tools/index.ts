@@ -8,6 +8,7 @@ import {
   listMemoryTool,
   rememberTool,
 } from "./memory";
+import { listSkillsTool, readSkillTool } from "./skills";
 
 export const antonTools = {
   read_file: readFileTool,
@@ -18,6 +19,8 @@ export const antonTools = {
   list_memory: listMemoryTool,
   remember: rememberTool,
   forget_memory: forgetMemoryTool,
+  list_skills: listSkillsTool,
+  read_skill: readSkillTool,
 } as const;
 
 export type AntonTools = typeof antonTools;
