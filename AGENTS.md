@@ -45,10 +45,11 @@ components/
 src/
   agent/
     loop.ts                  # streamText wrapper + system prompt (Phase 2)
+    mcp.ts                   # workspace MCP config loading + tool wrapping (Phase 5)
     sandbox.ts               # path resolution + validation (Phase 2)
     permissions.ts           # permission middleware (Phase 2)
     skills.ts                # workspace skill discovery (Phase 5)
-    tools/                   # read-file, write-file, bash, grep, glob, memory, skills
+    tools/                   # read-file, write-file, bash, grep, glob, memory, skills, delegate
   db/
     schema.ts                # Drizzle tables
     client.ts                # better-sqlite3 + drizzle
@@ -104,7 +105,7 @@ Never log the API key. Never commit `.env.local`, `anton.db`, or anything under 
 
 ## Roadmap phase
 
-Phases 1-4 (streaming chat MVP, agent loop + tools + permission gate, persistent sessions, markdown, diff viewer, token counter, QoL) are shipped. Phase 5 is in progress with project-wide memory and workspace skills; sub-agents and MCP are still pending. See `README.md` for the full roadmap.
+Phases 1-5 (streaming chat MVP, agent loop + tools + permission gate, persistent sessions, markdown, diff viewer, token counter, QoL, memory, skills, read-only sub-agents, MCP tools) are shipped. See `README.md` for the full roadmap.
 
 <!-- BEGIN:nextjs-agent-rules -->
 # This is NOT the Next.js you know

@@ -4,6 +4,7 @@ import {
   createMemory,
   deleteMemory,
   listMemories,
+  updateMemory,
 } from "@/src/db/queries";
 import type { Memory } from "@/src/db/schema";
 
@@ -73,6 +74,32 @@ export const forgetMemoryTool = tool({
         return { ok: false as const, error: `memory not found: ${id}` };
       }
       return { ok: true as const, id };
+    } catch (err) {
+      return { ok: false as const, error: errorMessage(err) };
+    }
+  },
+});
+
+export const updateMemoryTool = tool({
+  description:
+    "Update one existing project-wide memory by ID. Use list_memory first if you need the ID. Requires user approval.",
+  inputSchema: z.object({
+    id: z.string().min(1).describe("The memory ID to update."),
+    content: z
+      .string()
+      .trim()
+      .min(1)
+      .max(MAX_MEMORY_CHARS)
+      .describe("Replacement memory content."),
+  }),
+  needsApproval: true,
+  execute: async ({ id, content }) => {
+    try {
+      const memory = updateMemory(id, content);
+      if (!memory) {
+        return { ok: false as const, error: `memory not found: ${id}` };
+      }
+      return { ok: true as const, memory: serializeMemory(memory) };
     } catch (err) {
       return { ok: false as const, error: errorMessage(err) };
     }
