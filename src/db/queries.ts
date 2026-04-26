@@ -157,7 +157,7 @@ export function replaceMessages<UI extends UIMessage>(
       .insert(messages)
       .values(
         incoming.map((m, idx) => ({
-          id: m.id,
+          id: messageId(m, sessionId, idx),
           sessionId,
           role: m.role,
           parts: m.parts as unknown,
@@ -187,5 +187,15 @@ export function deriveTitleFromMessages(
     }
   }
   return "New chat";
+}
+
+function messageId<UI extends UIMessage>(
+  message: UI,
+  sessionId: string,
+  index: number,
+): string {
+  const id = message.id.trim();
+  if (id.length > 0) return id;
+  return `${sessionId}:message:${index}`;
 }
 

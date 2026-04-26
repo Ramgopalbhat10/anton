@@ -46,7 +46,7 @@ export async function POST(req: Request) {
     touchSession(sessionId, model);
   }
 
-  const result = runAgent({
+  const result = await runAgent({
     messages: await convertToModelMessages(uiMessages),
     model,
     onFinish: ({ totalUsage }) => {
