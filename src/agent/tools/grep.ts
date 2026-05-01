@@ -5,13 +5,16 @@ import {
   resolveInWorkspace,
   SandboxError,
   workspaceRelative,
+  workspaceRelativeTo,
   ensureWorkspaceRoot,
+  ensureWorkspaceRootAt,
 } from "../sandbox";
 
 const MAX_RESULTS = 200;
 const MAX_OUTPUT_BYTES = 64 * 1024;
 
-export const grepTool = tool({
+export function createGrepTool(workspaceRoot?: string) {
+  return tool({
   description:
     "Search the workspace with ripgrep. Returns matching lines with their file path and line number. Use this instead of reading large files.",
   inputSchema: z.object({
@@ -35,8 +38,10 @@ export const grepTool = tool({
   }),
   execute: async ({ pattern, path: relPath, glob, caseInsensitive }) => {
     try {
-      const root = ensureWorkspaceRoot();
-      const target = relPath ? resolveInWorkspace(relPath) : root;
+      const root = workspaceRoot
+        ? ensureWorkspaceRootAt(workspaceRoot)
+        : ensureWorkspaceRoot();
+      const target = relPath ? resolveInWorkspace(relPath, root) : root;
       const args = [
         "--line-number",
         "--no-heading",
@@ -75,7 +80,9 @@ export const grepTool = tool({
       return {
         ok: true as const,
         pattern,
-        target: workspaceRelative(target),
+        target: workspaceRoot
+          ? workspaceRelativeTo(root, target)
+          : workspaceRelative(target),
         matchCount: matches.length,
         truncated: matches.length >= MAX_RESULTS,
         matches,
@@ -84,7 +91,10 @@ export const grepTool = tool({
       return { ok: false as const, error: errorMessage(err) };
     }
   },
-});
+  });
+}
+
+export const grepTool = createGrepTool();
 
 function parseRgLine(
   line: string,
@@ -99,7 +109,7 @@ function parseRgLine(
   const file = line.slice(0, first);
   const lineNo = Number.parseInt(line.slice(first + 1, second), 10);
   const text = line.slice(second + 1);
-  const rel = file.startsWith(root) ? workspaceRelative(file) : file;
+  const rel = file.startsWith(root) ? workspaceRelativeTo(root, file) : file;
   return { file: rel, line: Number.isFinite(lineNo) ? lineNo : 0, text };
 }
 

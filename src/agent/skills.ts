@@ -30,8 +30,8 @@ export class SkillError extends Error {
   }
 }
 
-export function listSkills(): SkillList {
-  const root = resolveInWorkspace(SKILLS_DIR);
+export function listSkills(workspaceRoot?: string): SkillList {
+  const root = resolveInWorkspace(SKILLS_DIR, workspaceRoot);
   if (!fs.existsSync(root)) return { skills: [], warnings: [] };
   const stat = fs.statSync(root);
   if (!stat.isDirectory()) {
@@ -51,7 +51,7 @@ export function listSkills(): SkillList {
       continue;
     }
     try {
-      skills.push(summarizeSkill(readSkill(entry.name)));
+      skills.push(summarizeSkill(readSkill(entry.name, workspaceRoot)));
     } catch (err) {
       warnings.push(errorMessage(err));
     }
@@ -60,10 +60,10 @@ export function listSkills(): SkillList {
   return { skills, warnings };
 }
 
-export function readSkill(slug: string): SkillDocument {
+export function readSkill(slug: string, workspaceRoot?: string): SkillDocument {
   validateSkillSlug(slug);
   const relPath = path.posix.join(SKILLS_DIR, slug, SKILL_FILE);
-  const abs = resolveInWorkspace(relPath);
+  const abs = resolveInWorkspace(relPath, workspaceRoot);
   const stat = fs.statSync(abs);
   if (!stat.isFile()) {
     throw new SkillError(`not a skill file: ${relPath}`);

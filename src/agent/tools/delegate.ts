@@ -4,26 +4,36 @@ import { z } from "zod";
 import { DEFAULT_MODEL, openrouter } from "@/src/lib/providers";
 import { listMemories } from "@/src/db/queries";
 import { listSkills } from "../skills";
-import { ensureWorkspaceRoot, workspaceRelative } from "../sandbox";
-import { readFileTool } from "./read-file";
-import { grepTool } from "./grep";
-import { globTool } from "./glob";
+import {
+  ensureWorkspaceRoot,
+  ensureWorkspaceRootAt,
+  workspaceRelative,
+} from "../sandbox";
+import { createReadFileTool } from "./read-file";
+import { createGrepTool } from "./grep";
+import { createGlobTool } from "./glob";
 import { listMemoryTool } from "./memory";
-import { listSkillsTool, readSkillTool } from "./skills";
+import { createListSkillsTool, createReadSkillTool } from "./skills";
 
 const DEFAULT_MAX_STEPS = 6;
 const MAX_DELEGATE_STEPS = 10;
 
-const readOnlyTools = {
-  read_file: readFileTool,
-  grep: grepTool,
-  glob: globTool,
-  list_memory: listMemoryTool,
-  list_skills: listSkillsTool,
-  read_skill: readSkillTool,
-} as const;
+export function createDelegateTaskTool({
+  model,
+  workspaceRoot,
+}: {
+  model?: string;
+  workspaceRoot?: string;
+}) {
+  const readOnlyTools = {
+    read_file: createReadFileTool(workspaceRoot),
+    grep: createGrepTool(workspaceRoot),
+    glob: createGlobTool(workspaceRoot),
+    list_memory: listMemoryTool,
+    list_skills: createListSkillsTool(workspaceRoot),
+    read_skill: createReadSkillTool(workspaceRoot),
+  } as const;
 
-export function createDelegateTaskTool({ model }: { model?: string }) {
   return tool({
     description:
       "Delegate a bounded read-only investigation to a child Anton agent. The child can read/search workspace files, memories, and skills, but cannot write files, run shell commands, or mutate memory.",
@@ -48,7 +58,7 @@ export function createDelegateTaskTool({ model }: { model?: string }) {
       try {
         const result = await generateText({
           model: openrouter(model ?? DEFAULT_MODEL),
-          system: childSystemPrompt(),
+          system: childSystemPrompt(workspaceRoot),
           prompt: task,
           tools: readOnlyTools,
           stopWhen: stepCountIs(maxSteps ?? DEFAULT_MAX_STEPS),
@@ -67,8 +77,10 @@ export function createDelegateTaskTool({ model }: { model?: string }) {
   });
 }
 
-function childSystemPrompt(): string {
-  const root = ensureWorkspaceRoot();
+function childSystemPrompt(workspaceRoot?: string): string {
+  const root = workspaceRoot
+    ? ensureWorkspaceRootAt(workspaceRoot)
+    : ensureWorkspaceRoot();
   const rel = workspaceRelative(root);
   return [
     "You are a read-only Anton sub-agent. Investigate the delegated task and return a concise, evidence-backed summary for the parent agent.",
@@ -86,7 +98,7 @@ function childSystemPrompt(): string {
     "",
     ...projectMemoryPromptLines(),
     "",
-    ...projectSkillPromptLines(),
+    ...projectSkillPromptLines(workspaceRoot),
     "",
     "Return only the useful findings, including file paths or identifiers when they matter.",
   ].join("\n");
@@ -103,9 +115,9 @@ function projectMemoryPromptLines(): string[] {
   ];
 }
 
-function projectSkillPromptLines(): string[] {
+function projectSkillPromptLines(workspaceRoot?: string): string[] {
   try {
-    const { skills, warnings } = listSkills();
+    const { skills, warnings } = listSkills(workspaceRoot);
     const lines = ["Project skills:"];
     if (skills.length === 0) {
       lines.push("- No workspace skills found.");

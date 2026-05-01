@@ -22,6 +22,14 @@ export function ensureWorkspaceRoot(): string {
   return root;
 }
 
+export function ensureWorkspaceRootAt(rootPath: string): string {
+  const root = path.resolve(rootPath);
+  if (!fs.existsSync(root)) {
+    fs.mkdirSync(root, { recursive: true });
+  }
+  return root;
+}
+
 export class SandboxError extends Error {
   constructor(message: string) {
     super(message);
@@ -29,8 +37,13 @@ export class SandboxError extends Error {
   }
 }
 
-export function resolveInWorkspace(inputPath: string): string {
-  const root = ensureWorkspaceRoot();
+export function resolveInWorkspace(
+  inputPath: string,
+  workspaceRoot?: string,
+): string {
+  const root = workspaceRoot
+    ? ensureWorkspaceRootAt(workspaceRoot)
+    : ensureWorkspaceRoot();
   if (typeof inputPath !== "string" || inputPath.length === 0) {
     throw new SandboxError("path must be a non-empty string");
   }
@@ -60,6 +73,11 @@ export function resolveInWorkspace(inputPath: string): string {
 
 export function workspaceRelative(absPath: string): string {
   const rel = path.relative(getWorkspaceRoot(), absPath);
+  return rel === "" ? "." : rel;
+}
+
+export function workspaceRelativeTo(rootPath: string, absPath: string): string {
+  const rel = path.relative(path.resolve(rootPath), absPath);
   return rel === "" ? "." : rel;
 }
 

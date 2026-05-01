@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import {
   DefaultChatTransport,
@@ -13,6 +13,10 @@ import { MessageList } from "./message-list";
 import { Composer } from "./composer";
 import { ModelPicker } from "./model-picker";
 import { useSessionStore } from "./session-store";
+import {
+  readActiveProjectId,
+  type ProjectSummary,
+} from "./workspace-dialog";
 
 interface ChatProps {
   sessionId?: string;
@@ -20,6 +24,7 @@ interface ChatProps {
   initialModel?: ModelId;
   initialTitle?: string;
   initialTokensTotal?: number;
+  initialProjectId?: string | null;
 }
 
 export function Chat({
@@ -28,22 +33,32 @@ export function Chat({
   initialModel,
   initialTitle,
   initialTokensTotal = 0,
+  initialProjectId = null,
 }: ChatProps) {
   const { sessions, refresh } = useSessionStore();
   const persistedRef = useRef(sessionIdProp !== undefined);
 
   const [sessionId] = useState<string>(() => sessionIdProp ?? generateId());
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(
+    () => initialProjectId ?? readActiveProjectId(),
+  );
+  const [project, setProject] = useState<ProjectSummary | null>(null);
   const [model, setModel] = useState<ModelId>(
     (initialModel ?? DEFAULT_MODEL_ID) as ModelId,
   );
+  const effectiveProjectId = initialProjectId ?? activeProjectId;
 
   const transport = useMemo(
     () =>
       new DefaultChatTransport<AntonUIMessage>({
         api: "/api/chat",
-        body: () => ({ sessionId, model }),
+        body: () => ({
+          sessionId,
+          model,
+          ...(effectiveProjectId ? { projectId: effectiveProjectId } : {}),
+        }),
       }),
-    [sessionId, model],
+    [sessionId, model, effectiveProjectId],
   );
 
   const {
@@ -73,6 +88,33 @@ export function Chat({
   const tokensTotal =
     sessions.find((s) => s.id === sessionId)?.tokensTotal ?? initialTokensTotal;
 
+  useEffect(() => {
+    const onActiveProjectChange = (event: Event) => {
+      if (initialProjectId) return;
+      const next = (event as CustomEvent<string>).detail;
+      setActiveProjectId(next);
+    };
+    window.addEventListener("anton-active-project-change", onActiveProjectChange);
+    return () =>
+      window.removeEventListener(
+        "anton-active-project-change",
+        onActiveProjectChange,
+      );
+  }, [initialProjectId]);
+
+  useEffect(() => {
+    if (!effectiveProjectId) return;
+    const loadProject = async () => {
+      const res = await fetch(`/api/projects/${effectiveProjectId}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as { project: ProjectSummary };
+      setProject(data.project);
+    };
+    void loadProject();
+  }, [effectiveProjectId]);
+
   return (
     <div className="flex-1 flex flex-col min-w-0">
       <header className="flex items-center justify-between px-4 py-3 border-b border-border gap-3">
@@ -80,6 +122,14 @@ export function Chat({
           {headerTitle}
         </h1>
         <div className="flex items-center gap-3 shrink-0">
+          {project && project.id === effectiveProjectId && (
+            <span
+              className="hidden max-w-56 truncate rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground md:inline"
+              title={project.localPath}
+            >
+              {project.fullName}
+            </span>
+          )}
           <TokenCounter tokens={tokensTotal} pending={streaming} />
           <ModelPicker value={model} onChange={setModel} disabled={streaming} />
         </div>
@@ -91,6 +141,8 @@ export function Chat({
         onApproval={addToolApprovalResponse}
       />
 
+      {messages.length === 0 && !effectiveProjectId && <WorkspaceRequired />}
+
       {error && (
         <div className="px-4 py-2 text-xs text-destructive border-t border-border">
           Error: {error.message}
@@ -98,11 +150,23 @@ export function Chat({
       )}
 
       <Composer
-        onSend={(text) => sendMessage({ text })}
+        onSend={(text) => {
+          if (!effectiveProjectId) return;
+          sendMessage({ text });
+        }}
         onStop={stop}
-        disabled={streaming}
+        disabled={streaming || !effectiveProjectId}
         streaming={streaming}
       />
+    </div>
+  );
+}
+
+function WorkspaceRequired() {
+  return (
+    <div className="border-t border-border px-4 py-2 text-xs text-muted-foreground">
+      Select or clone a workspace from the sidebar before starting a new agent
+      chat.
     </div>
   );
 }

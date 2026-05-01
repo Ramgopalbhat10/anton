@@ -6,7 +6,9 @@ import {
   resolveInWorkspace,
   SandboxError,
   workspaceRelative,
+  workspaceRelativeTo,
   ensureWorkspaceRoot,
+  ensureWorkspaceRootAt,
 } from "../sandbox";
 
 const MAX_RESULTS = 500;
@@ -22,7 +24,8 @@ const IGNORED_DIRS = new Set([
   ".cache",
 ]);
 
-export const globTool = tool({
+export function createGlobTool(workspaceRoot?: string) {
+  return tool({
   description:
     "List files in the workspace that match a glob pattern. Supports `*` (single segment wildcard) and `**` (any depth). Paths in results are relative to WORKSPACE_ROOT.",
   inputSchema: z.object({
@@ -40,8 +43,10 @@ export const globTool = tool({
   }),
   execute: async ({ pattern, path: relPath }) => {
     try {
-      const root = ensureWorkspaceRoot();
-      const base = relPath ? resolveInWorkspace(relPath) : root;
+      const root = workspaceRoot
+        ? ensureWorkspaceRootAt(workspaceRoot)
+        : ensureWorkspaceRoot();
+      const base = relPath ? resolveInWorkspace(relPath, root) : root;
       const regex = globToRegex(pattern);
       const matches: string[] = [];
       let scanned = 0;
@@ -70,7 +75,11 @@ export const globTool = tool({
           const rel = path.relative(base, abs);
           const normalized = rel.split(path.sep).join("/");
           if (regex.test(normalized)) {
-            matches.push(workspaceRelative(abs));
+            matches.push(
+              workspaceRoot
+                ? workspaceRelativeTo(root, abs)
+                : workspaceRelative(abs),
+            );
           }
         }
       }
@@ -80,7 +89,9 @@ export const globTool = tool({
       return {
         ok: true as const,
         pattern,
-        base: workspaceRelative(base),
+        base: workspaceRoot
+          ? workspaceRelativeTo(root, base)
+          : workspaceRelative(base),
         matchCount: matches.length,
         truncated: matches.length >= MAX_RESULTS,
         matches: matches.sort(),
@@ -89,7 +100,10 @@ export const globTool = tool({
       return { ok: false as const, error: errorMessage(err) };
     }
   },
-});
+  });
+}
+
+export const globTool = createGlobTool();
 
 // Very small glob -> regex converter. Handles `*`, `**`, `?`, and literal
 // segments. Does not implement brace expansion or character classes.

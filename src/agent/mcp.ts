@@ -8,7 +8,11 @@ import {
 import { Experimental_StdioMCPTransport } from "@ai-sdk/mcp/mcp-stdio";
 import type { ToolSet } from "ai";
 
-import { ensureWorkspaceRoot, resolveInWorkspace } from "./sandbox";
+import {
+  ensureWorkspaceRoot,
+  ensureWorkspaceRootAt,
+  resolveInWorkspace,
+} from "./sandbox";
 
 const MCP_CONFIG_FILE = ".mcp.json";
 const MAX_MCP_CONFIG_BYTES = 256 * 1024;
@@ -59,8 +63,8 @@ type ExecutableTool = ToolSet[string] & {
   execute?: (input: unknown, options: never) => unknown;
 };
 
-export async function loadMcpTools(): Promise<LoadedMcpTools> {
-  const config = readMcpConfig();
+export async function loadMcpTools(workspaceRoot?: string): Promise<LoadedMcpTools> {
+  const config = readMcpConfig(workspaceRoot);
   if (!config) {
     return emptyMcpTools();
   }
@@ -78,7 +82,7 @@ export async function loadMcpTools(): Promise<LoadedMcpTools> {
 
     try {
       const client = await createMCPClient({
-        transport: transportForServer(serverConfig),
+        transport: transportForServer(serverConfig, workspaceRoot),
         name: "anton",
         version: "0.1.0",
         onUncaughtError: (err) => {
@@ -126,10 +130,12 @@ export async function loadMcpTools(): Promise<LoadedMcpTools> {
   };
 }
 
-function readMcpConfig():
+function readMcpConfig(
+  workspaceRoot?: string,
+):
   | { servers: Record<string, McpServerConfig>; warnings: string[] }
   | null {
-  const configPath = resolveInWorkspace(MCP_CONFIG_FILE);
+  const configPath = resolveInWorkspace(MCP_CONFIG_FILE, workspaceRoot);
   if (!fs.existsSync(configPath)) return null;
 
   const stat = fs.statSync(configPath);
@@ -182,13 +188,19 @@ function emptyMcpTools(): LoadedMcpTools {
   };
 }
 
-function transportForServer(config: McpServerConfig): MCPClientConfig["transport"] {
+function transportForServer(
+  config: McpServerConfig,
+  workspaceRoot?: string,
+): MCPClientConfig["transport"] {
   if ("command" in config) {
+    const root = workspaceRoot
+      ? ensureWorkspaceRootAt(workspaceRoot)
+      : ensureWorkspaceRoot();
     return new Experimental_StdioMCPTransport({
       command: config.command,
       args: config.args,
       env: config.env,
-      cwd: config.cwd ? resolveInWorkspace(config.cwd) : ensureWorkspaceRoot(),
+      cwd: config.cwd ? resolveInWorkspace(config.cwd, root) : root,
     });
   }
 

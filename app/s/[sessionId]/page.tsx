@@ -25,6 +25,7 @@ export default async function SessionPage({
       initialModel={session.model as ModelId}
       initialTitle={session.title}
       initialTokensTotal={session.tokensTotal}
+      initialProjectId={session.projectId}
     />
   );
 }

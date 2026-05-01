@@ -8,7 +8,8 @@ const MAX_BYTES = 1024 * 1024;
 // Cap previous content captured for diffing so the tool result stays compact.
 const PREVIEW_BYTES = 128 * 1024;
 
-export const writeFileTool = tool({
+export function createWriteFileTool(workspaceRoot?: string) {
+  return tool({
   description:
     "Write a UTF-8 text file inside the workspace, creating parent directories as needed. Overwrites existing files. Requires user approval.",
   inputSchema: z.object({
@@ -24,7 +25,7 @@ export const writeFileTool = tool({
           error: `content exceeds ${MAX_BYTES} byte cap`,
         };
       }
-      const abs = resolveInWorkspace(relPath);
+      const abs = resolveInWorkspace(relPath, workspaceRoot);
       const { existed, previousContent, previousTruncated } =
         await readPreviousContent(abs);
       await fs.mkdir(path.dirname(abs), { recursive: true });
@@ -41,7 +42,10 @@ export const writeFileTool = tool({
       return { ok: false as const, error: errorMessage(err) };
     }
   },
-});
+  });
+}
+
+export const writeFileTool = createWriteFileTool();
 
 async function readPreviousContent(abs: string): Promise<{
   existed: boolean;
