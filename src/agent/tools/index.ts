@@ -1,16 +1,21 @@
 import type { ToolSet } from "ai";
-import { readFileTool } from "./read-file";
-import { writeFileTool } from "./write-file";
-import { bashTool } from "./bash";
-import { grepTool } from "./grep";
-import { globTool } from "./glob";
+import { createReadFileTool, readFileTool } from "./read-file";
+import { createWriteFileTool, writeFileTool } from "./write-file";
+import { bashTool, createBashTool } from "./bash";
+import { createGrepTool, grepTool } from "./grep";
+import { createGlobTool, globTool } from "./glob";
 import {
   forgetMemoryTool,
   listMemoryTool,
   rememberTool,
   updateMemoryTool,
 } from "./memory";
-import { listSkillsTool, readSkillTool } from "./skills";
+import {
+  createListSkillsTool,
+  createReadSkillTool,
+  listSkillsTool,
+  readSkillTool,
+} from "./skills";
 import { createDelegateTaskTool } from "./delegate";
 
 export const nativeAntonTools = {
@@ -30,13 +35,22 @@ export const nativeAntonTools = {
 export function createAntonTools({
   model,
   mcpTools,
+  workspaceRoot,
 }: {
   model?: string;
   mcpTools?: ToolSet;
+  workspaceRoot?: string;
 }) {
   return {
     ...nativeAntonTools,
-    delegate_task: createDelegateTaskTool({ model }),
+    read_file: createReadFileTool(workspaceRoot),
+    write_file: createWriteFileTool(workspaceRoot),
+    bash: createBashTool(workspaceRoot),
+    grep: createGrepTool(workspaceRoot),
+    glob: createGlobTool(workspaceRoot),
+    list_skills: createListSkillsTool(workspaceRoot),
+    read_skill: createReadSkillTool(workspaceRoot),
+    delegate_task: createDelegateTaskTool({ model, workspaceRoot }),
     ...(mcpTools ?? {}),
   };
 }

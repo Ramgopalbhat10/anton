@@ -1,14 +1,15 @@
 import { z } from "zod";
 import { execa } from "execa";
 import { tool } from "ai";
-import { ensureWorkspaceRoot } from "../sandbox";
+import { ensureWorkspaceRoot, ensureWorkspaceRootAt } from "../sandbox";
 import { isForbiddenBashCommand } from "../permissions";
 
 const MAX_OUTPUT_BYTES = 64 * 1024;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
 
-export const bashTool = tool({
+export function createBashTool(workspaceRoot?: string) {
+  return tool({
   description:
     "Run a shell command inside the workspace directory. The command inherits a restricted environment, runs with a timeout, and has its output truncated. `sudo` is forbidden. Requires user approval.",
   inputSchema: z.object({
@@ -35,7 +36,9 @@ export const bashTool = tool({
 
     const timeout = timeoutMs ?? DEFAULT_TIMEOUT_MS;
     try {
-      const root = ensureWorkspaceRoot();
+      const root = workspaceRoot
+        ? ensureWorkspaceRootAt(workspaceRoot)
+        : ensureWorkspaceRoot();
       const result = await execa("bash", ["-lc", command], {
         cwd: root,
         timeout,
@@ -57,7 +60,10 @@ export const bashTool = tool({
       return { ok: false as const, error: errorMessage(err) };
     }
   },
-});
+  });
+}
+
+export const bashTool = createBashTool();
 
 function truncate(output: string): string {
   const buf = Buffer.from(output, "utf8");

@@ -11,13 +11,20 @@ import { listMemories } from "@/src/db/queries";
 import { listSkills } from "./skills";
 import { createAntonTools } from "./tools";
 import { loadMcpTools, type LoadedMcpTools } from "./mcp";
-import { workspaceRelative, ensureWorkspaceRoot } from "./sandbox";
+import {
+  ensureWorkspaceRoot,
+  ensureWorkspaceRootAt,
+  workspaceRelative,
+  workspaceRelativeTo,
+} from "./sandbox";
 
 const MAX_STEPS = 20;
 
-function systemPrompt(mcpTools: LoadedMcpTools): string {
-  const root = ensureWorkspaceRoot();
-  const rel = workspaceRelative(root);
+function systemPrompt(mcpTools: LoadedMcpTools, workspaceRoot?: string): string {
+  const root = workspaceRoot
+    ? ensureWorkspaceRootAt(workspaceRoot)
+    : ensureWorkspaceRoot();
+  const rel = workspaceRoot ? workspaceRelativeTo(root, root) : workspaceRelative(root);
   return [
     "You are Anton, a minimal coding-agent harness. Your job is to explore, read,",
     "and modify code inside a sandboxed workspace directory on the user's machine.",
@@ -42,7 +49,7 @@ function systemPrompt(mcpTools: LoadedMcpTools): string {
     "",
     ...projectMemoryPromptLines(),
     "",
-    ...projectSkillPromptLines(),
+    ...projectSkillPromptLines(workspaceRoot),
     "",
     "Conventions:",
     "- Answer concisely. Prefer short, correct answers over long hedged ones.",
@@ -88,10 +95,10 @@ function mcpToolPromptLines(mcpTools: LoadedMcpTools): string[] {
   return lines;
 }
 
-function projectSkillPromptLines(): string[] {
+function projectSkillPromptLines(workspaceRoot?: string): string[] {
   let result: ReturnType<typeof listSkills>;
   try {
-    result = listSkills();
+    result = listSkills(workspaceRoot);
   } catch (err) {
     return [
       "Project skills:",
@@ -124,13 +131,15 @@ export type AntonUIMessage = UIMessage<
 export async function runAgent({
   messages,
   model,
+  workspaceRoot,
   onFinish,
 }: {
   messages: ModelMessage[];
   model?: string;
+  workspaceRoot?: string;
   onFinish?: (result: { totalUsage: LanguageModelUsage }) => void;
 }) {
-  const mcpTools = await loadMcpTools();
+  const mcpTools = await loadMcpTools(workspaceRoot);
   let closed = false;
   const closeMcpTools = async () => {
     if (closed) return;
@@ -142,9 +151,13 @@ export async function runAgent({
 
   return streamText({
     model: openrouter(selectedModel),
-    system: systemPrompt(mcpTools),
+    system: systemPrompt(mcpTools, workspaceRoot),
     messages,
-    tools: createAntonTools({ model: selectedModel, mcpTools: mcpTools.tools }),
+    tools: createAntonTools({
+      model: selectedModel,
+      mcpTools: mcpTools.tools,
+      workspaceRoot,
+    }),
     stopWhen: stepCountIs(MAX_STEPS),
     onFinish: async ({ totalUsage }) => {
       onFinish?.({ totalUsage });

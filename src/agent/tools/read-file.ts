@@ -6,7 +6,8 @@ import { resolveInWorkspace, SandboxError } from "../sandbox";
 const MAX_BYTES = 256 * 1024;
 const MAX_LINES_DEFAULT = 2000;
 
-export const readFileTool = tool({
+export function createReadFileTool(workspaceRoot?: string) {
+  return tool({
   description:
     "Read a UTF-8 text file from the workspace. Supports optional line ranges. Paths are relative to WORKSPACE_ROOT and must stay inside it.",
   inputSchema: z.object({
@@ -28,7 +29,7 @@ export const readFileTool = tool({
   }),
   execute: async ({ path: relPath, startLine, endLine }) => {
     try {
-      const abs = resolveInWorkspace(relPath);
+      const abs = resolveInWorkspace(relPath, workspaceRoot);
       const stat = await fs.stat(abs);
       if (!stat.isFile()) {
         return { ok: false as const, error: `not a file: ${relPath}` };
@@ -56,7 +57,10 @@ export const readFileTool = tool({
       return { ok: false as const, error: errorMessage(err) };
     }
   },
-});
+  });
+}
+
+export const readFileTool = createReadFileTool();
 
 function errorMessage(err: unknown): string {
   if (err instanceof SandboxError) return err.message;

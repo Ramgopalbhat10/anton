@@ -6,6 +6,7 @@ import { useState } from "react";
 import {
   Check,
   FolderCog,
+  FolderGit2,
   Pencil,
   Plus,
   Trash2,
@@ -29,12 +30,20 @@ import {
   type SessionSummary,
 } from "./session-store";
 import { ProjectContextDialog } from "./project-context-dialog";
+import {
+  readActiveProjectId,
+  WorkspaceDialog,
+} from "./workspace-dialog";
 
 export function SessionSidebar() {
   const { sessions, loading, error } = useSessionStore();
   const params = useParams<{ sessionId?: string }>();
   const activeId = params?.sessionId;
   const [contextOpen, setContextOpen] = useState(false);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(() =>
+    readActiveProjectId(),
+  );
 
   return (
     <aside className="hidden md:flex w-64 shrink-0 flex-col border-r border-border bg-background/80">
@@ -80,6 +89,16 @@ export function SessionSidebar() {
           variant="ghost"
           size="sm"
           className="w-full justify-start text-xs"
+          onClick={() => setWorkspaceOpen(true)}
+        >
+          <FolderGit2 />
+          Workspaces
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start text-xs"
           onClick={() => setContextOpen(true)}
         >
           <FolderCog />
@@ -87,6 +106,12 @@ export function SessionSidebar() {
         </Button>
       </div>
       <ProjectContextDialog open={contextOpen} onOpenChange={setContextOpen} />
+      <WorkspaceDialog
+        open={workspaceOpen}
+        onOpenChange={setWorkspaceOpen}
+        activeProjectId={activeProjectId}
+        onActiveProjectChange={setActiveProjectId}
+      />
     </aside>
   );
 }

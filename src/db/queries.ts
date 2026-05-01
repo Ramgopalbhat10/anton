@@ -4,11 +4,17 @@ import { randomUUID } from "node:crypto";
 
 import { db } from "./client";
 import {
+  githubInstallations,
   memories,
   messages,
+  projects,
   sessions,
+  workspaceSettings,
+  type GithubInstallation,
   type Memory,
+  type Project,
   type Session,
+  type WorkspaceSettings,
 } from "./schema";
 
 export type StoredMessage<UI extends UIMessage = UIMessage> = {
@@ -35,10 +41,12 @@ export function createSession(input: {
   id: string;
   title: string;
   model: string;
+  projectId?: string | null;
 }): Session {
   const now = new Date();
   const row: Session = {
     ...input,
+    projectId: input.projectId ?? null,
     tokensTotal: 0,
     createdAt: now,
     updatedAt: now,
@@ -65,6 +73,18 @@ export function touchSession(id: string, model?: string): void {
   db.update(sessions).set(update).where(eq(sessions.id, id)).run();
 }
 
+export function setSessionProject(
+  id: string,
+  projectId: string | null,
+): Session | undefined {
+  db
+    .update(sessions)
+    .set({ projectId, updatedAt: new Date() })
+    .where(eq(sessions.id, id))
+    .run();
+  return getSession(id);
+}
+
 export function renameSession(id: string, title: string): Session | undefined {
   const trimmed = title.trim();
   if (!trimmed) return getSession(id);
@@ -78,6 +98,181 @@ export function renameSession(id: string, title: string): Session | undefined {
 
 export function deleteSession(id: string): void {
   db.delete(sessions).where(eq(sessions.id, id)).run();
+}
+
+const WORKSPACE_SETTINGS_ID = "local";
+
+export function getWorkspaceSettings(): WorkspaceSettings {
+  const existing = db
+    .select()
+    .from(workspaceSettings)
+    .where(eq(workspaceSettings.id, WORKSPACE_SETTINGS_ID))
+    .get();
+  if (existing) return existing;
+
+  const now = new Date();
+  const row: WorkspaceSettings = {
+    id: WORKSPACE_SETTINGS_ID,
+    localWorkspacesRoot: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  db.insert(workspaceSettings).values(row).run();
+  return row;
+}
+
+export function updateWorkspaceSettings(input: {
+  localWorkspacesRoot: string | null;
+}): WorkspaceSettings {
+  getWorkspaceSettings();
+  db
+    .update(workspaceSettings)
+    .set({
+      localWorkspacesRoot: input.localWorkspacesRoot,
+      updatedAt: new Date(),
+    })
+    .where(eq(workspaceSettings.id, WORKSPACE_SETTINGS_ID))
+    .run();
+  return getWorkspaceSettings();
+}
+
+export function listGithubInstallations(): GithubInstallation[] {
+  return db
+    .select()
+    .from(githubInstallations)
+    .orderBy(desc(githubInstallations.updatedAt))
+    .all();
+}
+
+export function getGithubInstallationByInstallationId(
+  installationId: number,
+): GithubInstallation | undefined {
+  return db
+    .select()
+    .from(githubInstallations)
+    .where(eq(githubInstallations.installationId, installationId))
+    .get();
+}
+
+export function upsertGithubInstallation(input: {
+  installationId: number;
+  accountLogin: string;
+  accountType: string;
+}): GithubInstallation {
+  const now = new Date();
+  const existing = getGithubInstallationByInstallationId(input.installationId);
+  if (existing) {
+    db
+      .update(githubInstallations)
+      .set({
+        accountLogin: input.accountLogin,
+        accountType: input.accountType,
+        updatedAt: now,
+      })
+      .where(eq(githubInstallations.id, existing.id))
+      .run();
+    return db
+      .select()
+      .from(githubInstallations)
+      .where(eq(githubInstallations.id, existing.id))
+      .get() as GithubInstallation;
+  }
+
+  const row: GithubInstallation = {
+    id: randomUUID(),
+    installationId: input.installationId,
+    accountLogin: input.accountLogin,
+    accountType: input.accountType,
+    createdAt: now,
+    updatedAt: now,
+  };
+  db.insert(githubInstallations).values(row).run();
+  return row;
+}
+
+export function listProjects(): Project[] {
+  return db.select().from(projects).orderBy(desc(projects.updatedAt)).all();
+}
+
+export function getProject(id: string): Project | undefined {
+  return db.select().from(projects).where(eq(projects.id, id)).get();
+}
+
+export function getProjectByGithubRepoId(
+  githubRepoId: number,
+): Project | undefined {
+  return db
+    .select()
+    .from(projects)
+    .where(eq(projects.githubRepoId, githubRepoId))
+    .get();
+}
+
+export function upsertProject(input: {
+  githubRepoId: number;
+  githubInstallationId: number;
+  owner: string;
+  name: string;
+  fullName: string;
+  defaultBranch: string;
+  cloneUrl: string;
+  localPath: string;
+  status: Project["status"];
+  lastError?: string | null;
+}): Project {
+  const now = new Date();
+  const existing = getProjectByGithubRepoId(input.githubRepoId);
+  if (existing) {
+    db
+      .update(projects)
+      .set({
+        githubInstallationId: input.githubInstallationId,
+        owner: input.owner,
+        name: input.name,
+        fullName: input.fullName,
+        defaultBranch: input.defaultBranch,
+        cloneUrl: input.cloneUrl,
+        localPath: input.localPath,
+        status: input.status,
+        lastError: input.lastError ?? null,
+        updatedAt: now,
+      })
+      .where(eq(projects.id, existing.id))
+      .run();
+    return getProject(existing.id) as Project;
+  }
+
+  const row: Project = {
+    id: randomUUID(),
+    provider: "github",
+    githubRepoId: input.githubRepoId,
+    githubInstallationId: input.githubInstallationId,
+    owner: input.owner,
+    name: input.name,
+    fullName: input.fullName,
+    defaultBranch: input.defaultBranch,
+    cloneUrl: input.cloneUrl,
+    localPath: input.localPath,
+    status: input.status,
+    lastError: input.lastError ?? null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  db.insert(projects).values(row).run();
+  return row;
+}
+
+export function updateProjectStatus(
+  id: string,
+  status: Project["status"],
+  lastError: string | null = null,
+): Project | undefined {
+  db
+    .update(projects)
+    .set({ status, lastError, updatedAt: new Date() })
+    .where(eq(projects.id, id))
+    .run();
+  return getProject(id);
 }
 
 export function listMemories(limit = 20): Memory[] {
