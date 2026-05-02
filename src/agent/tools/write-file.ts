@@ -16,7 +16,6 @@ export function createWriteFileTool(workspaceRoot?: string) {
     path: z.string().describe("File path relative to the workspace root."),
     content: z.string().describe("Full file contents to write."),
   }),
-  needsApproval: true,
   execute: async ({ path: relPath, content }) => {
     try {
       if (Buffer.byteLength(content, "utf8") > MAX_BYTES) {

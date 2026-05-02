@@ -1,4 +1,9 @@
 import type { ToolSet } from "ai";
+import {
+  applyNativeToolPermissionPolicy,
+  stripApprovalFlags,
+  type PermissionMode,
+} from "../permissions";
 import { createReadFileTool, readFileTool } from "./read-file";
 import { createWriteFileTool, writeFileTool } from "./write-file";
 import { bashTool, createBashTool } from "./bash";
@@ -18,7 +23,7 @@ import {
 } from "./skills";
 import { createDelegateTaskTool } from "./delegate";
 
-export const nativeAntonTools = {
+export const nativeAntonTools = applyNativeToolPermissionPolicy({
   read_file: readFileTool,
   write_file: writeFileTool,
   bash: bashTool,
@@ -30,18 +35,20 @@ export const nativeAntonTools = {
   forget_memory: forgetMemoryTool,
   list_skills: listSkillsTool,
   read_skill: readSkillTool,
-} as const;
+} as const);
 
 export function createAntonTools({
   model,
   mcpTools,
   workspaceRoot,
+  permissionMode,
 }: {
   model?: string;
   mcpTools?: ToolSet;
   workspaceRoot?: string;
+  permissionMode?: PermissionMode;
 }) {
-  return {
+  const nativeTools = applyNativeToolPermissionPolicy({
     ...nativeAntonTools,
     read_file: createReadFileTool(workspaceRoot),
     write_file: createWriteFileTool(workspaceRoot),
@@ -51,7 +58,13 @@ export function createAntonTools({
     list_skills: createListSkillsTool(workspaceRoot),
     read_skill: createReadSkillTool(workspaceRoot),
     delegate_task: createDelegateTaskTool({ model, workspaceRoot }),
-    ...(mcpTools ?? {}),
+  }, permissionMode);
+
+  return {
+    ...nativeTools,
+    ...(permissionMode === "full-access" && mcpTools
+      ? stripApprovalFlags(mcpTools)
+      : (mcpTools ?? {})),
   };
 }
 

@@ -84,6 +84,7 @@ Run `pnpm typecheck` and `pnpm lint` before committing. If you change the schema
 
 - Treat `ROADMAP.md` as the source of truth for ongoing implementation tasks. Before starting implementation, read the relevant roadmap section and keep the work scoped to one checklist item or a small coherent group of related checklist items.
 - Before starting a new implementation, create or identify a GitHub issue that describes the requested change, scope, acceptance criteria, and verification plan. Reference that issue in the branch name, commit message, or PR body when practical.
+- If the GitHub app connector cannot create the required issue, use the GitHub CLI instead: `gh issue create --repo <owner>/<repo> --title "<title>" --body-file -`.
 - When a GitHub issue or PR completes a roadmap item, update `ROADMAP.md` in the same change by marking the item as `[✔️]`. Do not mark roadmap items complete before the related implementation is actually resolved.
 - If implementation reveals missing work, add or refine checklist items in `ROADMAP.md` rather than burying follow-up tasks in chat history.
 - For new implementation work, create a new feature branch before editing code. Use a descriptive prefix such as `codex/<short-topic>` for Codex-driven work.
@@ -111,7 +112,7 @@ Never log the API key. Never commit `.env.local`, `anton.db`, or anything under 
 - Prefer editing existing files over creating new ones; do not scaffold files "for later".
 - No default exports for components — named exports only.
 - Server-only code never imports from `components/` or `app/` client code; client components never import from `src/db/` or `src/agent/`.
-- Tool definitions are `tool({ description, inputSchema: z.object({...}), execute })`. Keep them pure; side-effects live in `execute`. Every risky tool carries `needsApproval: true` so the permission gate can intercept it.
+- Tool definitions are `tool({ description, inputSchema: z.object({...}), execute })`. Keep them pure; side-effects live in `execute`. Native tool approval metadata is applied centrally in `src/agent/permissions.ts`; MCP tool wrappers still carry `needsApproval: true`.
 - UI renders messages from `message.parts` (v6 UIMessage shape), not `message.content`. Tool calls render as collapsible cards, never as raw JSON.
 - Streaming custom data (permission requests, tool progress) uses AI SDK custom data parts through `toUIMessageStreamResponse`, not ad-hoc JSON frames.
 - Comments explain **why**, not what. Default is no comment.

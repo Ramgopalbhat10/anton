@@ -17,6 +17,7 @@ import {
   workspaceRelative,
   workspaceRelativeTo,
 } from "./sandbox";
+import type { PermissionMode } from "./permissions";
 
 const MAX_STEPS = 20;
 
@@ -132,11 +133,13 @@ export async function runAgent({
   messages,
   model,
   workspaceRoot,
+  permissionMode,
   onFinish,
 }: {
   messages: ModelMessage[];
   model?: string;
   workspaceRoot?: string;
+  permissionMode?: PermissionMode;
   onFinish?: (result: { totalUsage: LanguageModelUsage }) => void;
 }) {
   const mcpTools = await loadMcpTools(workspaceRoot);
@@ -157,6 +160,7 @@ export async function runAgent({
       model: selectedModel,
       mcpTools: mcpTools.tools,
       workspaceRoot,
+      permissionMode,
     }),
     stopWhen: stepCountIs(MAX_STEPS),
     onFinish: async ({ totalUsage }) => {

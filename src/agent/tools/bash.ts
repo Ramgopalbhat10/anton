@@ -24,7 +24,6 @@ export function createBashTool(workspaceRoot?: string) {
         `Maximum time to wait before the command is killed. Defaults to ${DEFAULT_TIMEOUT_MS}ms, capped at ${MAX_TIMEOUT_MS}ms.`,
       ),
   }),
-  needsApproval: true,
   execute: async ({ command, timeoutMs }) => {
     const forbidden = isForbiddenBashCommand(command);
     if (forbidden) {

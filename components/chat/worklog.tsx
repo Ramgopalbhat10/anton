@@ -206,26 +206,27 @@ function WorklogDetail({
           </h2>
         </div>
         {entry.state === "approval-requested" && entry.approvalId && (
-          <div className="flex shrink-0 items-center gap-1">
-            <Button
+          <div className="flex shrink-0 items-center gap-0.5">
+            <button
               type="button"
-              size="sm"
+              className="inline-flex items-center justify-center size-6 rounded hover:bg-emerald-500/15"
+              title="Approve"
               onClick={() =>
                 onApproval({ id: entry.approvalId as string, approved: true })
               }
             >
-              Approve
-            </Button>
-            <Button
+              <CheckCircle2 className="size-4 text-emerald-400" />
+            </button>
+            <button
               type="button"
-              size="sm"
-              variant="destructive"
+              className="inline-flex items-center justify-center size-6 rounded hover:bg-destructive/15"
+              title="Deny"
               onClick={() =>
                 onApproval({ id: entry.approvalId as string, approved: false })
               }
             >
-              Deny
-            </Button>
+              <XCircle className="size-4 text-destructive" />
+            </button>
           </div>
         )}
       </div>
