@@ -2,13 +2,20 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useState } from "react";
+import {
+  createContext,
+  useContext,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   Check,
-  FolderCog,
-  FolderGit2,
+  MessageSquare,
+  PanelLeftClose,
   Pencil,
   Plus,
+  Settings,
   Trash2,
   X,
 } from "lucide-react";
@@ -25,94 +32,210 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
-import {
-  useSessionStore,
-  type SessionSummary,
-} from "./session-store";
-import { ProjectContextDialog } from "./project-context-dialog";
-import {
-  readActiveProjectId,
-  WorkspaceDialog,
-} from "./workspace-dialog";
+import { useSessionStore, type SessionSummary } from "./session-store";
+import { SettingsDialog } from "./settings-dialog";
+import { readActiveProjectId } from "./workspace-dialog";
+
+type SidebarContextValue = {
+  open: boolean;
+  setOpen: (open: boolean) => void;
+  toggle: () => void;
+};
+
+const SidebarContext = createContext<SidebarContextValue | null>(null);
+
+export function SidebarProvider({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(true);
+  const value = useMemo(
+    () => ({
+      open,
+      setOpen,
+      toggle: () => setOpen((next) => !next),
+    }),
+    [open],
+  );
+
+  return (
+    <SidebarContext.Provider value={value}>{children}</SidebarContext.Provider>
+  );
+}
+
+export function useSidebar() {
+  const value = useContext(SidebarContext);
+  if (!value) {
+    throw new Error("useSidebar must be used within SidebarProvider");
+  }
+  return value;
+}
 
 export function SessionSidebar() {
   const { sessions, loading, error } = useSessionStore();
   const params = useParams<{ sessionId?: string }>();
   const activeId = params?.sessionId;
-  const [contextOpen, setContextOpen] = useState(false);
-  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const { open, setOpen } = useSidebar();
   const [activeProjectId, setActiveProjectId] = useState<string | null>(() =>
     readActiveProjectId(),
   );
 
   return (
-    <aside className="hidden md:flex w-64 shrink-0 flex-col border-r border-border bg-background/80">
-      <div className="flex items-center justify-between gap-2 px-3 py-3 border-b border-border">
-        <span className="text-sm font-semibold tracking-tight">Anton</span>
-        <Button asChild size="sm" variant="outline" className="gap-1 text-xs">
-          <Link href="/">
-            <Plus />
-            New chat
-          </Link>
-        </Button>
-      </div>
+    <aside
+      className={cn(
+        "hidden shrink-0 overflow-hidden border-r border-sidebar-border bg-sidebar transition-[width] duration-200 ease-out md:flex",
+        open ? "w-[300px]" : "w-[41px]",
+      )}
+      data-open={open}
+    >
+      {open ? (
+        <div className="flex h-full w-[300px] shrink-0 flex-col">
+          <div className="grid h-10 grid-cols-[32px_minmax(0,1fr)_32px] items-center gap-1 pl-2 pr-2">
+            <div className="flex items-center justify-center">
+              <span className="flex size-5 items-center justify-center rounded bg-secondary text-[11px] font-semibold text-muted-foreground">
+                A
+              </span>
+            </div>
+            <div className="flex min-w-0 items-center">
+              <span className="truncate text-xs font-semibold tracking-tight">
+                Anton
+              </span>
+            </div>
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              onClick={() => setOpen(false)}
+              aria-label="Collapse sidebar"
+            >
+              <PanelLeftClose />
+            </Button>
+          </div>
 
-      <div className="flex-1 overflow-y-auto py-2">
-        {loading && sessions.length === 0 ? (
-          <div className="px-3 py-2 text-xs text-muted-foreground">
-            Loading…
+          <nav className="space-y-0.5 px-2 pb-2">
+            <SidebarNavItem active icon={<MessageSquare />}>
+              Sessions
+            </SidebarNavItem>
+          </nav>
+
+          <div className="flex items-center justify-between gap-2 px-2 py-1.5">
+            <span className="text-xs font-medium text-muted-foreground">
+              Recent
+            </span>
+            <Button asChild size="icon-sm" variant="ghost" aria-label="New chat">
+              <Link href="/">
+                <Plus />
+              </Link>
+            </Button>
           </div>
-        ) : sessions.length === 0 ? (
-          <div className="px-3 py-2 text-xs text-muted-foreground">
-            No sessions yet. Send a message to start one.
+
+          <div className="flex-1 overflow-y-auto pb-2">
+          {loading && sessions.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-muted-foreground">
+              Loading...
+            </div>
+          ) : sessions.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-muted-foreground">
+              No sessions yet. Send a message to start one.
+            </div>
+          ) : (
+            <ul className="space-y-0.5 px-2">
+              {sessions.map((s) => (
+                <SessionRow
+                  key={s.id}
+                  session={s}
+                  isActive={s.id === activeId}
+                />
+              ))}
+            </ul>
+          )}
+          {error && (
+            <div className="mx-3 mt-2 rounded-md bg-destructive/10 px-2 py-1 text-[11px] text-destructive ring-1 ring-destructive/30">
+              {error}
+            </div>
+          )}
           </div>
-        ) : (
-          <ul className="space-y-0.5 px-2">
-            {sessions.map((s) => (
-              <SessionRow
-                key={s.id}
-                session={s}
-                isActive={s.id === activeId}
-              />
-            ))}
-          </ul>
-        )}
-        {error && (
-          <div className="mx-3 mt-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1 text-[11px] text-destructive">
-            {error}
+
+          <div className="border-t border-sidebar-border p-1.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start text-xs"
+              onClick={() => setSettingsOpen(true)}
+              aria-label="Settings"
+            >
+              <Settings />
+              Settings
+            </Button>
           </div>
-        )}
-      </div>
-      <div className="border-t border-border p-2">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="w-full justify-start text-xs"
-          onClick={() => setWorkspaceOpen(true)}
-        >
-          <FolderGit2 />
-          Workspaces
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="w-full justify-start text-xs"
-          onClick={() => setContextOpen(true)}
-        >
-          <FolderCog />
-          Project Context
-        </Button>
-      </div>
-      <ProjectContextDialog open={contextOpen} onOpenChange={setContextOpen} />
-      <WorkspaceDialog
-        open={workspaceOpen}
-        onOpenChange={setWorkspaceOpen}
+        </div>
+      ) : (
+        <div className="flex h-full w-[41px] shrink-0 flex-col">
+          <div className="flex h-10 w-full items-center pl-2">
+            <span className="flex size-5 items-center justify-center rounded bg-secondary text-[11px] font-semibold text-muted-foreground">
+              A
+            </span>
+          </div>
+          <nav className="flex w-full flex-col gap-1 pl-2">
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              className="bg-sidebar-accent text-sidebar-accent-foreground"
+              aria-label="Sessions"
+            >
+              <MessageSquare />
+            </Button>
+            <Button asChild size="icon-sm" variant="ghost" aria-label="New chat">
+              <Link href="/">
+                <Plus />
+              </Link>
+            </Button>
+          </nav>
+          <div className="mt-auto w-full border-t border-sidebar-border py-1.5 pl-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setSettingsOpen(true)}
+              aria-label="Settings"
+            >
+              <Settings />
+            </Button>
+          </div>
+        </div>
+      )}
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
         activeProjectId={activeProjectId}
         onActiveProjectChange={setActiveProjectId}
       />
     </aside>
+  );
+}
+
+function SidebarNavItem({
+  active,
+  icon,
+  children,
+}: {
+  active?: boolean;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        "flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left text-xs font-medium transition-colors",
+        active
+          ? "bg-sidebar-accent text-sidebar-accent-foreground"
+          : "text-muted-foreground hover:bg-sidebar-accent/70 hover:text-foreground",
+      )}
+    >
+      <span className="text-muted-foreground [&_svg]:size-3.5">{icon}</span>
+      <span>{children}</span>
+    </button>
   );
 }
 
@@ -151,12 +274,7 @@ function SessionRow({
 
   if (editing) {
     return (
-      <li
-        className={cn(
-          "flex items-center gap-1 rounded-md px-2 py-1.5",
-          "bg-accent/60",
-        )}
-      >
+      <li className="flex items-center gap-1 rounded-md bg-sidebar-accent px-2 py-2">
         <input
           autoFocus
           value={draft}
@@ -165,7 +283,7 @@ function SessionRow({
             if (e.key === "Enter") void commit();
             if (e.key === "Escape") cancel();
           }}
-          className="flex-1 min-w-0 bg-transparent text-xs focus:outline-none"
+          className="min-w-0 flex-1 bg-transparent text-xs focus:outline-none"
         />
         <button
           type="button"
@@ -192,37 +310,44 @@ function SessionRow({
       <Link
         href={`/s/${session.id}`}
         className={cn(
-          "group flex items-center gap-1 rounded-md px-2 py-1.5 text-xs",
-          "text-foreground hover:bg-accent",
-          isActive && "bg-accent",
+          "group relative flex min-w-0 items-start rounded-md px-2 py-1.5 text-xs",
+          "text-foreground hover:bg-sidebar-accent/70",
+          isActive && "bg-sidebar-accent",
         )}
       >
-        <span className="flex-1 min-w-0 truncate">{session.title}</span>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setDraft(session.title);
-            setEditing(true);
-          }}
-          className="shrink-0 rounded p-1 text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-accent-foreground/10"
-          aria-label="Rename"
-        >
-          <Pencil className="size-3.5" />
-        </button>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setDeleteOpen(true);
-          }}
-          className="shrink-0 rounded p-1 text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-destructive/20 hover:text-destructive"
-          aria-label="Delete"
-        >
-          <Trash2 className="size-3.5" />
-        </button>
+        <span className="min-w-0 flex-1 pr-0 transition-[padding] group-hover:pr-11 group-focus-within:pr-11">
+          <span className="block truncate font-medium">{session.title}</span>
+          <span className="block truncate text-[10px] text-muted-foreground">
+            {formatRelativeTime(session.updatedAt)}
+          </span>
+        </span>
+        <span className="absolute right-1 top-1 flex items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setDraft(session.title);
+              setEditing(true);
+            }}
+            className="rounded p-1 text-muted-foreground hover:bg-accent-foreground/10 hover:text-foreground"
+            aria-label="Rename"
+          >
+            <Pencil className="size-3" />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setDeleteOpen(true);
+            }}
+            className="rounded p-1 text-muted-foreground hover:bg-destructive/20 hover:text-destructive"
+            aria-label="Delete"
+          >
+            <Trash2 className="size-3" />
+          </button>
+        </span>
       </Link>
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
@@ -248,4 +373,15 @@ function SessionRow({
       </AlertDialog>
     </li>
   );
+}
+
+function formatRelativeTime(timestamp: number): string {
+  const deltaMs = Date.now() - timestamp;
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  if (deltaMs < minute) return "just now";
+  if (deltaMs < hour) return `${Math.floor(deltaMs / minute)} minutes ago`;
+  if (deltaMs < day) return `${Math.floor(deltaMs / hour)} hours ago`;
+  return `${Math.floor(deltaMs / day)} days ago`;
 }

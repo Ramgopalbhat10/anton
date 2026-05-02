@@ -189,7 +189,7 @@ export function WorkspaceDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-background/75 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-labelledby="workspace-dialog-title"
@@ -197,14 +197,14 @@ export function WorkspaceDialog({
         if (event.target === event.currentTarget) onOpenChange(false);
       }}
     >
-      <div className="flex h-[min(760px,calc(100vh-2rem))] w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-border bg-background shadow-lg">
-        <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+      <div className="flex h-[min(720px,calc(100vh-2rem))] w-full max-w-4xl flex-col overflow-hidden rounded-lg bg-card shadow-none ring-1 ring-border">
+        <header className="flex h-10 items-center justify-between gap-2 border-b border-border px-3">
           <div className="min-w-0">
-            <h2 id="workspace-dialog-title" className="text-sm font-semibold">
+            <h2 id="workspace-dialog-title" className="text-xs font-semibold">
               Workspaces
             </h2>
             {settings && (
-              <p className="mt-1 truncate text-xs text-muted-foreground">
+              <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
                 {settings.resolvedLocalWorkspacesRoot}
               </p>
             )}
@@ -212,7 +212,7 @@ export function WorkspaceDialog({
           <Button
             type="button"
             variant="ghost"
-            size="icon"
+            size="icon-sm"
             onClick={() => onOpenChange(false)}
             aria-label="Close workspaces"
           >
@@ -220,20 +220,20 @@ export function WorkspaceDialog({
           </Button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          <div className="grid gap-4 md:grid-cols-[1fr_1fr]">
-            <section className="space-y-3">
+        <div className="min-h-0 flex-1 overflow-y-auto p-3">
+          <div className="grid gap-3 md:grid-cols-[1fr_1fr]">
+            <section className="space-y-2.5">
               <PanelTitle icon={<GitBranch />}>Local root</PanelTitle>
-              <div className="rounded-md border border-border p-3">
+              <div className="rounded-md bg-background/45 p-2.5 ring-1 ring-border">
                 <label className="text-xs font-medium" htmlFor="workspace-root">
                   Absolute path
                 </label>
-                <div className="mt-2 flex gap-2">
+                <div className="mt-1.5 flex gap-2">
                   <input
                     id="workspace-root"
                     value={rootDraft}
                     onChange={(event) => setRootDraft(event.target.value)}
-                    className="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-2 font-mono text-xs outline-none focus:ring-1 focus:ring-ring"
+                    className="h-7 min-w-0 flex-1 rounded-md border-0 bg-secondary px-2.5 font-mono text-xs outline-none focus:ring-1 focus:ring-ring"
                     placeholder="M:\\Projects\\anton-workspaces"
                   />
                   <Button
@@ -247,7 +247,7 @@ export function WorkspaceDialog({
                   </Button>
                 </div>
                 {settings && (
-                  <p className="mt-2 text-[11px] text-muted-foreground">
+                  <p className="mt-1.5 text-[11px] text-muted-foreground">
                     Source: {settings.source}
                     {settings.exists ? " · ready" : " · will be created"}
                   </p>
@@ -255,7 +255,7 @@ export function WorkspaceDialog({
               </div>
 
               <PanelTitle icon={<GitBranch />}>GitHub</PanelTitle>
-              <div className="flex items-center gap-2 rounded-md border border-border p-3">
+              <div className="flex items-center gap-1.5 rounded-md bg-background/45 p-2.5 ring-1 ring-border">
                 <Button type="button" size="sm" asChild>
                   <a href="/api/github/connect">
                     <GitBranch />
@@ -275,28 +275,28 @@ export function WorkspaceDialog({
               </div>
 
               {error && (
-                <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                <div className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive ring-1 ring-destructive/30">
                   {error}
                 </div>
               )}
             </section>
 
-            <section className="space-y-3">
+            <section className="space-y-2.5">
               <PanelTitle>Ready projects</PanelTitle>
               {readyProjects.length === 0 ? (
                 <EmptyState message="No cloned projects yet." />
               ) : (
-                <ul className="space-y-2">
+                <ul className="space-y-1.5">
                   {readyProjects.map((project) => (
                     <li key={project.id}>
                       <button
                         type="button"
                         onClick={() => selectProject(project.id)}
                         className={cn(
-                          "w-full rounded-md border px-3 py-2 text-left text-xs",
+                          "w-full rounded-md px-2.5 py-1.5 text-left text-xs ring-1 transition-colors",
                           activeProjectId === project.id
-                            ? "border-primary bg-primary/10"
-                            : "border-border hover:bg-accent",
+                            ? "bg-primary/10 ring-primary/50"
+                            : "bg-background/45 ring-border hover:bg-accent",
                         )}
                       >
                         <span className="block font-medium">{project.fullName}</span>
@@ -311,7 +311,7 @@ export function WorkspaceDialog({
             </section>
           </div>
 
-          <section className="mt-5 space-y-3">
+          <section className="mt-4 space-y-2.5">
             <PanelTitle>Repositories</PanelTitle>
             {repositories.length === 0 ? (
               <EmptyState message="Connect GitHub and refresh to list repositories." />
@@ -320,12 +320,12 @@ export function WorkspaceDialog({
                 {repositories.map((repo) => (
                   <li
                     key={`${repo.installationId}:${repo.id}`}
-                    className="rounded-md border border-border p-3 text-xs"
+                    className="rounded-md bg-background/45 p-2.5 text-xs ring-1 ring-border"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="truncate font-medium">{repo.fullName}</div>
-                        <div className="mt-1 text-[11px] text-muted-foreground">
+                        <div className="mt-0.5 text-[11px] text-muted-foreground">
                           {repo.private ? "private" : "public"} · {repo.defaultBranch}
                         </div>
                       </div>
@@ -378,7 +378,7 @@ function PanelTitle({
   children: ReactNode;
 }) {
   return (
-    <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+    <h3 className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground [&_svg]:size-3.5">
       {icon}
       {children}
     </h3>
@@ -387,7 +387,7 @@ function PanelTitle({
 
 function EmptyState({ message }: { message: string }) {
   return (
-    <div className="rounded-md border border-dashed border-border px-3 py-4 text-xs text-muted-foreground">
+    <div className="rounded-md bg-background/35 px-2.5 py-3 text-xs text-muted-foreground ring-1 ring-border/70">
       {message}
     </div>
   );

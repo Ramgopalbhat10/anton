@@ -71,7 +71,7 @@ export function ProjectContextDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-background/75 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-labelledby="project-context-title"
@@ -79,12 +79,12 @@ export function ProjectContextDialog({
         if (event.target === event.currentTarget) onOpenChange(false);
       }}
     >
-      <div className="flex h-[min(720px,calc(100vh-2rem))] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-border bg-background shadow-lg">
-        <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+      <div className="flex h-[min(680px,calc(100vh-2rem))] w-full max-w-3xl flex-col overflow-hidden rounded-lg bg-card shadow-none ring-1 ring-border">
+        <header className="flex h-10 items-center justify-between gap-2 border-b border-border px-3">
           <div className="min-w-0">
             <h2
               id="project-context-title"
-              className="text-sm font-semibold tracking-tight"
+              className="text-xs font-semibold tracking-tight"
             >
               Project Context
             </h2>
@@ -92,7 +92,7 @@ export function ProjectContextDialog({
           <Button
             type="button"
             variant="ghost"
-            size="icon"
+            size="icon-sm"
             onClick={() => onOpenChange(false)}
             aria-label="Close project context"
           >
@@ -100,7 +100,7 @@ export function ProjectContextDialog({
           </Button>
         </header>
 
-        <div className="flex border-b border-border px-3 py-2">
+        <div className="flex border-b border-border px-2 py-1.5">
           <TabButton
             active={tab === "memories"}
             onClick={() => setTab("memories")}
@@ -140,10 +140,10 @@ function TabButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+        "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors [&_svg]:size-3.5",
         active
-          ? "bg-accent text-foreground"
-          : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+          ? "bg-secondary text-foreground"
+          : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground",
       )}
     >
       {children}
@@ -243,8 +243,8 @@ function MemoryPanel({ active }: { active: boolean }) {
 
   return (
     <>
-      <div className="flex h-full flex-col gap-3 overflow-y-auto p-4">
-        <div className="space-y-2">
+      <div className="flex h-full flex-col gap-2.5 overflow-y-auto p-3">
+        <div className="space-y-1.5">
           <label htmlFor="new-memory" className="text-xs font-medium">
             New memory
           </label>
@@ -254,7 +254,7 @@ function MemoryPanel({ active }: { active: boolean }) {
             onChange={(event) => setDraft(event.target.value)}
             maxLength={1000}
             placeholder="A durable project preference or fact."
-            className="min-h-20 resize-none text-xs"
+            className="min-h-16 resize-none text-xs"
           />
           <div className="flex items-center justify-between gap-3">
             <span className="text-[11px] text-muted-foreground">
@@ -279,13 +279,13 @@ function MemoryPanel({ active }: { active: boolean }) {
         ) : memories.length === 0 ? (
           <EmptyState message="No project memories saved." />
         ) : (
-          <ul className="space-y-2">
+          <ul className="space-y-1.5">
             {memories.map((memory) => {
               const editing = editingId === memory.id;
               return (
                 <li
                   key={memory.id}
-                  className="rounded-md border border-border bg-background/60 p-3"
+                  className="rounded-md bg-background/45 p-2.5 ring-1 ring-border"
                 >
                   {editing ? (
                     <div className="space-y-2">
@@ -295,7 +295,7 @@ function MemoryPanel({ active }: { active: boolean }) {
                           setEditingDraft(event.target.value)
                         }
                         maxLength={1000}
-                        className="min-h-20 resize-none text-xs"
+                        className="min-h-16 resize-none text-xs"
                         aria-label="Edit memory"
                       />
                       <div className="flex justify-end gap-2">
@@ -324,7 +324,7 @@ function MemoryPanel({ active }: { active: boolean }) {
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      <p className="whitespace-pre-wrap text-sm leading-relaxed">
+                      <p className="whitespace-pre-wrap text-xs leading-normal">
                         {memory.content}
                       </p>
                       <div className="flex items-center justify-between gap-3">
@@ -334,7 +334,7 @@ function MemoryPanel({ active }: { active: boolean }) {
                         <div className="flex items-center gap-1">
                           <Button
                             type="button"
-                            size="icon"
+                            size="icon-sm"
                             variant="ghost"
                             onClick={() => {
                               setEditingId(memory.id);
@@ -346,7 +346,7 @@ function MemoryPanel({ active }: { active: boolean }) {
                           </Button>
                           <Button
                             type="button"
-                            size="icon"
+                            size="icon-sm"
                             variant="ghost"
                             onClick={() => setMemoryToDelete(memory)}
                             aria-label="Delete memory"
@@ -457,8 +457,8 @@ function SkillsPanel({ active }: { active: boolean }) {
   }, [selectedSlug]);
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-1 md:grid-cols-[220px_1fr]">
-      <aside className="min-h-0 overflow-y-auto border-b border-border p-3 md:border-b-0 md:border-r">
+    <div className="grid h-full min-h-0 grid-cols-1 md:grid-cols-[210px_1fr]">
+      <aside className="min-h-0 overflow-y-auto border-b border-border bg-background/20 p-2 md:border-b-0 md:border-r">
         {loading ? (
           <LoadingState label="Loading skills" />
         ) : skills.length === 0 ? (
@@ -471,10 +471,10 @@ function SkillsPanel({ active }: { active: boolean }) {
                   type="button"
                   onClick={() => setSelectedSlug(skill.slug)}
                   className={cn(
-                    "w-full rounded-md px-2 py-2 text-left text-xs transition-colors",
+                    "w-full rounded-md px-2 py-1.5 text-left text-xs transition-colors",
                     selectedSlug === skill.slug
-                      ? "bg-accent text-foreground"
-                      : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                      ? "bg-secondary text-foreground"
+                      : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground",
                   )}
                 >
                   <span className="block truncate font-medium">{skill.name}</span>
@@ -488,13 +488,13 @@ function SkillsPanel({ active }: { active: boolean }) {
         )}
       </aside>
 
-      <section className="min-h-0 overflow-y-auto p-4">
+      <section className="min-h-0 overflow-y-auto p-3">
         {error && <ErrorBanner message={error} />}
 
         {warnings.length > 0 && (
-          <div className="mb-3 space-y-1 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300">
+          <div className="mb-2.5 space-y-1 rounded-md bg-amber-500/10 p-2.5 text-xs text-amber-700 ring-1 ring-amber-500/30 dark:text-amber-300">
             <div className="flex items-center gap-2 font-medium">
-              <AlertTriangle className="size-4" />
+              <AlertTriangle className="size-3.5" />
               Skill warnings
             </div>
             <ul className="list-disc space-y-1 pl-5">
@@ -512,7 +512,7 @@ function SkillsPanel({ active }: { active: boolean }) {
         ) : selectedSkill ? (
           <article className="space-y-3">
             <div>
-              <h3 className="text-sm font-semibold">{selectedSkill.name}</h3>
+              <h3 className="text-xs font-semibold">{selectedSkill.name}</h3>
               <p className="mt-1 text-xs text-muted-foreground">
                 {selectedSkill.description || "No description."}
               </p>
@@ -520,7 +520,7 @@ function SkillsPanel({ active }: { active: boolean }) {
                 {selectedSkill.path}
               </p>
             </div>
-            <pre className="max-h-[460px] overflow-auto rounded-md border border-border bg-muted/40 p-3 text-xs leading-relaxed whitespace-pre-wrap">
+            <pre className="max-h-[420px] overflow-auto rounded-md bg-background/60 p-2.5 text-xs leading-normal whitespace-pre-wrap ring-1 ring-border">
               {selectedSkill.body || "(empty)"}
             </pre>
           </article>
@@ -533,7 +533,7 @@ function SkillsPanel({ active }: { active: boolean }) {
 function LoadingState({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-2 text-xs text-muted-foreground">
-      <Loader2 className="size-4 animate-spin" />
+      <Loader2 className="size-3.5 animate-spin" />
       {label}
     </div>
   );
@@ -541,7 +541,7 @@ function LoadingState({ label }: { label: string }) {
 
 function EmptyState({ message }: { message: string }) {
   return (
-    <div className="rounded-md border border-dashed border-border px-3 py-4 text-xs text-muted-foreground">
+    <div className="rounded-md bg-background/35 px-2.5 py-3 text-xs text-muted-foreground ring-1 ring-border/70">
       {message}
     </div>
   );
@@ -549,7 +549,7 @@ function EmptyState({ message }: { message: string }) {
 
 function ErrorBanner({ message }: { message: string }) {
   return (
-    <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+    <div className="rounded-md bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive ring-1 ring-destructive/30">
       {message}
     </div>
   );

@@ -38,8 +38,8 @@ export function ToolCard({
   return (
     <details
       className={cn(
-        "rounded-md border text-xs not-prose",
-        "border-border bg-background/60 text-foreground",
+        "rounded-md text-xs not-prose",
+        "bg-card/50 text-foreground ring-1 ring-border",
       )}
     >
       <summary className="flex items-center justify-between gap-2 cursor-pointer select-none px-3 py-2">
@@ -142,7 +142,7 @@ function WriteFileBody({
           <span className="font-mono text-[11px]">{out.path ?? relPath ?? "?"}</span>
         </Section>
         {out.previousTruncated ? (
-          <div className="rounded border border-border bg-background/60 px-3 py-2 text-[11px] text-muted-foreground">
+          <div className="rounded bg-background/60 px-3 py-2 text-[11px] text-muted-foreground ring-1 ring-border">
             Existing file was too large to diff inline ({out.bytesWritten} bytes written).
           </div>
         ) : (
@@ -228,12 +228,12 @@ function stateBadge(state: ToolState): { label: string; tone: string } {
     case "input-streaming":
       return {
         label: "calling…",
-        tone: "bg-muted text-muted-foreground",
+        tone: "bg-secondary text-muted-foreground",
       };
     case "input-available":
       return {
         label: "running…",
-        tone: "bg-muted text-muted-foreground",
+        tone: "bg-secondary text-muted-foreground",
       };
     case "approval-requested":
       return {
@@ -243,7 +243,7 @@ function stateBadge(state: ToolState): { label: string; tone: string } {
     case "approval-responded":
       return {
         label: "approved",
-        tone: "bg-muted text-muted-foreground",
+        tone: "bg-secondary text-muted-foreground",
       };
     case "output-available":
       return {
