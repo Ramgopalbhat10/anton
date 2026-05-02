@@ -2,6 +2,7 @@ import { convertToModelMessages } from "ai";
 import { z } from "zod";
 
 import { runAgent, type AntonUIMessage } from "@/src/agent/loop";
+import type { PermissionMode } from "@/src/agent/permissions";
 import {
   addSessionTokens,
   createSession,
@@ -21,6 +22,7 @@ const bodySchema = z.object({
   sessionId: z.string().min(1),
   projectId: z.string().min(1).nullable().optional(),
   model: z.string().min(1).optional(),
+  permissionMode: z.enum(["default", "auto-review", "full-access"]).optional(),
   messages: z.array(z.unknown()).min(1),
 });
 
@@ -75,6 +77,7 @@ export async function POST(req: Request) {
     messages: await convertToModelMessages(uiMessages),
     model,
     workspaceRoot: project.localPath,
+    permissionMode: parsed.data.permissionMode as PermissionMode | undefined,
     onFinish: ({ totalUsage }) => {
       const delta = totalUsage.totalTokens;
       if (typeof delta === "number" && delta > 0) {

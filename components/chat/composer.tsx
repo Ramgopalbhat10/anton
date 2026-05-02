@@ -8,12 +8,23 @@ import {
   Monitor,
   Plus,
   ShieldCheck,
+  ShieldOff,
+  ShieldQuestion,
   Square,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  SelectViewport,
+} from "@/components/ui/select";
 import type { ModelId } from "@/src/lib/models";
+import type { PermissionMode } from "@/src/agent/permissions";
 import type { ProjectSummary } from "./workspace-dialog";
 import { ModelPicker } from "./model-picker";
 
@@ -26,6 +37,8 @@ interface ComposerProps {
   onModelChange: (model: ModelId) => void;
   tokens: number;
   project: ProjectSummary | null;
+  permissionMode: PermissionMode;
+  onPermissionModeChange: (mode: PermissionMode) => void;
 }
 
 const MIN_HEIGHT = 24;
@@ -40,6 +53,8 @@ export function Composer({
   onModelChange,
   tokens,
   project,
+  permissionMode,
+  onPermissionModeChange,
 }: ComposerProps) {
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -99,14 +114,10 @@ export function Composer({
               >
                 <Plus />
               </Button>
-              <button
-                type="button"
-                className="inline-flex h-5 items-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-primary hover:bg-primary/10"
-              >
-                <ShieldCheck className="size-3" />
-                Full access
-                <ChevronDown className="size-3" />
-              </button>
+              <PermissionsDropdown
+                value={permissionMode}
+                onChange={onPermissionModeChange}
+              />
             </div>
 
             <div className="flex min-w-0 items-center gap-1.5">
@@ -166,6 +177,44 @@ export function Composer({
         </div>
       </div>
     </form>
+  );
+}
+
+const PERMISSION_MODE_ITEMS = [
+  { value: "default", label: "Ask every time", Icon: ShieldQuestion },
+  { value: "auto-review", label: "Auto-review", Icon: ShieldCheck },
+  { value: "full-access", label: "Full access", Icon: ShieldOff },
+] as const satisfies readonly {
+  value: PermissionMode;
+  label: string;
+  Icon: typeof ShieldCheck;
+}[];
+
+function PermissionsDropdown({
+  value,
+  onChange,
+}: {
+  value: PermissionMode;
+  onChange: (mode: PermissionMode) => void;
+}) {
+  return (
+    <Select value={value} onValueChange={(v) => onChange(v as PermissionMode)}>
+      <SelectTrigger className="h-5 gap-1 border-0 bg-transparent px-1.5 text-[11px] font-medium text-primary hover:bg-primary/10">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectViewport>
+          {PERMISSION_MODE_ITEMS.map((item) => (
+            <SelectItem key={item.value} value={item.value}>
+              <span className="inline-flex items-center gap-1.5">
+                <item.Icon className="size-3.5" />
+                {item.label}
+              </span>
+            </SelectItem>
+          ))}
+        </SelectViewport>
+      </SelectContent>
+    </Select>
   );
 }
 

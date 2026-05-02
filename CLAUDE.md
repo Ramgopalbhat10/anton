@@ -11,6 +11,7 @@ Follow the shared agent rules in `AGENTS.md`:
 - Run `pnpm typecheck` and `pnpm lint` before reporting a coding task as done. A green build is the acceptance criterion.
 - Before writing Next.js code, consult `node_modules/next/dist/docs/`; this project pins Next 16, which has breaking changes from older training data.
 - Before implementation, read `ROADMAP.md`, choose the relevant checklist item, create or identify the GitHub issue for the work, and keep the branch/PR tied to that issue.
+- If the GitHub app connector cannot create the required issue, use the GitHub CLI instead: `gh issue create --repo <owner>/<repo> --title "<title>" --body-file -`.
 - When a GitHub issue or PR resolves a roadmap item, update `ROADMAP.md` in the same change by marking it `[✔️]`. Do not mark items complete before the implementation is actually resolved.
 - If new follow-up work is discovered, add or refine checklist items in `ROADMAP.md` instead of leaving the follow-up only in conversation.
 - For new implementation work, create a fresh `claude/*` feature branch before editing. If the change belongs to an existing branch, update that branch from `main` first and continue there.

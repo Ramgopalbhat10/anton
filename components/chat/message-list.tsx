@@ -8,15 +8,16 @@ import {
 } from "ai";
 import {
   Check,
+  CheckCircle2,
   Copy,
   ChevronDown,
   ChevronRight,
   Loader2,
   TerminalSquare,
+  XCircle,
 } from "lucide-react";
 
 import type { AntonUIMessage } from "@/src/agent/loop";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Markdown } from "./markdown";
 
@@ -50,7 +51,7 @@ export function MessageList({ messages, status, onApproval }: MessageListProps) 
       ref={scrollRef}
       className="flex-1 overflow-y-auto px-3 py-3 sm:px-4 lg:px-6"
     >
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 pb-8">
         {messages.map((message) => (
           <MessageEvent
             key={message.id}
@@ -58,7 +59,7 @@ export function MessageList({ messages, status, onApproval }: MessageListProps) 
             onApproval={onApproval}
           />
         ))}
-        {status === "submitted" && (
+        {status !== "ready" && status !== "error" && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Loader2 className="size-3.5 animate-spin text-sky-400" />
             Anton is thinking
@@ -163,6 +164,7 @@ function InlineToolEvent({
   approvalId: string | undefined;
   onApproval: ChatAddToolApproveResponseFunction;
 }) {
+  const needsApproval = state === "approval-requested" && approvalId;
   return (
     <details className="group/tool my-1 text-xs text-muted-foreground">
       <summary
@@ -171,35 +173,57 @@ function InlineToolEvent({
           "transition-colors hover:bg-card/40 [&::-webkit-details-marker]:hidden",
         )}
         aria-label={`${name} tool details`}
+        onClick={(e) => {
+          if (needsApproval) {
+            const target = e.target as HTMLElement;
+            if (target.closest("[data-approval-action]")) {
+              e.preventDefault();
+            }
+          }
+        }}
       >
         <TerminalSquare className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="truncate">{name}</span>
-        <ChevronRight className="size-3 shrink-0 opacity-0 transition-opacity group-hover/tool:opacity-100 group-focus-within/tool:opacity-100 group-open/tool:hidden" />
-        <ChevronDown className="hidden size-3 shrink-0 opacity-0 transition-opacity group-hover/tool:opacity-100 group-focus-within/tool:opacity-100 group-open/tool:block group-open/tool:opacity-100" />
+        <span className="ml-auto shrink-0">
+          {needsApproval ? (
+            <span className="inline-flex items-center gap-0.5">
+              <button
+                type="button"
+                data-approval-action="approve"
+                className="inline-flex items-center justify-center size-5 rounded hover:bg-emerald-500/15"
+                title="Approve"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onApproval({ id: approvalId, approved: true });
+                }}
+              >
+                <CheckCircle2 className="size-3.5 text-emerald-400" />
+              </button>
+              <button
+                type="button"
+                data-approval-action="deny"
+                className="inline-flex items-center justify-center size-5 rounded hover:bg-destructive/15"
+                title="Deny"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onApproval({ id: approvalId, approved: false });
+                }}
+              >
+                <XCircle className="size-3.5 text-destructive" />
+              </button>
+            </span>
+          ) : (
+            <>
+              <ChevronRight className="size-3 opacity-0 transition-opacity group-hover/tool:opacity-100 group-focus-within/tool:opacity-100 group-open/tool:hidden" />
+              <ChevronDown className="hidden size-3 opacity-0 transition-opacity group-hover/tool:opacity-100 group-focus-within/tool:opacity-100 group-open/tool:block group-open/tool:opacity-100" />
+            </>
+          )}
+        </span>
       </summary>
       <div className="ml-5 mt-1 rounded-md bg-card/50 px-2.5 py-2 ring-1 ring-border/70">
         <p className="truncate font-mono text-[11px]">
           {previewInput(input)}
         </p>
-        {state === "approval-requested" && approvalId && (
-          <div className="mt-2 flex items-center gap-2">
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => onApproval({ id: approvalId, approved: true })}
-            >
-              Approve
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="destructive"
-              onClick={() => onApproval({ id: approvalId, approved: false })}
-            >
-              Deny
-            </Button>
-          </div>
-        )}
         {state === "output-error" && errorText && (
           <p className="mt-1 line-clamp-2 text-destructive">{errorText}</p>
         )}

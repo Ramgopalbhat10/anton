@@ -47,7 +47,6 @@ export const rememberTool = tool({
       .max(MAX_MEMORY_CHARS)
       .describe("A concise memory to preserve across sessions."),
   }),
-  needsApproval: true,
   execute: async ({ content }) => {
     try {
       return {
@@ -66,7 +65,6 @@ export const forgetMemoryTool = tool({
   inputSchema: z.object({
     id: z.string().min(1).describe("The memory ID to delete."),
   }),
-  needsApproval: true,
   execute: async ({ id }) => {
     try {
       const deleted = deleteMemory(id);
@@ -92,7 +90,6 @@ export const updateMemoryTool = tool({
       .max(MAX_MEMORY_CHARS)
       .describe("Replacement memory content."),
   }),
-  needsApproval: true,
   execute: async ({ id, content }) => {
     try {
       const memory = updateMemory(id, content);

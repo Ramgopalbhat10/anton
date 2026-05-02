@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 
 import { DEFAULT_MODEL_ID, type ModelId } from "@/src/lib/models";
+import type { PermissionMode } from "@/src/agent/permissions";
 import type { AntonUIMessage } from "@/src/agent/loop";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -59,6 +60,7 @@ export function Chat({
   const [model, setModel] = useState<ModelId>(
     (initialModel ?? DEFAULT_MODEL_ID) as ModelId,
   );
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>("auto-review");
   const effectiveProjectId = initialProjectId ?? activeProjectId;
 
   const transport = useMemo(
@@ -67,11 +69,9 @@ export function Chat({
         api: "/api/chat",
         body: () => ({
           sessionId,
-          model,
-          ...(effectiveProjectId ? { projectId: effectiveProjectId } : {}),
         }),
       }),
-    [sessionId, model, effectiveProjectId],
+    [sessionId],
   );
 
   const {
@@ -211,7 +211,10 @@ export function Chat({
           <Composer
             onSend={(text) => {
               if (!effectiveProjectId) return;
-              sendMessage({ text });
+              void sendMessage(
+                { text },
+                { body: { projectId: effectiveProjectId, model, permissionMode } },
+              );
             }}
             onStop={stop}
             disabled={streaming || !effectiveProjectId}
@@ -220,6 +223,8 @@ export function Chat({
             onModelChange={setModel}
             tokens={tokensTotal}
             project={project}
+            permissionMode={permissionMode}
+            onPermissionModeChange={setPermissionMode}
           />
         </section>
 
