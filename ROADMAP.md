@@ -47,7 +47,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 ## Phase 1: Trust Boundaries And Safety
 
 - [✔️] Replace scattered `needsApproval` usage with a central server-side permission policy.
-- [] Classify tools and commands by risk: read-only, write, delete, network, package install, git, long-running process, and external integration.
+- [✔️] Classify tools and commands by risk: read-only, write, delete, network, package install, git, long-running process, and external integration.
 - [] Add per-tool and per-command approval metadata that explains exactly what will happen before execution.
 - [] Require explicit approval before starting stdio MCP servers, not only before invoking MCP tools.
 - [] Add a trust store for approved MCP server configs, commands, environment variables, and workspace roots.

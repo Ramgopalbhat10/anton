@@ -2,7 +2,7 @@ import { z } from "zod";
 import { execa } from "execa";
 import { tool } from "ai";
 import { ensureWorkspaceRoot, ensureWorkspaceRootAt } from "../sandbox";
-import { isForbiddenBashCommand } from "../permissions";
+import { classifyBashCommand, isForbiddenBashCommand } from "../permissions";
 
 const MAX_OUTPUT_BYTES = 64 * 1024;
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -25,10 +25,12 @@ export function createBashTool(workspaceRoot?: string) {
       ),
   }),
   execute: async ({ command, timeoutMs }) => {
+    const risk = classifyBashCommand(command);
     const forbidden = isForbiddenBashCommand(command);
     if (forbidden) {
       return {
         ok: false as const,
+        riskCategories: risk.categories,
         error: `forbidden command pattern: ${forbidden}`,
       };
     }
@@ -49,6 +51,7 @@ export function createBashTool(workspaceRoot?: string) {
 
       return {
         ok: true as const,
+        riskCategories: risk.categories,
         exitCode: result.exitCode ?? null,
         timedOut: result.timedOut ?? false,
         killed: result.isCanceled ?? false,
@@ -56,7 +59,11 @@ export function createBashTool(workspaceRoot?: string) {
         stderr: truncate(result.stderr ?? ""),
       };
     } catch (err) {
-      return { ok: false as const, error: errorMessage(err) };
+      return {
+        ok: false as const,
+        riskCategories: risk.categories,
+        error: errorMessage(err),
+      };
     }
   },
   });
