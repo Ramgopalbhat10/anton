@@ -33,9 +33,4 @@ pnpm dev                            # http://localhost:3000
 
 ## Roadmap
 
-- **Phase 0** - scaffold (done)
-- **Phase 1** - streaming chat MVP (no tools) (done)
-- **Phase 2** - agent loop + tools (`read_file`, `write_file`, `bash`, `grep`, `glob`) + permission gate (done)
-- **Phase 3** - persistent sessions (done)
-- **Phase 4** - markdown, diff viewer, token counter, QoL (done)
-- **Phase 5** - memory / skills / sub-agents / MCP (done)
+See [`ROADMAP.md`](ROADMAP.md) for shipped capabilities, known implementation risks, and the ongoing backlog. New implementation work should start from a roadmap checklist item and a matching GitHub issue.

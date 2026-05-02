@@ -82,7 +82,10 @@ Run `pnpm typecheck` and `pnpm lint` before committing. If you change the schema
 
 ## GitHub workflow
 
+- Treat `ROADMAP.md` as the source of truth for ongoing implementation tasks. Before starting implementation, read the relevant roadmap section and keep the work scoped to one checklist item or a small coherent group of related checklist items.
 - Before starting a new implementation, create or identify a GitHub issue that describes the requested change, scope, acceptance criteria, and verification plan. Reference that issue in the branch name, commit message, or PR body when practical.
+- When a GitHub issue or PR completes a roadmap item, update `ROADMAP.md` in the same change by marking the item as `[✔️]`. Do not mark roadmap items complete before the related implementation is actually resolved.
+- If implementation reveals missing work, add or refine checklist items in `ROADMAP.md` rather than burying follow-up tasks in chat history.
 - For new implementation work, create a new feature branch before editing code. Use a descriptive prefix such as `codex/<short-topic>` for Codex-driven work.
 - If the work clearly belongs to an existing feature branch, update that branch from `main` first, then continue on the existing branch instead of creating a duplicate branch.
 - Never commit directly to `main`. Open a pull request for review after the branch is pushed.
@@ -113,9 +116,9 @@ Never log the API key. Never commit `.env.local`, `anton.db`, or anything under 
 - Streaming custom data (permission requests, tool progress) uses AI SDK custom data parts through `toUIMessageStreamResponse`, not ad-hoc JSON frames.
 - Comments explain **why**, not what. Default is no comment.
 
-## Roadmap phase
+## Roadmap
 
-Phases 1-5 (streaming chat MVP, agent loop + tools + permission gate, persistent sessions, markdown, diff viewer, token counter, QoL, memory, skills, read-only sub-agents, MCP tools) are shipped. See `README.md` for the full roadmap.
+See `ROADMAP.md` for shipped capability, known gaps, and future implementation tasks. Use it when choosing work, creating GitHub issues, and marking completed items after issues are resolved.
 
 <!-- BEGIN:nextjs-agent-rules -->
 # This is NOT the Next.js you know
