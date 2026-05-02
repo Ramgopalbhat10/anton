@@ -80,6 +80,16 @@ Path aliases: `@/*` → project root, so `@/components/...`, `@/lib/utils`, `@/s
 
 Run `pnpm typecheck` and `pnpm lint` before committing. If you change the schema, also run `pnpm db:generate` and commit the resulting migration.
 
+## GitHub workflow
+
+- Before starting a new implementation, create or identify a GitHub issue that describes the requested change, scope, acceptance criteria, and verification plan. Reference that issue in the branch name, commit message, or PR body when practical.
+- For new implementation work, create a new feature branch before editing code. Use a descriptive prefix such as `codex/<short-topic>` for Codex-driven work.
+- If the work clearly belongs to an existing feature branch, update that branch from `main` first, then continue on the existing branch instead of creating a duplicate branch.
+- Never commit directly to `main`. Open a pull request for review after the branch is pushed.
+- Keep commits focused. Do not include unrelated local changes, generated databases, `.env.local`, or workspace contents.
+- Before opening a PR, run `pnpm typecheck` and `pnpm lint`; include any failures or skipped checks in the PR body.
+- For UI changes, include a short visual verification note in the PR body with the important viewport(s) or interaction states checked.
+
 ## Environment
 
 `.env.local` (gitignored) needs:

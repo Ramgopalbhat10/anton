@@ -6,11 +6,19 @@ import {
   isToolUIPart,
   type ChatAddToolApproveResponseFunction,
 } from "ai";
-import { Check, Copy } from "lucide-react";
+import {
+  Check,
+  Copy,
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+  TerminalSquare,
+} from "lucide-react";
+
 import type { AntonUIMessage } from "@/src/agent/loop";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Markdown } from "./markdown";
-import { ToolCard } from "./tool-card";
 
 interface MessageListProps {
   messages: AntonUIMessage[];
@@ -30,37 +38,38 @@ export function MessageList({ messages, status, onApproval }: MessageListProps) 
 
   if (messages.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
-        Start a conversation with Anton.
+      <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">
+        Start a session by asking Anton to inspect or change the selected
+        workspace.
       </div>
     );
   }
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
-      {messages.map((message) => (
-        <MessageBubble
-          key={message.id}
-          message={message}
-          onApproval={onApproval}
-        />
-      ))}
-      {status === "submitted" && (
-        <div className="flex justify-start">
-          <div className="bg-muted text-muted-foreground rounded-lg px-4 py-2 text-sm">
-            <span className="inline-flex gap-1">
-              <span className="animate-pulse">·</span>
-              <span className="animate-pulse [animation-delay:150ms]">·</span>
-              <span className="animate-pulse [animation-delay:300ms]">·</span>
-            </span>
+    <div
+      ref={scrollRef}
+      className="flex-1 overflow-y-auto px-3 py-3 sm:px-4 lg:px-6"
+    >
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
+        {messages.map((message) => (
+          <MessageEvent
+            key={message.id}
+            message={message}
+            onApproval={onApproval}
+          />
+        ))}
+        {status === "submitted" && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="size-3.5 animate-spin text-sky-400" />
+            Anton is thinking
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
 
-function MessageBubble({
+function MessageEvent({
   message,
   onApproval,
 }: {
@@ -77,36 +86,35 @@ function MessageBubble({
   return (
     <div
       className={cn(
-        "group/msg flex flex-col gap-1",
+          "group/msg flex flex-col gap-1",
         isUser ? "items-end" : "items-start",
       )}
     >
       <div
         className={cn(
-          "max-w-[80%] rounded-lg text-sm break-words space-y-2",
+          "max-w-full text-xs break-words",
           isUser
-            ? "bg-primary text-primary-foreground px-4 py-2"
-            : "bg-muted text-foreground px-4 py-2",
+            ? "max-w-[88%] rounded-md bg-card px-2.5 py-1.5 text-foreground ring-1 ring-border"
+            : "w-full text-foreground",
         )}
       >
         {message.parts.map((part, i) => {
           if (part.type === "text") {
             if (isUser) {
               return (
-                <div key={i} className="whitespace-pre-wrap">
+                <div key={i} className="whitespace-pre-wrap leading-normal">
                   {part.text}
                 </div>
               );
             }
-            return <Markdown key={i}>{part.text}</Markdown>;
+            return <Markdown key={i} className="text-xs">{part.text}</Markdown>;
           }
           if (isToolUIPart(part)) {
-            const name = getToolName(part);
             return (
-              <ToolCard
+              <InlineToolEvent
                 key={i}
-                name={String(name)}
-                state={part.state}
+                name={String(getToolName(part))}
+                state={part.state as ToolState}
                 input={"input" in part ? part.input : undefined}
                 output={"output" in part ? part.output : undefined}
                 errorText={"errorText" in part ? part.errorText : undefined}
@@ -126,6 +134,82 @@ function MessageBubble({
         <CopyMessageButton text={plainText} />
       )}
     </div>
+  );
+}
+
+type ToolState =
+  | "input-streaming"
+  | "input-available"
+  | "approval-requested"
+  | "approval-responded"
+  | "output-available"
+  | "output-error"
+  | "output-denied";
+
+function InlineToolEvent({
+  name,
+  state,
+  input,
+  output,
+  errorText,
+  approvalId,
+  onApproval,
+}: {
+  name: string;
+  state: ToolState;
+  input: unknown;
+  output: unknown;
+  errorText: string | undefined;
+  approvalId: string | undefined;
+  onApproval: ChatAddToolApproveResponseFunction;
+}) {
+  return (
+    <details className="group/tool my-1 text-xs text-muted-foreground">
+      <summary
+        className={cn(
+          "inline-flex max-w-full cursor-pointer list-none items-center gap-1.5 rounded px-1 py-0.5 font-mono text-[11px] text-foreground select-none",
+          "transition-colors hover:bg-card/40 [&::-webkit-details-marker]:hidden",
+        )}
+        aria-label={`${name} tool details`}
+      >
+        <TerminalSquare className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="truncate">{name}</span>
+        <ChevronRight className="size-3 shrink-0 opacity-0 transition-opacity group-hover/tool:opacity-100 group-focus-within/tool:opacity-100 group-open/tool:hidden" />
+        <ChevronDown className="hidden size-3 shrink-0 opacity-0 transition-opacity group-hover/tool:opacity-100 group-focus-within/tool:opacity-100 group-open/tool:block group-open/tool:opacity-100" />
+      </summary>
+      <div className="ml-5 mt-1 rounded-md bg-card/50 px-2.5 py-2 ring-1 ring-border/70">
+        <p className="truncate font-mono text-[11px]">
+          {previewInput(input)}
+        </p>
+        {state === "approval-requested" && approvalId && (
+          <div className="mt-2 flex items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => onApproval({ id: approvalId, approved: true })}
+            >
+              Approve
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="destructive"
+              onClick={() => onApproval({ id: approvalId, approved: false })}
+            >
+              Deny
+            </Button>
+          </div>
+        )}
+        {state === "output-error" && errorText && (
+          <p className="mt-1 line-clamp-2 text-destructive">{errorText}</p>
+        )}
+        {state === "output-available" && output !== undefined && (
+          <p className="mt-1 line-clamp-2 font-mono text-[10px] text-muted-foreground">
+            {safeStringify(output)}
+          </p>
+        )}
+      </div>
+    </details>
   );
 }
 
@@ -158,4 +242,24 @@ function CopyMessageButton({ text }: { text: string }) {
       )}
     </button>
   );
+}
+
+function previewInput(input: unknown): string {
+  if (typeof input === "object" && input !== null) {
+    const record = input as Record<string, unknown>;
+    for (const key of ["command", "path", "pattern", "slug", "task"]) {
+      if (typeof record[key] === "string") return record[key];
+    }
+  }
+  return safeStringify(input);
+}
+
+function safeStringify(value: unknown): string {
+  if (value === undefined) return "";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }

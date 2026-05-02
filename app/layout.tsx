@@ -2,7 +2,10 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono, Inter } from "next/font/google";
 import "./globals.css";
 
-import { SessionSidebar } from "@/components/chat/session-sidebar";
+import {
+  SessionSidebar,
+  SidebarProvider,
+} from "@/components/chat/session-sidebar";
 import { SessionStoreProvider } from "@/components/chat/session-store";
 import { cn } from "@/lib/utils";
 
@@ -33,12 +36,16 @@ export default function RootLayout({
       lang="en"
       className={cn("dark", "h-full", "antialiased", geistSans.variable, geistMono.variable, "font-sans", inter.variable)}
     >
-      <body className="min-h-full flex flex-col font-sans">
+      <body className="h-full w-full overflow-hidden flex flex-col font-sans">
         <SessionStoreProvider>
-          <div className="flex-1 flex min-h-0">
-            <SessionSidebar />
-            <main className="flex-1 flex flex-col min-w-0">{children}</main>
-          </div>
+          <SidebarProvider>
+            <div className="flex h-dvh min-h-0 w-full overflow-hidden">
+              <SessionSidebar />
+              <main className="flex-1 flex flex-col min-w-0 max-w-full overflow-hidden">
+                {children}
+              </main>
+            </div>
+          </SidebarProvider>
         </SessionStoreProvider>
       </body>
     </html>

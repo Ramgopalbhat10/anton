@@ -1,31 +1,48 @@
 "use client";
 
 import { MODEL_CATALOG, type ModelId } from "@/src/lib/models";
-import { cn } from "@/lib/utils";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  SelectViewport,
+} from "@/components/ui/select";
 
 interface ModelPickerProps {
   value: ModelId;
   onChange: (value: ModelId) => void;
   disabled?: boolean;
+  triggerClassName?: string;
 }
 
-export function ModelPicker({ value, onChange, disabled }: ModelPickerProps) {
+export function ModelPicker({
+  value,
+  onChange,
+  disabled,
+  triggerClassName,
+}: ModelPickerProps) {
+  const selected = MODEL_CATALOG.find((model) => model.id === value);
+
   return (
-    <select
+    <Select
       value={value}
-      onChange={(e) => onChange(e.target.value as ModelId)}
+      onValueChange={(next) => onChange(next as ModelId)}
       disabled={disabled}
-      className={cn(
-        "h-8 rounded-md border border-input bg-background px-2 text-xs",
-        "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-        "disabled:cursor-not-allowed disabled:opacity-50",
-      )}
     >
-      {MODEL_CATALOG.map((m) => (
-        <option key={m.id} value={m.id}>
-          {m.label}
-        </option>
-      ))}
-    </select>
+      <SelectTrigger className={triggerClassName ?? "w-44"}>
+        <SelectValue>{selected?.label ?? value}</SelectValue>
+      </SelectTrigger>
+      <SelectContent align="end">
+        <SelectViewport>
+          {MODEL_CATALOG.map((model) => (
+            <SelectItem key={model.id} value={model.id}>
+              {model.label}
+            </SelectItem>
+          ))}
+        </SelectViewport>
+      </SelectContent>
+    </Select>
   );
 }

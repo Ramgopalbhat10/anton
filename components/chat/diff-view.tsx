@@ -16,15 +16,15 @@ export function DiffView({ previous, next, newFile }: DiffViewProps) {
 
   if (rows.length === 0) {
     return (
-      <div className="rounded border border-border bg-background/60 px-3 py-2 text-[11px] text-muted-foreground">
+      <div className="rounded bg-background/60 px-3 py-2 text-[11px] text-muted-foreground ring-1 ring-border">
         No changes.
       </div>
     );
   }
 
   return (
-    <div className="rounded-md border border-border bg-background/60 font-mono text-[11px] leading-snug">
-      <div className="flex items-center gap-3 border-b border-border px-3 py-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+    <div className="rounded-md bg-background/60 font-mono text-[11px] leading-snug ring-1 ring-border">
+      <div className="flex items-center gap-3 border-b border-border px-3 py-1 text-[10px] uppercase text-muted-foreground">
         <span>diff</span>
         {newFile ? (
           <span className="text-emerald-600 dark:text-emerald-400">

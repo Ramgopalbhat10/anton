@@ -13,7 +13,7 @@ interface MarkdownProps {
 
 function MarkdownImpl({ children, className }: MarkdownProps) {
   return (
-    <div className={cn("anton-md space-y-2 leading-relaxed", className)}>
+    <div className={cn("anton-md space-y-1.5 leading-normal", className)}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={COMPONENTS}>
         {children}
       </ReactMarkdown>
@@ -37,26 +37,26 @@ const COMPONENTS: Components = {
     </a>
   ),
   ul: ({ children }) => (
-    <ul className="list-disc pl-5 space-y-0.5">{children}</ul>
+    <ul className="list-disc pl-4 space-y-0.5">{children}</ul>
   ),
   ol: ({ children }) => (
-    <ol className="list-decimal pl-5 space-y-0.5">{children}</ol>
+    <ol className="list-decimal pl-4 space-y-0.5">{children}</ol>
   ),
   li: ({ children }) => <li className="marker:text-muted-foreground">{children}</li>,
   h1: ({ children }) => (
-    <h1 className="text-base font-semibold tracking-tight mt-2">{children}</h1>
+    <h1 className="mt-1.5 text-sm font-semibold tracking-tight">{children}</h1>
   ),
   h2: ({ children }) => (
-    <h2 className="text-sm font-semibold tracking-tight mt-2">{children}</h2>
+    <h2 className="mt-1.5 text-xs font-semibold tracking-tight">{children}</h2>
   ),
   h3: ({ children }) => (
-    <h3 className="text-sm font-semibold tracking-tight mt-2">{children}</h3>
+    <h3 className="mt-1.5 text-xs font-semibold tracking-tight">{children}</h3>
   ),
   h4: ({ children }) => (
-    <h4 className="text-sm font-semibold tracking-tight mt-2">{children}</h4>
+    <h4 className="mt-1.5 text-xs font-semibold tracking-tight">{children}</h4>
   ),
   blockquote: ({ children }) => (
-    <blockquote className="border-l-2 border-border pl-3 text-muted-foreground">
+    <blockquote className="border-l-2 border-border pl-2.5 text-muted-foreground">
       {children}
     </blockquote>
   ),
@@ -93,10 +93,7 @@ function CodeBlock({
     return (
       <code
         {...rest}
-        className={cn(
-          "rounded bg-muted/70 px-1 py-0.5 font-mono text-[0.85em]",
-          className,
-        )}
+        className={cn("rounded bg-secondary px-1 py-0.5 font-mono text-[0.85em]", className)}
       >
         {children}
       </code>
@@ -122,8 +119,8 @@ function CodeFence({ language, text }: { language?: string; text: string }) {
   };
 
   return (
-    <div className="group relative rounded-md border border-border bg-background/60 font-mono text-[11px]">
-      <div className="flex items-center justify-between border-b border-border px-3 py-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+    <div className="group relative rounded-md bg-card/50 font-mono text-[11px] ring-1 ring-border">
+      <div className="flex items-center justify-between border-b border-border px-3 py-1 text-[10px] uppercase text-muted-foreground">
         <span>{language ?? "code"}</span>
         <button
           type="button"
@@ -142,7 +139,7 @@ function CodeFence({ language, text }: { language?: string; text: string }) {
           )}
         </button>
       </div>
-      <pre className="overflow-x-auto p-3 leading-snug">
+      <pre className="overflow-x-auto p-2.5 leading-snug">
         <code>{text}</code>
       </pre>
     </div>
