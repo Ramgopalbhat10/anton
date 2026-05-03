@@ -127,6 +127,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Split chat UI components into feature-oriented folders.
 - [✔️] Split oversized feature components into focused files.
 - [✔️] Consolidate client state and feature API hooks.
+- [✔️] Clean up shared UI primitives after modularization.
 - [] Replace duplicate workspace/settings UI paths with one canonical Settings implementation.
 - [] Clean up layout formatting and UI polish issues that are not core behavior.
 

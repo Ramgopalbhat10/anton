@@ -1,9 +1,13 @@
 "use client";
 
 import type { ChatAddToolApproveResponseFunction } from "ai";
-import type { ToolState } from "@/src/lib/trace";
+import { ChevronDown, ChevronRight } from "lucide-react";
+
+import { Disclosure } from "@/components/shared/disclosure";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import type { ToolState } from "@/src/lib/trace";
+
 import { DiffView } from "./diff-view";
 import {
   isOkWriteFileOutput,
@@ -34,86 +38,94 @@ export function ToolCard({
   const { label, tone } = toolStateBadge(state);
 
   return (
-    <details
+    <Disclosure
       className={cn(
         "rounded-md text-xs not-prose",
         "bg-card/50 text-foreground ring-1 ring-border",
       )}
-    >
-      <summary className="flex cursor-pointer select-none items-center justify-between gap-2 px-3 py-2">
-        <span className="flex min-w-0 items-center gap-2">
-          <span className="truncate font-mono text-[11px] font-semibold">
-            {name}
+      trigger={({ open }) => (
+        <span className="flex min-w-0 items-center justify-between gap-2 px-3 py-2">
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="truncate font-mono text-[11px] font-semibold">
+              {name}
+            </span>
+            <span
+              className={cn(
+                "shrink-0 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider",
+                tone,
+              )}
+            >
+              {label}
+            </span>
           </span>
-          <span
-            className={cn(
-              "shrink-0 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider",
-              tone,
-            )}
-          >
-            {label}
-          </span>
+          {open ? (
+            <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="size-3 shrink-0 text-muted-foreground" />
+          )}
         </span>
-      </summary>
+      )}
+    >
+      <div className="min-h-0 overflow-hidden">
+        <div className="space-y-2 px-3 pb-3 pt-1">
+          {name === "write_file" ? (
+            <WriteFileBody input={input} output={output} state={state} />
+          ) : (
+            input !== undefined && (
+              <Section title="input">
+                <pre className="overflow-x-auto whitespace-pre-wrap break-words">
+                  {safeStringify(input)}
+                </pre>
+              </Section>
+            )
+          )}
 
-      <div className="space-y-2 px-3 pb-3 pt-1">
-        {name === "write_file" ? (
-          <WriteFileBody input={input} output={output} state={state} />
-        ) : (
-          input !== undefined && (
-            <Section title="input">
+          {state === "approval-requested" && approvalId && (
+            <div className="flex items-center gap-2 pt-1">
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => onApproval({ id: approvalId, approved: true })}
+              >
+                Approve
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="destructive"
+                onClick={() => onApproval({ id: approvalId, approved: false })}
+              >
+                Deny
+              </Button>
+            </div>
+          )}
+
+          {state === "output-available" &&
+            output !== undefined &&
+            name !== "write_file" && (
+              <Section title="output">
+                <pre className="overflow-x-auto whitespace-pre-wrap break-words">
+                  {safeStringify(output)}
+                </pre>
+              </Section>
+            )}
+
+          {state === "output-error" && errorText && (
+            <Section title="error" tone="error">
               <pre className="overflow-x-auto whitespace-pre-wrap break-words">
-                {safeStringify(input)}
-              </pre>
-            </Section>
-          )
-        )}
-
-        {state === "approval-requested" && approvalId && (
-          <div className="flex items-center gap-2 pt-1">
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => onApproval({ id: approvalId, approved: true })}
-            >
-              Approve
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="destructive"
-              onClick={() => onApproval({ id: approvalId, approved: false })}
-            >
-              Deny
-            </Button>
-          </div>
-        )}
-
-        {state === "output-available" &&
-          output !== undefined &&
-          name !== "write_file" && (
-            <Section title="output">
-              <pre className="overflow-x-auto whitespace-pre-wrap break-words">
-                {safeStringify(output)}
+                {errorText}
               </pre>
             </Section>
           )}
 
-        {state === "output-error" && errorText && (
-          <Section title="error" tone="error">
-            <pre className="overflow-x-auto whitespace-pre-wrap break-words">
-              {errorText}
-            </pre>
-          </Section>
-        )}
-
-        {state === "output-denied" && (
-          <Section title="denied" tone="error">
-            <span>Execution was denied by the user.</span>
-          </Section>
-        )}
+          {state === "output-denied" && (
+            <Section title="denied" tone="error">
+              <span>Execution was denied by the user.</span>
+            </Section>
+          )}
+        </div>
       </div>
-    </details>
+    </Disclosure>
   );
 }
 

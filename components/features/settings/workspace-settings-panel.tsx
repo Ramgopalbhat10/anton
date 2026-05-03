@@ -4,6 +4,7 @@ import { Check, FolderGit2, GitBranch, Loader2, RefreshCw } from "lucide-react";
 
 import { EmptyState, ErrorBanner } from "@/components/shared/feedback-states";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 import { useWorkspaceSettings } from "./hooks";
@@ -40,10 +41,10 @@ export function WorkspaceSettingsPanel({
       {error && <ErrorBanner message={error} />}
       <SettingsCard title="Local workspace root" icon={<FolderGit2 />}>
         <div className="grid gap-2 lg:grid-cols-[1fr_auto]">
-          <input
+          <Input
             value={rootDraft}
             onChange={(event) => setRootDraft(event.target.value)}
-            className="h-7 min-w-0 rounded-md bg-secondary px-2.5 font-mono text-xs outline-none focus:ring-1 focus:ring-ring"
+            className="font-mono"
             placeholder="M:\\Projects\\anton-workspaces"
             aria-label="Local workspace root"
           />
