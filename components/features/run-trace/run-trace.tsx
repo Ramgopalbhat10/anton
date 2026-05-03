@@ -11,8 +11,8 @@ import {
 } from "lucide-react";
 
 import { getRunData, type AntonUIMessage } from "@/src/lib/trace";
+import { Disclosure } from "@/components/shared/disclosure";
 
-import { Disclosure } from "./disclosure";
 import {
   formatDuration,
   getModelTurnSummary,

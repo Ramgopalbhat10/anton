@@ -10,9 +10,9 @@ import {
 import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
+import { Disclosure } from "@/components/shared/disclosure";
 import type { ToolTraceEntry } from "@/src/lib/trace";
 
-import { Disclosure } from "./disclosure";
 import { formatDuration, toolTitle } from "./trace-data";
 import {
   previewToolInput,

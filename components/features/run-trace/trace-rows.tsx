@@ -11,12 +11,12 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { Disclosure } from "@/components/shared/disclosure";
 import {
   type AntonActivityEvent,
   type AntonRunStatus,
 } from "@/src/lib/trace";
 
-import { Disclosure } from "./disclosure";
 import { formatDuration, type TraceRow } from "./trace-data";
 import { ToolTraceRow } from "./tool-trace-row";
 

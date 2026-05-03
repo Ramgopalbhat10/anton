@@ -4,6 +4,8 @@ import type { ReactNode } from "react";
 import { ChevronLeft, Search, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
 export type SettingsSection = "workspaces" | "memories" | "skills";
@@ -41,9 +43,10 @@ export function SettingsShell({
             </Button>
             <label className="relative block">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              <input
-                className="h-8 w-full rounded-md bg-secondary pl-8 pr-2.5 text-xs outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+              <Input
+                className="h-8 pl-8"
                 placeholder="Search settings..."
+                aria-label="Search settings"
               />
             </label>
           </div>
@@ -96,26 +99,19 @@ export function SettingsShell({
             </Button>
           </header>
 
-          <div className="flex gap-1.5 overflow-x-auto border-b border-border px-2 py-1.5 md:hidden">
-            <MobileTab
-              active={section === "workspaces"}
-              onClick={() => onSectionChange("workspaces")}
-            >
-              Workspaces
-            </MobileTab>
-            <MobileTab
-              active={section === "memories"}
-              onClick={() => onSectionChange("memories")}
-            >
-              Memories
-            </MobileTab>
-            <MobileTab
-              active={section === "skills"}
-              onClick={() => onSectionChange("skills")}
-            >
-              Skills
-            </MobileTab>
-          </div>
+          <Tabs
+            value={section}
+            onValueChange={(value) =>
+              onSectionChange(value as SettingsSection)
+            }
+            className="overflow-x-auto border-b border-border px-2 py-1.5 md:hidden"
+          >
+            <TabsList>
+              <TabsTrigger value="workspaces">Workspaces</TabsTrigger>
+              <TabsTrigger value="memories">Memories</TabsTrigger>
+              <TabsTrigger value="skills">Skills</TabsTrigger>
+            </TabsList>
+          </Tabs>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-3 py-5 md:px-8">
             {children}
@@ -206,29 +202,6 @@ function SettingsNavButton({
         active
           ? "bg-sidebar-accent text-sidebar-accent-foreground"
           : "text-foreground hover:bg-sidebar-accent/70",
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
-function MobileTab({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "shrink-0 rounded-md px-2.5 py-1 text-xs font-medium",
-        active ? "bg-secondary text-foreground" : "text-muted-foreground",
       )}
     >
       {children}
