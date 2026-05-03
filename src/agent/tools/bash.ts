@@ -2,7 +2,7 @@ import { z } from "zod";
 import { execa } from "execa";
 import { tool } from "ai";
 import { ensureWorkspaceRoot, ensureWorkspaceRootAt } from "../sandbox";
-import { classifyBashCommand, isForbiddenBashCommand } from "../permissions";
+import { classifyBashCommand } from "../permissions";
 
 const MAX_OUTPUT_BYTES = 64 * 1024;
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -11,7 +11,7 @@ const MAX_TIMEOUT_MS = 120_000;
 export function createBashTool(workspaceRoot?: string) {
   return tool({
   description:
-    "Run a shell command inside the workspace directory. The command inherits a restricted environment, runs with a timeout, and has its output truncated. `sudo` is forbidden. Requires user approval.",
+    "Run a shell command inside the workspace directory. The command is classified by risk category before execution, runs with a timeout, and has its output truncated. `sudo` is forbidden. Requires user approval.",
   inputSchema: z.object({
     command: z.string().describe("Shell command to execute via `bash -lc`."),
     timeoutMs: z
@@ -25,13 +25,13 @@ export function createBashTool(workspaceRoot?: string) {
       ),
   }),
   execute: async ({ command, timeoutMs }) => {
-    const risk = classifyBashCommand(command);
-    const forbidden = isForbiddenBashCommand(command);
-    if (forbidden) {
+    const classification = classifyBashCommand(command);
+    if (classification.forbidden) {
       return {
         ok: false as const,
-        riskCategories: risk.categories,
-        error: `forbidden command pattern: ${forbidden}`,
+        classification,
+        riskCategories: classification.categories,
+        error: classification.reason,
       };
     }
 
@@ -51,7 +51,8 @@ export function createBashTool(workspaceRoot?: string) {
 
       return {
         ok: true as const,
-        riskCategories: risk.categories,
+        classification,
+        riskCategories: classification.categories,
         exitCode: result.exitCode ?? null,
         timedOut: result.timedOut ?? false,
         killed: result.isCanceled ?? false,
@@ -61,7 +62,8 @@ export function createBashTool(workspaceRoot?: string) {
     } catch (err) {
       return {
         ok: false as const,
-        riskCategories: risk.categories,
+        classification,
+        riskCategories: classification.categories,
         error: errorMessage(err),
       };
     }

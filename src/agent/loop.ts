@@ -37,7 +37,7 @@ function systemPrompt(mcpTools: LoadedMcpTools, workspaceRoot?: string): string 
     "Tools available:",
     "- `read_file(path, startLine?, endLine?)` - read a text file. Prefer narrow ranges for large files.",
     "- `write_file(path, content)` - overwrite a file. Classified as write risk; the user must approve each call.",
-    "- `bash(command, timeoutMs?)` - run a shell command in the workspace. Commands are conservatively classified for write, delete, network, package-install, git, long-running-process, and external-integration risk; requires approval. `sudo` is forbidden.",
+    "- `bash(command, timeoutMs?)` - run a shell command in the workspace. Commands are conservatively classified by risk category before execution; shell execution requires approval. `sudo` is forbidden.",
     "- `grep(pattern, path?, glob?, caseInsensitive?)` - ripgrep-style search. Use this before reading large files.",
     "- `glob(pattern, path?)` - list files matching a glob like `**/*.ts`.",
     "- `list_memory(limit?)` - list project-wide memories that apply across sessions.",
