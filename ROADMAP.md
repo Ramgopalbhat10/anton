@@ -125,6 +125,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [] Add mobile-friendly workspace and worklog controls.
 - [] Add accessible keyboard navigation for settings, sessions, worklog, approvals, and message actions.
 - [✔️] Split chat UI components into feature-oriented folders.
+- [✔️] Split oversized feature components into focused files.
 - [] Replace duplicate workspace/settings UI paths with one canonical Settings implementation.
 - [] Clean up layout formatting and UI polish issues that are not core behavior.
 
