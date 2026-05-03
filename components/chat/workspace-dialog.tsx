@@ -11,45 +11,18 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-
-const ACTIVE_PROJECT_KEY = "anton.activeProjectId";
-
-type WorkspaceSettings = {
-  localWorkspacesRoot: string | null;
-  resolvedLocalWorkspacesRoot: string | null;
-  source: "database" | "env" | "default";
-  exists: boolean;
-};
-
-type GitHubRepository = {
-  id: number;
-  installationId: number;
-  name: string;
-  fullName: string;
-  owner: string;
-  private: boolean;
-  defaultBranch: string;
-  htmlUrl: string;
-  clonedProjectId: string | null;
-  cloneStatus: "cloning" | "ready" | "error" | null;
-};
-
-export type ProjectSummary = {
-  id: string;
-  provider: "github";
-  githubRepoId: number;
-  githubInstallationId: number;
-  owner: string;
-  name: string;
-  fullName: string;
-  defaultBranch: string;
-  cloneUrl: string;
-  localPath: string;
-  status: "cloning" | "ready" | "error";
-  lastError: string | null;
-  createdAt: number;
-  updatedAt: number;
-};
+import type {
+  GitHubRepositorySummary,
+  ProjectSummary,
+  WorkspaceSettingsSummary,
+} from "@/src/lib/api-types";
+import {
+  errorMessage,
+  getJson,
+  jsonHeaders,
+  requestJson,
+} from "@/src/lib/client-fetch";
+import { readActiveProjectId, writeActiveProjectId } from "./active-project";
 
 interface WorkspaceDialogProps {
   open: boolean;
@@ -64,9 +37,9 @@ export function WorkspaceDialog({
   activeProjectId,
   onActiveProjectChange,
 }: WorkspaceDialogProps) {
-  const [settings, setSettings] = useState<WorkspaceSettings | null>(null);
+  const [settings, setSettings] = useState<WorkspaceSettingsSummary | null>(null);
   const [rootDraft, setRootDraft] = useState("");
-  const [repositories, setRepositories] = useState<GitHubRepository[]>([]);
+  const [repositories, setRepositories] = useState<GitHubRepositorySummary[]>([]);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -76,21 +49,16 @@ export function WorkspaceDialog({
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [settingsRes, projectsRes, reposRes] = await Promise.all([
-        fetch("/api/workspace-settings", { cache: "no-store" }),
-        fetch("/api/projects", { cache: "no-store" }),
-        fetch("/api/github/repositories", { cache: "no-store" }),
+      const [settingsData, projectsData, reposData] = await Promise.all([
+        getJson<{ settings: WorkspaceSettingsSummary }>(
+          "/api/workspace-settings",
+        ),
+        getJson<{ projects: ProjectSummary[] }>("/api/projects"),
+        getJson<{ repositories: GitHubRepositorySummary[] }>(
+          "/api/github/repositories",
+        ).catch(() => null),
       ]);
 
-      if (!settingsRes.ok) throw new Error(`Settings HTTP ${settingsRes.status}`);
-      if (!projectsRes.ok) throw new Error(`Projects HTTP ${projectsRes.status}`);
-
-      const settingsData = (await settingsRes.json()) as {
-        settings: WorkspaceSettings;
-      };
-      const projectsData = (await projectsRes.json()) as {
-        projects: ProjectSummary[];
-      };
       setSettings(settingsData.settings);
       setRootDraft(
         settingsData.settings.localWorkspacesRoot ??
@@ -98,18 +66,10 @@ export function WorkspaceDialog({
           "",
       );
       setProjects(projectsData.projects);
-
-      if (reposRes.ok) {
-        const reposData = (await reposRes.json()) as {
-          repositories: GitHubRepository[];
-        };
-        setRepositories(reposData.repositories);
-      } else {
-        setRepositories([]);
-      }
+      setRepositories(reposData?.repositories ?? []);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load workspaces");
+      setError(errorMessage(err, "Failed to load workspaces"));
     } finally {
       setLoading(false);
     }
@@ -133,54 +93,45 @@ export function WorkspaceDialog({
   const saveRoot = async () => {
     setSaving(true);
     try {
-      const res = await fetch("/api/workspace-settings", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ localWorkspacesRoot: rootDraft.trim() || null }),
-      });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(data?.error ?? `HTTP ${res.status}`);
-      }
+      await requestJson<{ settings: WorkspaceSettingsSummary }>(
+        "/api/workspace-settings",
+        {
+          method: "PATCH",
+          headers: jsonHeaders(),
+          body: JSON.stringify({ localWorkspacesRoot: rootDraft.trim() || null }),
+        },
+      );
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save root");
+      setError(errorMessage(err, "Failed to save root"));
     } finally {
       setSaving(false);
     }
   };
 
-  const cloneRepo = async (repo: GitHubRepository) => {
+  const cloneRepo = async (repo: GitHubRepositorySummary) => {
     setCloningRepoId(repo.id);
     try {
-      const res = await fetch("/api/projects", {
+      const data = await requestJson<{ project: ProjectSummary }>("/api/projects", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: jsonHeaders(),
         body: JSON.stringify({
           repositoryId: repo.id,
           installationId: repo.installationId,
         }),
       });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(data?.error ?? `HTTP ${res.status}`);
-      }
-      const data = (await res.json()) as { project: ProjectSummary };
       selectProject(data.project.id);
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Clone failed");
+      setError(errorMessage(err, "Clone failed"));
     } finally {
       setCloningRepoId(null);
     }
   };
 
   const selectProject = (projectId: string) => {
-    localStorage.setItem(ACTIVE_PROJECT_KEY, projectId);
+    writeActiveProjectId(projectId);
     onActiveProjectChange(projectId);
-    window.dispatchEvent(
-      new CustomEvent("anton-active-project-change", { detail: projectId }),
-    );
   };
 
   if (!open) return null;
@@ -334,7 +285,11 @@ export function WorkspaceDialog({
                           type="button"
                           size="sm"
                           variant="outline"
-                          onClick={() => selectProject(repo.clonedProjectId as string)}
+                          onClick={() => {
+                            if (repo.clonedProjectId) {
+                              selectProject(repo.clonedProjectId);
+                            }
+                          }}
                         >
                           Select
                         </Button>
@@ -365,10 +320,7 @@ export function WorkspaceDialog({
   );
 }
 
-export function readActiveProjectId(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(ACTIVE_PROJECT_KEY);
-}
+export { readActiveProjectId };
 
 function PanelTitle({
   icon,

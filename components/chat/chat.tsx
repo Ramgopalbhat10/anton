@@ -23,9 +23,12 @@ import { Worklog } from "./worklog";
 import { useSessionStore } from "./session-store";
 import { useSidebar } from "./session-sidebar";
 import {
+  ACTIVE_PROJECT_EVENT,
+  isActiveProjectChangeEvent,
   readActiveProjectId,
-  type ProjectSummary,
-} from "./workspace-dialog";
+} from "./active-project";
+import type { ProjectSummary } from "@/src/lib/api-types";
+import { getJson } from "@/src/lib/client-fetch";
 import { SettingsDialog } from "./settings-dialog";
 
 interface ChatProps {
@@ -123,13 +126,12 @@ export function Chat({
   useEffect(() => {
     const onActiveProjectChange = (event: Event) => {
       if (initialProjectId) return;
-      const next = (event as CustomEvent<string>).detail;
-      setActiveProjectId(next);
+      if (isActiveProjectChangeEvent(event)) setActiveProjectId(event.detail);
     };
-    window.addEventListener("anton-active-project-change", onActiveProjectChange);
+    window.addEventListener(ACTIVE_PROJECT_EVENT, onActiveProjectChange);
     return () =>
       window.removeEventListener(
-        "anton-active-project-change",
+        ACTIVE_PROJECT_EVENT,
         onActiveProjectChange,
       );
   }, [initialProjectId]);
@@ -137,12 +139,14 @@ export function Chat({
   useEffect(() => {
     if (!effectiveProjectId) return;
     const loadProject = async () => {
-      const res = await fetch(`/api/projects/${effectiveProjectId}`, {
-        cache: "no-store",
-      });
-      if (!res.ok) return;
-      const data = (await res.json()) as { project: ProjectSummary };
-      setProject(data.project);
+      try {
+        const data = await getJson<{ project: ProjectSummary }>(
+          `/api/projects/${effectiveProjectId}`,
+        );
+        setProject(data.project);
+      } catch {
+        setProject(null);
+      }
     };
     void loadProject();
   }, [effectiveProjectId]);

@@ -15,9 +15,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  Clock3,
   Loader2,
-  TerminalSquare,
   XCircle,
 } from "lucide-react";
 
@@ -32,6 +30,11 @@ import {
   type AntonUIMessage,
   type ToolTraceEntry,
 } from "@/src/lib/trace";
+import {
+  previewToolInput,
+  safeStringify,
+  traceToolStateMeta,
+} from "./tool-display";
 
 const DISCLOSURE_ANIMATION =
   "overflow-hidden transition-[max-height,opacity] duration-300 ease-in-out will-change-[max-height,opacity] motion-reduce:transition-none";
@@ -242,7 +245,7 @@ function ToolRow({
   entry: ToolTraceEntry;
   onApproval: ChatAddToolApproveResponseFunction;
 }) {
-  const meta = toolStateMeta(entry.state);
+  const meta = traceToolStateMeta(entry.state);
   const approvalId =
     entry.state === "approval-requested" &&
     typeof entry.approvalId === "string"
@@ -251,7 +254,7 @@ function ToolRow({
   const needsApproval = approvalId !== undefined;
   const showDetails = entry.name === "bash";
   const title = toolTitle(entry);
-  const preview = previewInput(entry.input);
+  const preview = previewToolInput(entry.input);
   const showPreview = preview.length > 0 && preview !== title.target;
   return (
     <Disclosure
@@ -577,66 +580,8 @@ function eventMeta(event: AntonActivityEvent) {
   return { Icon: CheckCircle2, iconClass: "text-emerald-400" };
 }
 
-function toolStateMeta(state: ToolTraceEntry["state"]) {
-  switch (state) {
-    case "input-streaming":
-      return {
-        label: "streaming",
-        Icon: Loader2,
-        iconClass: "animate-spin text-sky-400",
-        textClass: "text-sky-400",
-      };
-    case "input-available":
-      return {
-        label: "running",
-        Icon: Clock3,
-        iconClass: "text-sky-400",
-        textClass: "text-sky-400",
-      };
-    case "approval-requested":
-      return {
-        label: "approval",
-        Icon: AlertCircle,
-        iconClass: "text-amber-400",
-        textClass: "text-amber-400",
-      };
-    case "approval-responded":
-      return {
-        label: "approved",
-        Icon: CheckCircle2,
-        iconClass: "text-muted-foreground",
-        textClass: "text-muted-foreground",
-      };
-    case "output-available":
-      return {
-        label: "done",
-        Icon: iconForTool,
-        iconClass: "text-emerald-400",
-        textClass: "text-emerald-400",
-      };
-    case "output-error":
-      return {
-        label: "error",
-        Icon: XCircle,
-        iconClass: "text-destructive",
-        textClass: "text-destructive",
-      };
-    case "output-denied":
-      return {
-        label: "denied",
-        Icon: XCircle,
-        iconClass: "text-destructive",
-        textClass: "text-destructive",
-      };
-  }
-}
-
-function iconForTool({ className }: { className?: string }) {
-  return <TerminalSquare className={className} />;
-}
-
 function toolTitle(entry: ToolTraceEntry): { verb: string; target?: string } {
-  const target = previewInput(entry.input);
+  const target = previewToolInput(entry.input);
   switch (entry.name) {
     case "bash":
       return { verb: "Ran", target };
@@ -653,34 +598,6 @@ function toolTitle(entry: ToolTraceEntry): { verb: string; target?: string } {
         verb: entry.activity?.label ?? entry.name,
         target: target.length > 0 ? target : undefined,
       };
-  }
-}
-
-function previewInput(input: unknown): string {
-  if (typeof input === "object" && input !== null) {
-    const record = input as Record<string, unknown>;
-    const command = pickString(record, "command");
-    const path = pickString(record, "path");
-    const pattern = pickString(record, "pattern");
-    if (command) return command;
-    if (path) return path;
-    if (pattern) return pattern;
-  }
-  return safeStringify(input);
-}
-
-function pickString(record: Record<string, unknown>, key: string): string | undefined {
-  const value = record[key];
-  return typeof value === "string" ? value : undefined;
-}
-
-function safeStringify(value: unknown): string {
-  if (value === undefined) return "";
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
   }
 }
 

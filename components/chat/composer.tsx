@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/select";
 import type { ModelId } from "@/src/lib/models";
 import type { PermissionMode } from "@/src/agent/permissions";
-import type { ProjectSummary } from "./workspace-dialog";
+import type { ProjectSummary } from "@/src/lib/api-types";
 import { ModelPicker } from "./model-picker";
 
 interface ComposerProps {
