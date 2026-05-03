@@ -3,8 +3,9 @@ import {
   stepCountIs,
   type LanguageModelUsage,
   type ModelMessage,
-  type UIMessage,
-  type UITools,
+  type TextStreamPart,
+  type ToolSet,
+  type FinishReason,
 } from "ai";
 import { openrouter, DEFAULT_MODEL } from "@/src/lib/providers";
 import { listMemories } from "@/src/db/queries";
@@ -123,24 +124,49 @@ function projectSkillPromptLines(workspaceRoot?: string): string[] {
   return lines;
 }
 
-export type AntonUIMessage = UIMessage<
-  never,
-  never,
-  UITools
->;
-
 export async function runAgent({
   messages,
   model,
   workspaceRoot,
   permissionMode,
+  onStepStart,
+  onStepFinish,
+  onToolCallStart,
+  onToolCallFinish,
+  onStreamPart,
+  onError,
+  onAbort,
   onFinish,
 }: {
   messages: ModelMessage[];
   model?: string;
   workspaceRoot?: string;
   permissionMode?: PermissionMode;
-  onFinish?: (result: { totalUsage: LanguageModelUsage }) => void;
+  onStepStart?: (event: { stepNumber: number }) => void;
+  onStepFinish?: (event: { stepNumber: number }) => void;
+  onToolCallStart?: (event: {
+    stepNumber: number | undefined;
+    toolCallId: string;
+    toolName: string;
+    input: unknown;
+  }) => void;
+  onToolCallFinish?: (event: {
+    stepNumber: number | undefined;
+    toolCallId: string;
+    toolName: string;
+    input: unknown;
+    success: boolean;
+    durationMs: number;
+    output?: unknown;
+    error?: unknown;
+  }) => void;
+  onStreamPart?: (part: TextStreamPart<ToolSet>) => void;
+  onError?: (error: unknown) => void;
+  onAbort?: () => void;
+  onFinish?: (result: {
+    totalUsage: LanguageModelUsage;
+    finishReason: FinishReason;
+  }) => void;
 }) {
   const mcpTools = await loadMcpTools(workspaceRoot);
   let closed = false;
@@ -151,23 +177,72 @@ export async function runAgent({
   };
 
   const selectedModel = model ?? DEFAULT_MODEL;
+  const tools = createAntonTools({
+    model: selectedModel,
+    mcpTools: mcpTools.tools,
+    workspaceRoot,
+    permissionMode,
+  });
 
   return streamText({
     model: openrouter(selectedModel),
     system: systemPrompt(mcpTools, workspaceRoot),
     messages,
-    tools: createAntonTools({
-      model: selectedModel,
-      mcpTools: mcpTools.tools,
-      workspaceRoot,
-      permissionMode,
-    }),
+    tools,
     stopWhen: stepCountIs(MAX_STEPS),
-    onFinish: async ({ totalUsage }) => {
-      onFinish?.({ totalUsage });
+    providerOptions: {
+      openrouter: {
+        reasoning: { enabled: true, effort: "low", exclude: false },
+      },
+    },
+    experimental_transform: onStreamPart
+      ? () =>
+          new TransformStream({
+            transform(part, controller) {
+              onStreamPart(part as TextStreamPart<ToolSet>);
+              controller.enqueue(part);
+            },
+          })
+      : undefined,
+    experimental_onStepStart: ({ stepNumber }) => {
+      onStepStart?.({ stepNumber });
+    },
+    onStepFinish: ({ stepNumber }) => {
+      onStepFinish?.({ stepNumber });
+    },
+    experimental_onToolCallStart: ({ stepNumber, toolCall }) => {
+      onToolCallStart?.({
+        stepNumber,
+        toolCallId: toolCall.toolCallId,
+        toolName: toolCall.toolName,
+        input: toolCall.input,
+      });
+    },
+    experimental_onToolCallFinish: (event) => {
+      onToolCallFinish?.({
+        stepNumber: event.stepNumber,
+        toolCallId: event.toolCall.toolCallId,
+        toolName: event.toolCall.toolName,
+        input: event.toolCall.input,
+        success: event.success,
+        durationMs: event.durationMs,
+        output: event.success ? event.output : undefined,
+        error: event.success ? undefined : event.error,
+      });
+    },
+    onFinish: async ({ totalUsage, finishReason }) => {
+      onFinish?.({ totalUsage, finishReason });
       await closeMcpTools();
     },
-    onAbort: closeMcpTools,
-    onError: closeMcpTools,
+    onAbort: async () => {
+      onAbort?.();
+      await closeMcpTools();
+    },
+    onError: async ({ error }) => {
+      onError?.(error);
+      await closeMcpTools();
+    },
   });
 }
+
+export type { AntonUIMessage } from "@/src/lib/trace";

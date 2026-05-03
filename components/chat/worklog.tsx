@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { getToolName, isToolUIPart, type ChatAddToolApproveResponseFunction } from "ai";
+import type { ChatAddToolApproveResponseFunction } from "ai";
 import {
   AlertCircle,
   CheckCircle2,
@@ -12,30 +12,17 @@ import {
   XCircle,
 } from "lucide-react";
 
-import type { AntonUIMessage } from "@/src/agent/loop";
+import {
+  getToolTraceEntries,
+  type AntonUIMessage,
+  type ToolTraceEntry,
+  type ToolState,
+} from "@/src/lib/trace";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { DiffView } from "./diff-view";
 
-type ToolState =
-  | "input-streaming"
-  | "input-available"
-  | "approval-requested"
-  | "approval-responded"
-  | "output-available"
-  | "output-error"
-  | "output-denied";
-
-export type WorklogEntry = {
-  id: string;
-  sourceMessageId: string;
-  name: string;
-  state: ToolState;
-  input: unknown;
-  output: unknown;
-  errorText: string | undefined;
-  approvalId: string | undefined;
-};
+export type WorklogEntry = ToolTraceEntry;
 
 interface WorklogProps {
   messages: AntonUIMessage[];
@@ -115,27 +102,7 @@ export function Worklog({
 }
 
 export function getWorklogEntries(messages: AntonUIMessage[]): WorklogEntry[] {
-  const entries: WorklogEntry[] = [];
-  for (const message of messages) {
-    message.parts.forEach((part, index) => {
-      if (!isToolUIPart(part)) return;
-      const state = part.state as ToolState;
-      entries.push({
-        id: `${message.id}:${index}`,
-        sourceMessageId: message.id,
-        name: String(getToolName(part)),
-        state,
-        input: "input" in part ? part.input : undefined,
-        output: "output" in part ? part.output : undefined,
-        errorText: "errorText" in part ? part.errorText : undefined,
-        approvalId:
-          state === "approval-requested" && "approval" in part && part.approval
-            ? part.approval.id
-            : undefined,
-      });
-    });
-  }
-  return entries;
+  return getToolTraceEntries(messages);
 }
 
 function WorklogRow({

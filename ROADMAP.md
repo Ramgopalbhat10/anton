@@ -1,6 +1,6 @@
 # Anton Roadmap
 
-Last reviewed: 2026-05-02
+Last reviewed: 2026-05-03
 
 This roadmap is the working backlog for turning Anton from a learning harness into a reliable local AI coding agent. Use each checklist item as the source for future GitHub issues. Mark finished items as `[✔️]` after the related GitHub issue or PR is resolved.
 
@@ -43,6 +43,10 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Added active project selection backed by local storage.
 - [✔️] Added collapsible sidebar.
 - [✔️] Added Worklog panel for tool activity, approvals, inputs, outputs, and diffs.
+- [✔️] Added persistent run metadata and ordered run events for `/api/chat` executions.
+- [✔️] Added Devin/Codex-style inline reasoning and activity traces above assistant responses.
+- [✔️] Added provider reasoning streaming support while filtering trace data out of model replay.
+- [✔️] Updated Worklog and inline traces to share normalized trace helpers for consistent tool, approval, and timing UI.
 
 ## Phase 1: Trust Boundaries And Safety
 
@@ -72,15 +76,17 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 
 ## Phase 3: Durable Runs And Audit Trail
 
-- [] Add `runs` table for each `/api/chat` execution.
+- [✔️] Add `runs` table for each `/api/chat` execution.
+- [✔️] Add durable `run_events` for ordered reasoning, tool, approval, progress, and error trace rows.
 - [] Add `tool_calls` table with tool name, input summary, approval decision, output summary, timestamps, exit code, and error state.
 - [] Add `approvals` table or structured approval fields tied to tool calls.
-- [] Persist Worklog from database state instead of reconstructing only from message parts.
+- [] Persist Worklog from database state instead of reconstructing from message parts and trace data.
 - [] Stop replacing entire message transcripts on every finish; append messages or use optimistic concurrency.
 - [] Add concurrency protection for two browser tabs writing the same session.
 - [] Add indexes for `messages.session_id`, `sessions.updated_at`, `sessions.project_id`, `projects.github_repo_id`, and `memories.updated_at`.
-- [] Track model, provider, usage, finish reason, step count, and abort/error status for each run.
-- [] Add database migrations for all run and tool-call persistence changes.
+- [✔️] Track model, usage, finish reason, and abort/error status for each run.
+- [✔️] Add database migrations for run and run-event persistence changes.
+- [] Track provider, step count, and cost metadata for each run.
 
 ## Phase 4: Agent Loop Quality
 

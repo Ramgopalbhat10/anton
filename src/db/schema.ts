@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const workspaceSettings = sqliteTable("workspace_settings", {
   id: text("id").primaryKey(),
@@ -78,10 +78,62 @@ export const messages = sqliteTable("messages", {
     .references(() => sessions.id, { onDelete: "cascade" }),
   role: text("role", { enum: ["user", "assistant", "system"] }).notNull(),
   parts: text("parts", { mode: "json" }).notNull(),
+  metadata: text("metadata", { mode: "json" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .default(sql`(unixepoch('now') * 1000)`),
 });
+
+export const runs = sqliteTable(
+  "runs",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    model: text("model").notNull(),
+    status: text("status", {
+      enum: ["running", "completed", "error", "aborted"],
+    }).notNull(),
+    startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
+    finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
+    durationMs: integer("duration_ms"),
+    totalTokens: integer("total_tokens"),
+    finishReason: text("finish_reason"),
+  },
+  (table) => [
+    index("runs_session_id_idx").on(table.sessionId),
+    index("runs_started_at_idx").on(table.startedAt),
+  ],
+);
+
+export const runEvents = sqliteTable(
+  "run_events",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => runs.id, { onDelete: "cascade" }),
+    sequence: integer("sequence").notNull(),
+    kind: text("kind", {
+      enum: ["step", "reasoning", "tool", "approval", "error", "progress"],
+    }).notNull(),
+    status: text("status", {
+      enum: ["running", "completed", "waiting", "error", "denied"],
+    }).notNull(),
+    label: text("label").notNull(),
+    summary: text("summary"),
+    startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
+    finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
+    durationMs: integer("duration_ms"),
+    toolCallId: text("tool_call_id"),
+    details: text("details", { mode: "json" }),
+  },
+  (table) => [
+    index("run_events_run_id_sequence_idx").on(table.runId, table.sequence),
+    index("run_events_tool_call_id_idx").on(table.toolCallId),
+  ],
+);
 
 export const memories = sqliteTable("memories", {
   id: text("id").primaryKey(),
@@ -104,5 +156,9 @@ export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
 export type Message = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
+export type Run = typeof runs.$inferSelect;
+export type NewRun = typeof runs.$inferInsert;
+export type RunEvent = typeof runEvents.$inferSelect;
+export type NewRunEvent = typeof runEvents.$inferInsert;
 export type Memory = typeof memories.$inferSelect;
 export type NewMemory = typeof memories.$inferInsert;

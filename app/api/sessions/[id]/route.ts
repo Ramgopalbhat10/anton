@@ -6,7 +6,7 @@ import {
   loadMessages,
   renameSession,
 } from "@/src/db/queries";
-import type { AntonUIMessage } from "@/src/agent/loop";
+import type { AntonUIMessage } from "@/src/lib/trace";
 
 export const runtime = "nodejs";
 
