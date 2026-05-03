@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import {
   DefaultChatTransport,
@@ -20,13 +20,8 @@ import { WorkspaceRequired } from "./workspace-required";
 import { Worklog } from "@/components/features/run-trace/worklog";
 import { useSessionStore } from "@/components/features/sessions/session-store";
 import { useSidebar } from "@/components/features/sessions/session-sidebar";
-import {
-  ACTIVE_PROJECT_EVENT,
-  isActiveProjectChangeEvent,
-  readActiveProjectId,
-} from "@/components/features/settings/active-project";
-import type { ProjectSummary } from "@/src/lib/api-types";
-import { getJson } from "@/src/lib/client-fetch";
+import { useActiveProjectIdState } from "@/src/lib/client-state/active-project";
+import { useProjectSummary } from "@/components/features/projects/hooks";
 import { SettingsDialog } from "@/components/features/settings/settings-dialog";
 
 interface ChatProps {
@@ -51,10 +46,10 @@ export function Chat({
   const persistedRef = useRef(sessionIdProp !== undefined);
 
   const [sessionId] = useState<string>(() => sessionIdProp ?? generateChatId());
-  const [activeProjectId, setActiveProjectId] = useState<string | null>(
+  const [activeProjectId, setActiveProjectId] = useActiveProjectIdState(
     initialProjectId,
+    { listen: initialProjectId === null },
   );
-  const [project, setProject] = useState<ProjectSummary | null>(null);
   const [worklogOpen, setWorklogOpen] = useState(false);
   const [mobileWorklogOpen, setMobileWorklogOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -63,6 +58,7 @@ export function Chat({
   );
   const [permissionMode, setPermissionMode] = useState<PermissionMode>("auto-review");
   const effectiveProjectId = initialProjectId ?? activeProjectId;
+  const project = useProjectSummary(effectiveProjectId);
 
   const transport = useMemo(
     () =>
@@ -112,42 +108,6 @@ export function Chat({
       setMobileWorklogOpen((open) => !open);
     }
   };
-
-  useEffect(() => {
-    if (initialProjectId) return;
-    const storedProjectId = readActiveProjectId();
-    // Local storage is client-only; syncing after mount keeps hydration stable.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (storedProjectId) setActiveProjectId(storedProjectId);
-  }, [initialProjectId]);
-
-  useEffect(() => {
-    const onActiveProjectChange = (event: Event) => {
-      if (initialProjectId) return;
-      if (isActiveProjectChangeEvent(event)) setActiveProjectId(event.detail);
-    };
-    window.addEventListener(ACTIVE_PROJECT_EVENT, onActiveProjectChange);
-    return () =>
-      window.removeEventListener(
-        ACTIVE_PROJECT_EVENT,
-        onActiveProjectChange,
-      );
-  }, [initialProjectId]);
-
-  useEffect(() => {
-    if (!effectiveProjectId) return;
-    const loadProject = async () => {
-      try {
-        const data = await getJson<{ project: ProjectSummary }>(
-          `/api/projects/${effectiveProjectId}`,
-        );
-        setProject(data.project);
-      } catch {
-        setProject(null);
-      }
-    };
-    void loadProject();
-  }, [effectiveProjectId]);
 
   return (
     <div className="flex min-w-0 max-w-full flex-1 flex-col overflow-hidden bg-background">

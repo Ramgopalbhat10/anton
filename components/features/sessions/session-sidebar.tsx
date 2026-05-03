@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { SettingsDialog } from "@/components/features/settings/settings-dialog";
-import { readActiveProjectId } from "@/components/features/settings/active-project";
+import { useActiveProjectIdState } from "@/src/lib/client-state/active-project";
 
 import { SessionRow } from "./session-row";
 import { useSessionStore } from "./session-store";
@@ -27,9 +27,7 @@ export function SessionSidebar() {
   const activeId = params?.sessionId;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const { open, setOpen } = useSidebar();
-  const [activeProjectId, setActiveProjectId] = useState<string | null>(() =>
-    readActiveProjectId(),
-  );
+  const [activeProjectId, setActiveProjectId] = useActiveProjectIdState();
 
   return (
     <aside

@@ -1,85 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import type { SkillDocument, SkillSummary } from "@/src/lib/api-types";
-import { errorMessage, getJson } from "@/src/lib/client-fetch";
 import {
   EmptyState,
   ErrorBanner,
   LoadingState,
 } from "@/components/shared/feedback-states";
 
+import { useSkills } from "./hooks";
+
 type SkillsBrowserVariant = "settings" | "compact";
-
-export function useSkills(active: boolean) {
-  const [skills, setSkills] = useState<SkillSummary[]>([]);
-  const [warnings, setWarnings] = useState<string[]>([]);
-  const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
-  const [selectedSkill, setSelectedSkill] = useState<SkillDocument | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [skillLoading, setSkillLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!active) return;
-    const loadSkills = async () => {
-      setLoading(true);
-      try {
-        const data = await getJson<{
-          skills: SkillSummary[];
-          warnings: string[];
-        }>("/api/skills");
-        setSkills(data.skills);
-        setWarnings(data.warnings);
-        setSelectedSlug((current) =>
-          current && data.skills.some((skill) => skill.slug === current)
-            ? current
-            : data.skills[0]?.slug ?? null,
-        );
-        setError(null);
-      } catch (err) {
-        setError(errorMessage(err, "Failed to load skills"));
-      } finally {
-        setLoading(false);
-      }
-    };
-    void loadSkills();
-  }, [active]);
-
-  useEffect(() => {
-    if (!selectedSlug) return;
-    const loadSkill = async () => {
-      setSkillLoading(true);
-      try {
-        const data = await getJson<{ skill: SkillDocument }>(
-          `/api/skills/${encodeURIComponent(selectedSlug)}`,
-        );
-        setSelectedSkill(data.skill);
-        setError(null);
-      } catch (err) {
-        setSelectedSkill(null);
-        setError(errorMessage(err, "Failed to load skill"));
-      } finally {
-        setSkillLoading(false);
-      }
-    };
-    void loadSkill();
-  }, [selectedSlug]);
-
-  return {
-    skills,
-    warnings,
-    selectedSlug,
-    selectedSkill,
-    loading,
-    skillLoading,
-    error,
-    setSelectedSlug,
-  };
-}
 
 export function SkillsBrowser({
   active,
