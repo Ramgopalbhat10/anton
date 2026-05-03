@@ -34,7 +34,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useSessionStore, type SessionSummary } from "./session-store";
 import { SettingsDialog } from "./settings-dialog";
-import { readActiveProjectId } from "./workspace-dialog";
+import { readActiveProjectId } from "./active-project";
 
 type SidebarContextValue = {
   open: boolean;

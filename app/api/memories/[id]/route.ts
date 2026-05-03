@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { deleteMemory, updateMemory } from "@/src/db/queries";
-import type { Memory } from "@/src/db/schema";
+import { serializeMemory } from "@/src/lib/api-serializers";
 
 export const runtime = "nodejs";
 
@@ -38,13 +38,4 @@ export async function DELETE(_req: Request, { params }: Ctx) {
     return Response.json({ error: "memory not found" }, { status: 404 });
   }
   return new Response(null, { status: 204 });
-}
-
-function serializeMemory(memory: Memory) {
-  return {
-    id: memory.id,
-    content: memory.content,
-    createdAt: memory.createdAt.getTime(),
-    updatedAt: memory.updatedAt.getTime(),
-  };
 }

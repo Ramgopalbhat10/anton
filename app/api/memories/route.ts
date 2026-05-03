@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { createMemory, listMemories } from "@/src/db/queries";
-import type { Memory } from "@/src/db/schema";
+import { serializeMemory } from "@/src/lib/api-serializers";
 
 export const runtime = "nodejs";
 
@@ -31,13 +31,4 @@ export async function POST(req: Request) {
     { memory: serializeMemory(createMemory(parsed.data.content)) },
     { status: 201 },
   );
-}
-
-function serializeMemory(memory: Memory) {
-  return {
-    id: memory.id,
-    content: memory.content,
-    createdAt: memory.createdAt.getTime(),
-    updatedAt: memory.updatedAt.getTime(),
-  };
 }

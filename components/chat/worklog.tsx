@@ -3,10 +3,7 @@
 import { useState } from "react";
 import type { ChatAddToolApproveResponseFunction } from "ai";
 import {
-  AlertCircle,
   CheckCircle2,
-  Clock3,
-  Loader2,
   TerminalSquare,
   X,
   XCircle,
@@ -16,11 +13,18 @@ import {
   getToolTraceEntries,
   type AntonUIMessage,
   type ToolTraceEntry,
-  type ToolState,
 } from "@/src/lib/trace";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { DiffView } from "./diff-view";
+import {
+  isOkWriteFileOutput,
+  pickString,
+  previewToolInput,
+  safeStringify,
+  toolStateMeta,
+  type WriteFileOkOutput,
+} from "./tool-display";
 
 export type WorklogEntry = ToolTraceEntry;
 
@@ -100,7 +104,6 @@ export function Worklog({
     </aside>
   );
 }
-
 export function getWorklogEntries(messages: AntonUIMessage[]): WorklogEntry[] {
   return getToolTraceEntries(messages);
 }
@@ -114,7 +117,7 @@ function WorklogRow({
   active: boolean;
   onSelect: () => void;
 }) {
-  const state = stateMeta(entry.state);
+  const state = toolStateMeta(entry.state);
   return (
     <button
       type="button"
@@ -139,13 +142,12 @@ function WorklogRow({
           </span>
         </div>
         <p className="truncate font-mono text-[10px] text-muted-foreground">
-          {previewInput(entry.input)}
+          {previewToolInput(entry.input)}
         </p>
       </div>
     </button>
   );
 }
-
 function WorklogDetail({
   entry,
   onApproval,
@@ -153,7 +155,7 @@ function WorklogDetail({
   entry: WorklogEntry;
   onApproval: ChatAddToolApproveResponseFunction;
 }) {
-  const state = stateMeta(entry.state);
+  const state = toolStateMeta(entry.state);
   const showWriteDiff =
     entry.name === "write_file" &&
     entry.state === "output-available" &&
@@ -241,102 +243,4 @@ function LogBlock({
       </pre>
     </div>
   );
-}
-
-function stateMeta(state: ToolState) {
-  switch (state) {
-    case "input-streaming":
-      return {
-        label: "streaming",
-        Icon: Loader2,
-        iconClass: "animate-spin text-sky-400",
-        textClass: "text-sky-400",
-      };
-    case "input-available":
-      return {
-        label: "running",
-        Icon: Clock3,
-        iconClass: "text-sky-400",
-        textClass: "text-sky-400",
-      };
-    case "approval-requested":
-      return {
-        label: "approval",
-        Icon: AlertCircle,
-        iconClass: "text-amber-400",
-        textClass: "text-amber-400",
-      };
-    case "approval-responded":
-      return {
-        label: "approved",
-        Icon: CheckCircle2,
-        iconClass: "text-muted-foreground",
-        textClass: "text-muted-foreground",
-      };
-    case "output-available":
-      return {
-        label: "done",
-        Icon: CheckCircle2,
-        iconClass: "text-emerald-400",
-        textClass: "text-emerald-400",
-      };
-    case "output-error":
-      return {
-        label: "error",
-        Icon: XCircle,
-        iconClass: "text-destructive",
-        textClass: "text-destructive",
-      };
-    case "output-denied":
-      return {
-        label: "denied",
-        Icon: XCircle,
-        iconClass: "text-destructive",
-        textClass: "text-destructive",
-      };
-  }
-}
-
-function previewInput(input: unknown): string {
-  if (typeof input === "object" && input !== null) {
-    const path = pickString(input, "path");
-    const command = pickString(input, "command");
-    const pattern = pickString(input, "pattern");
-    return command ?? path ?? pattern ?? safeStringify(input);
-  }
-  return safeStringify(input);
-}
-
-type WriteFileOkOutput = {
-  ok: true;
-  path?: string;
-  bytesWritten?: number;
-  existed?: boolean;
-  previousContent?: string;
-  previousTruncated?: boolean;
-};
-
-function isOkWriteFileOutput(value: unknown): value is WriteFileOkOutput {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "ok" in value &&
-    (value as { ok: unknown }).ok === true
-  );
-}
-
-function pickString(value: unknown, key: string): string | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const v = (value as Record<string, unknown>)[key];
-  return typeof v === "string" ? v : undefined;
-}
-
-function safeStringify(value: unknown): string {
-  if (value === undefined) return "";
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
 }
