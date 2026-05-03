@@ -6,11 +6,7 @@ import {
   DefaultChatTransport,
   lastAssistantMessageIsCompleteWithApprovalResponses,
 } from "ai";
-import {
-  PanelLeftOpen,
-  PanelRightClose,
-  PanelRightOpen,
-} from "lucide-react";
+import { PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 
 import { DEFAULT_MODEL_ID, type ModelId } from "@/src/lib/models";
 import type { PermissionMode } from "@/src/agent/permissions";
@@ -19,6 +15,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { MessageList } from "./message-list";
 import { Composer } from "./composer";
+import { generateChatId } from "./chat-utils";
+import { WorkspaceRequired } from "./workspace-required";
 import { Worklog } from "@/components/features/run-trace/worklog";
 import { useSessionStore } from "@/components/features/sessions/session-store";
 import { useSidebar } from "@/components/features/sessions/session-sidebar";
@@ -52,7 +50,7 @@ export function Chat({
   const sidebar = useSidebar();
   const persistedRef = useRef(sessionIdProp !== undefined);
 
-  const [sessionId] = useState<string>(() => sessionIdProp ?? generateId());
+  const [sessionId] = useState<string>(() => sessionIdProp ?? generateChatId());
   const [activeProjectId, setActiveProjectId] = useState<string | null>(
     initialProjectId,
   );
@@ -190,11 +188,7 @@ export function Chat({
         </div>
       </header>
 
-      <div
-        className={cn(
-          "relative flex min-h-0 max-w-full flex-1 overflow-hidden",
-        )}
-      >
+      <div className="relative flex min-h-0 max-w-full flex-1 overflow-hidden">
         <section className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden">
           <MessageList
             messages={messages}
@@ -268,35 +262,5 @@ export function Chat({
       />
     </div>
   );
-}
-
-function WorkspaceRequired({
-  onOpenSettings,
-}: {
-  onOpenSettings: () => void;
-}) {
-  return (
-    <div className="grid w-full max-w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-t border-border px-4 py-2 text-xs text-muted-foreground">
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        className="shrink-0 md:hidden"
-        onClick={onOpenSettings}
-      >
-        Settings
-      </Button>
-      <span className="min-w-0 flex-1 truncate">
-        Select or clone a workspace before starting a new agent chat.
-      </span>
-    </div>
-  );
-}
-
-function generateId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
