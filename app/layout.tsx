@@ -5,8 +5,8 @@ import "./globals.css";
 import {
   SessionSidebar,
   SidebarProvider,
-} from "@/components/chat/session-sidebar";
-import { SessionStoreProvider } from "@/components/chat/session-store";
+} from "@/components/features/sessions/session-sidebar";
+import { SessionStoreProvider } from "@/components/features/sessions/session-store";
 import { cn } from "@/lib/utils";
 
 const inter = Inter({subsets:['latin'],variable:'--font-sans'});

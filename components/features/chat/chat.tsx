@@ -19,17 +19,17 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { MessageList } from "./message-list";
 import { Composer } from "./composer";
-import { Worklog } from "./worklog";
-import { useSessionStore } from "./session-store";
-import { useSidebar } from "./session-sidebar";
+import { Worklog } from "@/components/features/run-trace/worklog";
+import { useSessionStore } from "@/components/features/sessions/session-store";
+import { useSidebar } from "@/components/features/sessions/session-sidebar";
 import {
   ACTIVE_PROJECT_EVENT,
   isActiveProjectChangeEvent,
   readActiveProjectId,
-} from "./active-project";
+} from "@/components/features/settings/active-project";
 import type { ProjectSummary } from "@/src/lib/api-types";
 import { getJson } from "@/src/lib/client-fetch";
-import { SettingsDialog } from "./settings-dialog";
+import { SettingsDialog } from "@/components/features/settings/settings-dialog";
 
 interface ChatProps {
   sessionId?: string;

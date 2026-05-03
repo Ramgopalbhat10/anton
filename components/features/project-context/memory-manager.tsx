@@ -23,7 +23,11 @@ import {
   requestJson,
   requestOk,
 } from "@/src/lib/client-fetch";
-import { EmptyState, ErrorBanner, LoadingState } from "./feedback-states";
+import {
+  EmptyState,
+  ErrorBanner,
+  LoadingState,
+} from "@/components/shared/feedback-states";
 
 type MemoryManagerVariant = "settings" | "compact";
 
