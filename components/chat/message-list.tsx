@@ -1,25 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import {
-  getToolName,
-  isToolUIPart,
-  type ChatAddToolApproveResponseFunction,
-} from "ai";
-import {
-  Check,
-  CheckCircle2,
-  Copy,
-  ChevronDown,
-  ChevronRight,
-  Loader2,
-  TerminalSquare,
-  XCircle,
-} from "lucide-react";
+import type { ChatAddToolApproveResponseFunction } from "ai";
+import { Check, Copy } from "lucide-react";
 
-import type { AntonUIMessage } from "@/src/agent/loop";
+import {
+  getToolTraceEntries,
+  type AntonUIMessage,
+} from "@/src/lib/trace";
 import { cn } from "@/lib/utils";
 import { Markdown } from "./markdown";
+import { RunTraceAccordion } from "./run-trace";
 
 interface MessageListProps {
   messages: AntonUIMessage[];
@@ -56,15 +47,10 @@ export function MessageList({ messages, status, onApproval }: MessageListProps) 
           <MessageEvent
             key={message.id}
             message={message}
+            status={status}
             onApproval={onApproval}
           />
         ))}
-        {status !== "ready" && status !== "error" && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="size-3.5 animate-spin text-sky-400" />
-            Anton is thinking
-          </div>
-        )}
       </div>
     </div>
   );
@@ -72,9 +58,11 @@ export function MessageList({ messages, status, onApproval }: MessageListProps) 
 
 function MessageEvent({
   message,
+  status,
   onApproval,
 }: {
   message: AntonUIMessage;
+  status: "submitted" | "streaming" | "ready" | "error";
   onApproval: ChatAddToolApproveResponseFunction;
 }) {
   const isUser = message.role === "user";
@@ -83,11 +71,15 @@ function MessageEvent({
     .map((p) => (p as { text: string }).text)
     .join("\n\n")
     .trim();
+  const fallbackText = !isUser && plainText.length === 0
+    ? toolResultFallbackText(message)
+    : "";
+  const finalText = plainText || fallbackText;
 
   return (
     <div
       className={cn(
-          "group/msg flex flex-col gap-1",
+        "group/msg flex flex-col gap-1",
         isUser ? "items-end" : "items-start",
       )}
     >
@@ -99,142 +91,61 @@ function MessageEvent({
             : "w-full text-foreground",
         )}
       >
+        {!isUser && (
+          <RunTraceAccordion
+            message={message}
+            status={status}
+            onApproval={onApproval}
+          />
+        )}
         {message.parts.map((part, i) => {
-          if (part.type === "text") {
-            if (isUser) {
-              return (
-                <div key={i} className="whitespace-pre-wrap leading-normal">
-                  {part.text}
-                </div>
-              );
-            }
-            return <Markdown key={i} className="text-xs">{part.text}</Markdown>;
-          }
-          if (isToolUIPart(part)) {
+          if (part.type !== "text") return null;
+          if (isUser) {
             return (
-              <InlineToolEvent
-                key={i}
-                name={String(getToolName(part))}
-                state={part.state as ToolState}
-                input={"input" in part ? part.input : undefined}
-                output={"output" in part ? part.output : undefined}
-                errorText={"errorText" in part ? part.errorText : undefined}
-                approvalId={
-                  part.state === "approval-requested"
-                    ? part.approval.id
-                    : undefined
-                }
-                onApproval={onApproval}
-              />
+              <div key={i} className="whitespace-pre-wrap leading-normal">
+                {part.text}
+              </div>
             );
           }
-          return null;
+          return <Markdown key={i} className="text-xs">{part.text}</Markdown>;
         })}
+        {!isUser && plainText.length === 0 && fallbackText.length > 0 && (
+          <Markdown className="text-xs">{fallbackText}</Markdown>
+        )}
       </div>
-      {!isUser && plainText.length > 0 && (
-        <CopyMessageButton text={plainText} />
+      {!isUser && finalText.length > 0 && (
+        <CopyMessageButton text={finalText} />
       )}
     </div>
   );
 }
 
-type ToolState =
-  | "input-streaming"
-  | "input-available"
-  | "approval-requested"
-  | "approval-responded"
-  | "output-available"
-  | "output-error"
-  | "output-denied";
-
-function InlineToolEvent({
-  name,
-  state,
-  input,
-  output,
-  errorText,
-  approvalId,
-  onApproval,
-}: {
-  name: string;
-  state: ToolState;
-  input: unknown;
-  output: unknown;
-  errorText: string | undefined;
-  approvalId: string | undefined;
-  onApproval: ChatAddToolApproveResponseFunction;
-}) {
-  const needsApproval = state === "approval-requested" && approvalId;
-  return (
-    <details className="group/tool my-1 text-xs text-muted-foreground">
-      <summary
-        className={cn(
-          "inline-flex max-w-full cursor-pointer list-none items-center gap-1.5 rounded px-1 py-0.5 font-mono text-[11px] text-foreground select-none",
-          "transition-colors hover:bg-card/40 [&::-webkit-details-marker]:hidden",
-        )}
-        aria-label={`${name} tool details`}
-        onClick={(e) => {
-          if (needsApproval) {
-            const target = e.target as HTMLElement;
-            if (target.closest("[data-approval-action]")) {
-              e.preventDefault();
-            }
-          }
-        }}
-      >
-        <TerminalSquare className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="truncate">{name}</span>
-        <span className="ml-auto shrink-0">
-          {needsApproval ? (
-            <span className="inline-flex items-center gap-0.5">
-              <button
-                type="button"
-                data-approval-action="approve"
-                className="inline-flex items-center justify-center size-5 rounded hover:bg-emerald-500/15"
-                title="Approve"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onApproval({ id: approvalId, approved: true });
-                }}
-              >
-                <CheckCircle2 className="size-3.5 text-emerald-400" />
-              </button>
-              <button
-                type="button"
-                data-approval-action="deny"
-                className="inline-flex items-center justify-center size-5 rounded hover:bg-destructive/15"
-                title="Deny"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onApproval({ id: approvalId, approved: false });
-                }}
-              >
-                <XCircle className="size-3.5 text-destructive" />
-              </button>
-            </span>
-          ) : (
-            <>
-              <ChevronRight className="size-3 opacity-0 transition-opacity group-hover/tool:opacity-100 group-focus-within/tool:opacity-100 group-open/tool:hidden" />
-              <ChevronDown className="hidden size-3 opacity-0 transition-opacity group-hover/tool:opacity-100 group-focus-within/tool:opacity-100 group-open/tool:block group-open/tool:opacity-100" />
-            </>
-          )}
-        </span>
-      </summary>
-      <div className="ml-5 mt-1 rounded-md bg-card/50 px-2.5 py-2 ring-1 ring-border/70">
-        <p className="truncate font-mono text-[11px]">
-          {previewInput(input)}
-        </p>
-        {state === "output-error" && errorText && (
-          <p className="mt-1 line-clamp-2 text-destructive">{errorText}</p>
-        )}
-        {state === "output-available" && output !== undefined && (
-          <p className="mt-1 line-clamp-2 font-mono text-[10px] text-muted-foreground">
-            {safeStringify(output)}
-          </p>
-        )}
-      </div>
-    </details>
+function toolResultFallbackText(message: AntonUIMessage): string {
+  const entries = getToolTraceEntries([message]);
+  const lastOutput = entries.findLast(
+    (entry) => entry.state === "output-available" && entry.output !== undefined,
   );
+  if (!lastOutput) return "";
+
+  if (lastOutput.name === "bash") {
+    return bashOutputFallback(lastOutput.output);
+  }
+
+  if (typeof lastOutput.output === "string") return lastOutput.output.trim();
+
+  return "";
+}
+
+function bashOutputFallback(output: unknown): string {
+  if (typeof output !== "object" || output === null) return "";
+  const record = output as Record<string, unknown>;
+  const stdout = typeof record.stdout === "string" ? record.stdout.trim() : "";
+  const stderr = typeof record.stderr === "string" ? record.stderr.trim() : "";
+  if (stdout) return `\`${stdout}\``;
+  if (stderr) return `\`${stderr}\``;
+  const exitCode = record.exitCode;
+  if (typeof exitCode === "number") return `Command exited with code ${exitCode}.`;
+  return "";
 }
 
 function CopyMessageButton({ text }: { text: string }) {
@@ -266,24 +177,4 @@ function CopyMessageButton({ text }: { text: string }) {
       )}
     </button>
   );
-}
-
-function previewInput(input: unknown): string {
-  if (typeof input === "object" && input !== null) {
-    const record = input as Record<string, unknown>;
-    for (const key of ["command", "path", "pattern", "slug", "task"]) {
-      if (typeof record[key] === "string") return record[key];
-    }
-  }
-  return safeStringify(input);
-}
-
-function safeStringify(value: unknown): string {
-  if (value === undefined) return "";
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
 }

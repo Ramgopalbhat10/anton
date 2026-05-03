@@ -8,11 +8,17 @@ import {
   memories,
   messages,
   projects,
+  runEvents,
+  runs,
   sessions,
   workspaceSettings,
   type GithubInstallation,
   type Memory,
+  type NewRun,
+  type NewRunEvent,
   type Project,
+  type Run,
+  type RunEvent,
   type Session,
   type WorkspaceSettings,
 } from "./schema";
@@ -22,6 +28,7 @@ export type StoredMessage<UI extends UIMessage = UIMessage> = {
   sessionId: string;
   role: UI["role"];
   parts: UI["parts"];
+  metadata: UI["metadata"] | null;
   createdAt: Date;
 };
 
@@ -337,6 +344,7 @@ export function loadMessages<UI extends UIMessage>(
       id: row.id,
       role: row.role as UI["role"],
       parts,
+      metadata: (row.metadata ?? undefined) as UI["metadata"],
     } as UI;
   });
 }
@@ -356,6 +364,7 @@ export function replaceMessages<UI extends UIMessage>(
           sessionId,
           role: m.role,
           parts: m.parts as unknown,
+          metadata: (m.metadata ?? null) as unknown,
           // Preserve ordering even when created_at ticks collide.
           createdAt: new Date(Date.now() + idx),
         })),
@@ -367,6 +376,43 @@ export function replaceMessages<UI extends UIMessage>(
       .where(eq(sessions.id, sessionId))
       .run();
   });
+}
+
+export function createRun(input: NewRun): Run {
+  db.insert(runs).values(input).run();
+  return db.select().from(runs).where(eq(runs.id, input.id)).get() as Run;
+}
+
+export function updateRun(
+  id: string,
+  input: Partial<Omit<NewRun, "id" | "sessionId" | "model" | "startedAt">>,
+): Run | undefined {
+  db.update(runs).set(input).where(eq(runs.id, id)).run();
+  return db.select().from(runs).where(eq(runs.id, id)).get();
+}
+
+export function upsertRunEvent(input: NewRunEvent): RunEvent {
+  db
+    .insert(runEvents)
+    .values(input)
+    .onConflictDoUpdate({
+      target: runEvents.id,
+      set: {
+        status: input.status,
+        label: input.label,
+        summary: input.summary ?? null,
+        finishedAt: input.finishedAt ?? null,
+        durationMs: input.durationMs ?? null,
+        toolCallId: input.toolCallId ?? null,
+        details: input.details ?? null,
+      },
+    })
+    .run();
+  return db
+    .select()
+    .from(runEvents)
+    .where(eq(runEvents.id, input.id))
+    .get() as RunEvent;
 }
 
 export function deriveTitleFromMessages(

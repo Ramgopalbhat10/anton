@@ -14,7 +14,7 @@ import {
 
 import { DEFAULT_MODEL_ID, type ModelId } from "@/src/lib/models";
 import type { PermissionMode } from "@/src/agent/permissions";
-import type { AntonUIMessage } from "@/src/agent/loop";
+import type { AntonUIMessage } from "@/src/lib/trace";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { MessageList } from "./message-list";
