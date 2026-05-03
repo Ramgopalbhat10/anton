@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Check, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -24,14 +24,10 @@ import {
 
 import { useMemories } from "./hooks";
 
-type MemoryManagerVariant = "settings" | "compact";
-
 export function MemoryManager({
   active,
-  variant = "compact",
 }: {
   active: boolean;
-  variant?: MemoryManagerVariant;
 }) {
   const { memories, loading, saving, error, create, update, remove } =
     useMemories(active);
@@ -60,12 +56,11 @@ export function MemoryManager({
     if (ok) setMemoryToDelete(null);
   };
 
-  const content = (
+  return (
     <>
       {error && <ErrorBanner message={error} />}
-      <MemorySection title="New memory" variant={variant}>
+      <MemorySection title="New memory">
         <Textarea
-          id={variant === "compact" ? "new-memory" : undefined}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           maxLength={1000}
@@ -84,12 +79,12 @@ export function MemoryManager({
             disabled={saving || draft.trim().length === 0}
           >
             {saving ? <Loader2 className="animate-spin" /> : <Plus />}
-            {variant === "settings" ? "Add memory" : "Add"}
+            Add memory
           </Button>
         </div>
       </MemorySection>
 
-      <MemorySection title="Saved memories" variant={variant}>
+      <MemorySection title="Saved memories">
         {loading ? (
           <LoadingState label="Loading memories" />
         ) : memories.length === 0 ? (
@@ -124,7 +119,6 @@ export function MemoryManager({
                             setEditingDraft("");
                           }}
                         >
-                          {variant === "compact" && <X />}
                           Cancel
                         </Button>
                         <Button
@@ -133,13 +127,12 @@ export function MemoryManager({
                           onClick={() => void updateMemory(memory.id)}
                           disabled={saving || editingDraft.trim().length === 0}
                         >
-                          {variant === "compact" && <Check />}
                           Save
                         </Button>
                       </div>
                     </div>
                   ) : (
-                    <div className={variant === "settings" ? "flex items-start justify-between gap-3" : "space-y-2"}>
+                    <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="whitespace-pre-wrap text-xs leading-normal">
                           {memory.content}
@@ -210,39 +203,18 @@ export function MemoryManager({
       </AlertDialog>
     </>
   );
-
-  if (variant === "compact") {
-    return (
-      <div className="flex h-full flex-col gap-2.5 overflow-y-auto p-3">
-        {content}
-      </div>
-    );
-  }
-
-  return <>{content}</>;
 }
 
 function MemorySection({
   title,
-  variant,
   children,
 }: {
   title: string;
-  variant: MemoryManagerVariant;
   children: ReactNode;
 }) {
-  if (variant === "settings") {
-    return (
-      <section className="rounded-md bg-card p-3 ring-1 ring-border">
-        <h3 className="mb-3 text-xs font-semibold">{title}</h3>
-        {children}
-      </section>
-    );
-  }
-
   return (
-    <section className="space-y-1.5">
-      <h3 className="text-xs font-medium">{title}</h3>
+    <section className="rounded-md bg-card p-3 ring-1 ring-border">
+      <h3 className="mb-3 text-xs font-semibold">{title}</h3>
       {children}
     </section>
   );

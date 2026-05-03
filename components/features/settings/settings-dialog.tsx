@@ -63,7 +63,7 @@ export function SettingsDialog({
           title="Memories"
           description="Store durable project preferences and facts that Anton should reuse across sessions."
         >
-          <MemoryManager active variant="settings" />
+          <MemoryManager active />
         </SettingsPageShell>
       )}
       {section === "skills" && (
@@ -71,7 +71,7 @@ export function SettingsDialog({
           title="Skills"
           description="Review project-local skills available to Anton from the active workspace."
         >
-          <SkillsBrowser active variant="settings" />
+          <SkillsBrowser active />
         </SettingsPageShell>
       )}
     </SettingsShell>

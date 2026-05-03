@@ -11,14 +11,10 @@ import {
 
 import { useSkills } from "./hooks";
 
-type SkillsBrowserVariant = "settings" | "compact";
-
 export function SkillsBrowser({
   active,
-  variant = "compact",
 }: {
   active: boolean;
-  variant?: SkillsBrowserVariant;
 }) {
   const {
     skills,
@@ -32,8 +28,8 @@ export function SkillsBrowser({
   } = useSkills(active);
 
   return (
-    <div className={browserClassName(variant)}>
-      <aside className={sidebarClassName(variant)}>
+    <div className="grid min-h-[440px] overflow-hidden rounded-md bg-card ring-1 ring-border lg:grid-cols-[240px_minmax(0,1fr)]">
+      <aside className="min-h-0 border-b border-border bg-background/25 p-2 lg:border-b-0 lg:border-r">
         {loading ? (
           <LoadingState label="Loading skills" />
         ) : skills.length === 0 ? (
@@ -72,8 +68,8 @@ export function SkillsBrowser({
         ) : skillLoading ? (
           <LoadingState label="Loading skill" />
         ) : selectedSkill ? (
-          <article className={variant === "settings" ? undefined : "space-y-3"}>
-            <div className={variant === "settings" ? "mb-4" : undefined}>
+          <article>
+            <div className="mb-4">
               <h3 className="text-xs font-semibold">{selectedSkill.name}</h3>
               <p className="mt-1 text-xs text-muted-foreground">
                 {selectedSkill.description || "No description."}
@@ -82,7 +78,7 @@ export function SkillsBrowser({
                 {selectedSkill.path}
               </p>
             </div>
-            <pre className={preClassName(variant)}>
+            <pre className="max-h-[440px] overflow-auto rounded-md bg-background/60 p-2.5 text-xs leading-normal whitespace-pre-wrap ring-1 ring-border">
               {selectedSkill.body || "(empty)"}
             </pre>
           </article>
@@ -91,7 +87,6 @@ export function SkillsBrowser({
     </div>
   );
 }
-
 function SkillWarnings({ warnings }: { warnings: string[] }) {
   return (
     <div className="mb-2.5 space-y-1 rounded-md bg-amber-500/10 p-2.5 text-xs text-amber-700 ring-1 ring-amber-500/30 dark:text-amber-300">
@@ -106,23 +101,4 @@ function SkillWarnings({ warnings }: { warnings: string[] }) {
       </ul>
     </div>
   );
-}
-
-function browserClassName(variant: SkillsBrowserVariant): string {
-  if (variant === "settings") {
-    return "grid min-h-[440px] overflow-hidden rounded-md bg-card ring-1 ring-border lg:grid-cols-[240px_minmax(0,1fr)]";
-  }
-  return "grid h-full min-h-0 grid-cols-1 md:grid-cols-[210px_1fr]";
-}
-
-function sidebarClassName(variant: SkillsBrowserVariant): string {
-  if (variant === "settings") {
-    return "min-h-0 border-b border-border bg-background/25 p-2 lg:border-b-0 lg:border-r";
-  }
-  return "min-h-0 overflow-y-auto border-b border-border bg-background/20 p-2 md:border-b-0 md:border-r";
-}
-
-function preClassName(variant: SkillsBrowserVariant): string {
-  const maxHeight = variant === "settings" ? "max-h-[440px]" : "max-h-[420px]";
-  return `${maxHeight} overflow-auto rounded-md bg-background/60 p-2.5 text-xs leading-normal whitespace-pre-wrap ring-1 ring-border`;
 }
