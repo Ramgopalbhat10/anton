@@ -13,7 +13,7 @@ import type { ToolSet } from "ai";
 
 export type PermissionMode = "default" | "auto-review" | "full-access";
 
-export const RISK_CATEGORIES = [
+export const TOOL_RISK_CATEGORIES = [
   "read-only",
   "write",
   "delete",
@@ -24,23 +24,36 @@ export const RISK_CATEGORIES = [
   "external-integration",
 ] as const;
 
-export type RiskCategory = (typeof RISK_CATEGORIES)[number];
+export type ToolRiskCategory = (typeof TOOL_RISK_CATEGORIES)[number];
 
-export type RiskClassification = {
-  categories: readonly RiskCategory[];
+export type ToolPermissionMetadata = {
+  categories: readonly ToolRiskCategory[];
   requiresApproval: boolean;
+  summary: string;
 };
 
-export type RiskLevel = "safe" | "risky";
+export type BashCommandClassification = {
+  categories: readonly ToolRiskCategory[];
+  forbidden: boolean;
+  reason: string;
+};
 
-const READ_ONLY = classify(["read-only"], false);
+const READ_ONLY = toolMetadata(
+  ["read-only"],
+  false,
+  "Reads workspace or project context without changing state.",
+);
 
-export const NATIVE_TOOL_RISK_CLASSIFICATIONS = {
+export const NATIVE_TOOL_PERMISSION_METADATA = {
   read_file: READ_ONLY,
   grep: READ_ONLY,
   glob: READ_ONLY,
-  write_file: classify(["write"], true),
-  bash: classify(
+  write_file: toolMetadata(
+    ["write"],
+    true,
+    "Writes or replaces a workspace file.",
+  ),
+  bash: toolMetadata(
     [
       "write",
       "delete",
@@ -51,26 +64,36 @@ export const NATIVE_TOOL_RISK_CLASSIFICATIONS = {
       "external-integration",
     ],
     true,
+    "Runs a shell command with command-specific risk classification.",
   ),
   list_memory: READ_ONLY,
-  remember: classify(["write"], true),
-  update_memory: classify(["write"], true),
-  forget_memory: classify(["delete"], true),
+  remember: toolMetadata(
+    ["write"],
+    true,
+    "Creates a durable project memory.",
+  ),
+  update_memory: toolMetadata(
+    ["write"],
+    true,
+    "Updates a durable project memory.",
+  ),
+  forget_memory: toolMetadata(
+    ["delete"],
+    true,
+    "Deletes a durable project memory.",
+  ),
   list_skills: READ_ONLY,
   read_skill: READ_ONLY,
-  delegate_task: classify(["read-only", "external-integration"], false),
-} as const satisfies Record<string, RiskClassification>;
+  delegate_task: READ_ONLY,
+} as const satisfies Record<string, ToolPermissionMetadata>;
 
-export const NATIVE_TOOL_RISK_LEVELS = Object.fromEntries(
-  Object.entries(NATIVE_TOOL_RISK_CLASSIFICATIONS).map(([name, risk]) => [
-    name,
-    risk.requiresApproval ? "risky" : "safe",
-  ]),
-) as Record<keyof typeof NATIVE_TOOL_RISK_CLASSIFICATIONS, RiskLevel>;
-
-export const RISK_LEVELS: Record<string, RiskLevel> = NATIVE_TOOL_RISK_LEVELS;
-export const RISK_CLASSIFICATIONS: Record<string, RiskClassification> =
-  NATIVE_TOOL_RISK_CLASSIFICATIONS;
+export function getNativeToolPermissionMetadata(
+  name: string,
+): ToolPermissionMetadata | undefined {
+  return NATIVE_TOOL_PERMISSION_METADATA[
+    name as keyof typeof NATIVE_TOOL_PERMISSION_METADATA
+  ];
+}
 
 type ToolWithApproval = ToolSet[string] & {
   needsApproval?: boolean;
@@ -82,8 +105,8 @@ export function applyNativeToolPermissionPolicy<TTools extends ToolSet>(
 ): TTools {
   return Object.fromEntries(
     Object.entries(tools).map(([name, toolValue]) => {
-      const risk = RISK_CLASSIFICATIONS[name];
-      if (!risk) {
+      const metadata = getNativeToolPermissionMetadata(name);
+      if (!metadata) {
         throw new Error(`missing native tool permission policy: ${name}`);
       }
 
@@ -100,7 +123,7 @@ export function applyNativeToolPermissionPolicy<TTools extends ToolSet>(
         return [name, { ...toolWithoutApproval, needsApproval: true }];
       }
 
-      if (risk.requiresApproval) {
+      if (metadata.requiresApproval) {
         return [name, { ...toolWithoutApproval, needsApproval: true }];
       }
 
@@ -121,11 +144,26 @@ export function stripApprovalFlags<TTools extends ToolSet>(
   ) as TTools;
 }
 
-export function classifyBashCommand(command: string): RiskClassification {
+export function classifyBashCommand(command: string): BashCommandClassification {
   const normalized = command.trim();
-  if (!normalized) return READ_ONLY;
+  if (!normalized) {
+    return {
+      categories: ["read-only"],
+      forbidden: false,
+      reason: "empty command",
+    };
+  }
 
-  const categories = new Set<RiskCategory>();
+  const forbidden = isForbiddenBashCommand(normalized);
+  if (forbidden) {
+    return {
+      categories: ["external-integration"],
+      forbidden: true,
+      reason: `forbidden command pattern: ${forbidden}`,
+    };
+  }
+
+  const categories = new Set<ToolRiskCategory>();
 
   if (isGitCommand(normalized)) categories.add("git");
   if (hasNetworkPattern(normalized)) categories.add("network");
@@ -146,10 +184,12 @@ export function classifyBashCommand(command: string): RiskClassification {
     categories.add("write");
   }
 
-  return classify(
-    [...categories],
-    [...categories].some((category) => category !== "read-only"),
-  );
+  const orderedCategories = orderedRiskCategories(categories);
+  return {
+    categories: orderedCategories,
+    forbidden: false,
+    reason: reasonForCategories(orderedCategories),
+  };
 }
 
 // Commands we refuse to execute in `bash` even after approval — the user
@@ -166,11 +206,26 @@ export function isForbiddenBashCommand(command: string): RegExp | null {
   return null;
 }
 
-function classify(
-  categories: readonly RiskCategory[],
+function toolMetadata(
+  categories: readonly ToolRiskCategory[],
   requiresApproval: boolean,
-): RiskClassification {
-  return { categories, requiresApproval };
+  summary: string,
+): ToolPermissionMetadata {
+  return { categories, requiresApproval, summary };
+}
+
+function orderedRiskCategories(
+  categories: ReadonlySet<ToolRiskCategory>,
+): ToolRiskCategory[] {
+  return TOOL_RISK_CATEGORIES.filter((category) => categories.has(category));
+}
+
+function reasonForCategories(categories: readonly ToolRiskCategory[]): string {
+  if (categories.length === 1 && categories[0] === "read-only") {
+    return "matched read-only command patterns";
+  }
+
+  return `matched ${categories.join(", ")} command risk patterns`;
 }
 
 function isGitCommand(command: string): boolean {
