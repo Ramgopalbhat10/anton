@@ -33,8 +33,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { useSessionStore, type SessionSummary } from "./session-store";
-import { SettingsDialog } from "./settings-dialog";
-import { readActiveProjectId } from "./active-project";
+import { SettingsDialog } from "@/components/features/settings/settings-dialog";
+import { readActiveProjectId } from "@/components/features/settings/active-project";
 
 type SidebarContextValue = {
   open: boolean;

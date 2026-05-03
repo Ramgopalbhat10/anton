@@ -25,9 +25,9 @@ import {
   jsonHeaders,
   requestJson,
 } from "@/src/lib/client-fetch";
-import { EmptyState, ErrorBanner } from "./feedback-states";
-import { MemoryManager } from "./memory-manager";
-import { SkillsBrowser } from "./skills-browser";
+import { EmptyState, ErrorBanner } from "@/components/shared/feedback-states";
+import { MemoryManager } from "@/components/features/project-context/memory-manager";
+import { SkillsBrowser } from "@/components/features/project-context/skills-browser";
 import { writeActiveProjectId } from "./active-project";
 
 type SettingsSection = "workspaces" | "memories" | "skills";

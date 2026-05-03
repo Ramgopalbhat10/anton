@@ -6,7 +6,11 @@ import { AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { SkillDocument, SkillSummary } from "@/src/lib/api-types";
 import { errorMessage, getJson } from "@/src/lib/client-fetch";
-import { EmptyState, ErrorBanner, LoadingState } from "./feedback-states";
+import {
+  EmptyState,
+  ErrorBanner,
+  LoadingState,
+} from "@/components/shared/feedback-states";
 
 type SkillsBrowserVariant = "settings" | "compact";
 

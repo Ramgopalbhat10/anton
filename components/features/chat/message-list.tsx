@@ -10,7 +10,7 @@ import {
 } from "@/src/lib/trace";
 import { cn } from "@/lib/utils";
 import { Markdown } from "./markdown";
-import { RunTraceAccordion } from "./run-trace";
+import { RunTraceAccordion } from "@/components/features/run-trace/run-trace";
 
 interface MessageListProps {
   messages: AntonUIMessage[];

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 
-import { Chat } from "@/components/chat/chat";
+import { Chat } from "@/components/features/chat/chat";
 import { getSession, loadMessages } from "@/src/db/queries";
 import type { AntonUIMessage } from "@/src/lib/trace";
 import type { ModelId } from "@/src/lib/models";
