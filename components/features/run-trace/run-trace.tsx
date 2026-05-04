@@ -18,8 +18,25 @@ import {
   getModelTurnSummary,
   getTraceDurationMs,
   getTraceRows,
+  groupTraceRowsByStep,
 } from "./trace-data";
-import { TraceRowView } from "./trace-rows";
+import { InlineReasoningRow, StepGroupView, TraceRowView } from "./trace-rows";
+
+function buildInterleaved(
+  rows: ReturnType<typeof getTraceRows>,
+  stepGroups: ReturnType<typeof groupTraceRowsByStep>,
+): ({ kind: "row"; row: ReturnType<typeof getTraceRows>[number] } | { kind: "group"; group: ReturnType<typeof groupTraceRowsByStep>[number] })[] {
+  const items: ({ kind: "row"; row: ReturnType<typeof getTraceRows>[number]; order: number } | { kind: "group"; group: ReturnType<typeof groupTraceRowsByStep>[number]; order: number })[] = [];
+  for (const row of rows) {
+    if (row.kind === "tool") continue;
+    items.push({ kind: "row", row, order: row.order });
+  }
+  for (const group of stepGroups) {
+    items.push({ kind: "group", group, order: group.order });
+  }
+  items.sort((a, b) => a.order - b.order);
+  return items;
+}
 
 interface RunTraceAccordionProps {
   message: AntonUIMessage;
@@ -37,8 +54,17 @@ export function RunTraceAccordion({
   const isRunning =
     (run?.status ?? metadata?.status) === "running" &&
     (status === "submitted" || status === "streaming");
+
+  const hasResponseText = useMemo(
+    () => message.parts.some((p) => p.type === "text" && (p as { text: string }).text.trim().length > 0),
+    [message.parts],
+  );
+
+  const showInline = isRunning && !hasResponseText;
+
   const now = useTick(isRunning);
   const rows = useMemo(() => getTraceRows(message), [message]);
+  const stepGroups = useMemo(() => groupTraceRowsByStep(message, rows), [message, rows]);
   const modelTurnSummary = useMemo(() => getModelTurnSummary(message), [message]);
 
   if (!run && rows.length === 0) return null;
@@ -57,10 +83,46 @@ export function RunTraceAccordion({
         ? `Worked for ${formatDuration(durationMs)}`
         : `Stopped after ${formatDuration(durationMs)}`;
 
+  if (showInline) {
+    return (
+      <div className="mb-2 w-full space-y-0 text-xs text-muted-foreground">
+        <div className="flex items-center gap-1.5 px-1 py-0.5 text-[11px]">
+          <Loader2 className="size-3.5 animate-spin text-sky-400" />
+          <span className="font-medium text-foreground/90">{header}</span>
+        </div>
+        <div className="ml-1 space-y-0.5 pl-1">
+          {buildInterleaved(rows, stepGroups).map((item) =>
+            item.kind === "group" ? (
+              <StepGroupView
+                key={`step-${item.group.stepNumber}`}
+                group={item.group}
+                onApproval={onApproval}
+              />
+            ) : item.row.kind === "reasoning" ? (
+              <InlineReasoningRow
+                key={item.row.id}
+                event={item.row.event}
+                runStatus={runStatus}
+                text={item.row.text}
+              />
+            ) : (
+              <TraceRowView
+                key={item.row.id}
+                row={item.row}
+                runStatus={runStatus}
+                onApproval={onApproval}
+              />
+            ),
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <Disclosure
       className="mb-2 w-full text-xs text-muted-foreground"
-      defaultOpen={isRunning}
+      defaultOpen={false}
       forceOpen={isRunning}
       trigger={({ open }) => (
         <span className="inline-flex max-w-full items-center gap-1.5 rounded px-1 py-0.5 text-[11px]">
@@ -83,17 +145,25 @@ export function RunTraceAccordion({
       )}
     >
       <div className="min-h-0 overflow-hidden">
-        <ol className="ml-2 mt-1 space-y-0 border-l border-border/70 pl-3">
-          {rows.map((row) => (
-            <li key={row.id}>
-              <TraceRowView
-                row={row}
-                runStatus={runStatus}
+        <div className="ml-2 mt-1 space-y-0 border-l border-border/70 pl-3">
+          {buildInterleaved(rows, stepGroups).map((item) =>
+            item.kind === "group" ? (
+              <StepGroupView
+                key={`step-${item.group.stepNumber}`}
+                group={item.group}
                 onApproval={onApproval}
               />
-            </li>
-          ))}
-        </ol>
+            ) : (
+              <div key={item.row.id}>
+                <TraceRowView
+                  row={item.row}
+                  runStatus={runStatus}
+                  onApproval={onApproval}
+                />
+              </div>
+            ),
+          )}
+        </div>
       </div>
     </Disclosure>
   );

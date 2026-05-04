@@ -3,6 +3,7 @@ import {
   stepCountIs,
   type LanguageModelUsage,
   type ModelMessage,
+  type ProviderMetadata,
   type TextStreamPart,
   type ToolSet,
   type FinishReason,
@@ -38,6 +39,7 @@ function systemPrompt(mcpTools: LoadedMcpTools, workspaceRoot?: string): string 
     "- `read_file(path, startLine?, endLine?)` - read a text file. Prefer narrow ranges for large files.",
     "- `write_file(path, content)` - overwrite a file. Classified as write risk; the user must approve each call.",
     "- `bash(command, timeoutMs?)` - run a shell command in the workspace. Commands are conservatively classified by risk category before execution; shell execution requires approval. `sudo` is forbidden.",
+    "- `bash` output streams live to the UI. Do not pipe long-running commands through `tail`, `head`, or pagers just to limit output; the harness truncates output.",
     "- `grep(pattern, path?, glob?, caseInsensitive?)` - ripgrep-style search. Use this before reading large files.",
     "- `glob(pattern, path?)` - list files matching a glob like `**/*.ts`.",
     "- `list_memory(limit?)` - list project-wide memories that apply across sessions.",
@@ -166,6 +168,7 @@ export async function runAgent({
   onFinish?: (result: {
     totalUsage: LanguageModelUsage;
     finishReason: FinishReason;
+    providerMetadata?: ProviderMetadata;
   }) => void;
 }) {
   const mcpTools = await loadMcpTools(workspaceRoot);
@@ -193,6 +196,7 @@ export async function runAgent({
     providerOptions: {
       openrouter: {
         reasoning: { enabled: true, effort: "low", exclude: false },
+        usage: { include: true },
       },
     },
     experimental_transform: onStreamPart
@@ -230,8 +234,8 @@ export async function runAgent({
         error: event.success ? undefined : event.error,
       });
     },
-    onFinish: async ({ totalUsage, finishReason }) => {
-      onFinish?.({ totalUsage, finishReason });
+    onFinish: async ({ totalUsage, finishReason, providerMetadata }) => {
+      onFinish?.({ totalUsage, finishReason, providerMetadata });
       await closeMcpTools();
     },
     onAbort: async () => {

@@ -9,6 +9,13 @@ import {
 
 import { previewToolInput } from "./tool-display";
 
+export type StepGroup = {
+  stepNumber: number;
+  order: number;
+  toolRows: TraceRow[];
+  summary: string;
+};
+
 export type TraceRow =
   | {
       id: string;
@@ -83,6 +90,98 @@ export function getTraceRows(message: AntonUIMessage): TraceRow[] {
   });
 
   return rows.sort((a, b) => a.order - b.order);
+}
+
+export function groupTraceRowsByStep(
+  _message: AntonUIMessage,
+  rows: TraceRow[],
+): StepGroup[] {
+  const orderedRows = rows.toSorted((a, b) => a.order - b.order);
+  const reasoningRows = orderedRows.filter((row) => row.kind === "reasoning");
+  const groups: StepGroup[] = [];
+
+  const addGroup = (toolRows: TraceRow[]) => {
+    if (toolRows.length === 0) return;
+    groups.push({
+      stepNumber: groups.length,
+      order: toolRows[0]?.order ?? 500,
+      toolRows,
+      summary: buildStepSummary(toolRows),
+    });
+  };
+
+  if (reasoningRows.length === 0) {
+    addGroup(orderedRows.filter((row) => row.kind === "tool"));
+    return groups;
+  }
+
+  addGroup(
+    orderedRows.filter(
+      (row) => row.kind === "tool" && row.order < reasoningRows[0].order,
+    ),
+  );
+
+  reasoningRows.forEach((reasoningRow, index) => {
+    const nextReasoningRow = reasoningRows[index + 1];
+    addGroup(
+      orderedRows.filter(
+        (row) =>
+          row.kind === "tool" &&
+          row.order > reasoningRow.order &&
+          (nextReasoningRow === undefined ||
+            row.order < nextReasoningRow.order),
+      ),
+    );
+  });
+
+  return groups;
+}
+
+function buildStepSummary(toolRows: TraceRow[]): string {
+  const counts: Record<string, number> = {};
+  for (const row of toolRows) {
+    if (row.kind !== "tool") continue;
+    const name = row.tool.name;
+    if (name === "bash") {
+      counts["command"] = (counts["command"] ?? 0) + 1;
+    } else if (name === "read_file") {
+      counts["file"] = (counts["file"] ?? 0) + 1;
+    } else if (name === "write_file") {
+      counts["edit"] = (counts["edit"] ?? 0) + 1;
+    } else if (name === "grep") {
+      counts["search"] = (counts["search"] ?? 0) + 1;
+    } else if (name === "glob") {
+      counts["list"] = (counts["list"] ?? 0) + 1;
+    } else {
+      counts["action"] = (counts["action"] ?? 0) + 1;
+    }
+  }
+
+  const parts: string[] = [];
+  if (counts["list"]) {
+    parts.push(`Listed ${counts["list"]} glob${counts["list"] > 1 ? "s" : ""}`);
+  }
+  if (counts["search"]) {
+    parts.push(`searched ${counts["search"]} time${counts["search"] > 1 ? "s" : ""}`);
+  }
+  if (counts["file"]) {
+    parts.push(`read ${counts["file"]} file${counts["file"] > 1 ? "s" : ""}`);
+  }
+  if (counts["command"]) {
+    parts.push(`ran ${counts["command"]} command${counts["command"] > 1 ? "s" : ""}`);
+  }
+  if (counts["edit"]) {
+    parts.push(`edited ${counts["edit"]} file${counts["edit"] > 1 ? "s" : ""}`);
+  }
+  if (counts["action"]) {
+    parts.push(`${counts["action"]} action${counts["action"] > 1 ? "s" : ""}`);
+  }
+
+  if (parts.length === 0) return `${toolRows.length} tool call${toolRows.length > 1 ? "s" : ""}`;
+  const [first, ...rest] = parts;
+  if (rest.length === 0) return first;
+  if (rest.length === 1) return `${first} and ${rest[0]}`;
+  return `${first}, ${rest.slice(0, -1).join(", ")} and ${rest.at(-1)}`;
 }
 
 export function getTraceDurationMs(rows: TraceRow[]): number | undefined {

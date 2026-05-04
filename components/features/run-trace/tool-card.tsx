@@ -49,14 +49,16 @@ export function ToolCard({
             <span className="truncate font-mono text-[11px] font-semibold">
               {name}
             </span>
-            <span
-              className={cn(
-                "shrink-0 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider",
-                tone,
-              )}
-            >
-              {label}
-            </span>
+            {label.length > 0 && (
+              <span
+                className={cn(
+                  "shrink-0 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider",
+                  tone,
+                )}
+              >
+                {label}
+              </span>
+            )}
           </span>
           {open ? (
             <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
@@ -73,7 +75,7 @@ export function ToolCard({
           ) : (
             input !== undefined && (
               <Section title="input">
-                <pre className="overflow-x-auto whitespace-pre-wrap break-words">
+                <pre className="overflow-x-auto whitespace-pre-wrap wrap-break-word">
                   {safeStringify(input)}
                 </pre>
               </Section>
@@ -104,7 +106,7 @@ export function ToolCard({
             output !== undefined &&
             name !== "write_file" && (
               <Section title="output">
-                <pre className="overflow-x-auto whitespace-pre-wrap break-words">
+                <pre className="overflow-x-auto whitespace-pre-wrap wrap-break-word">
                   {safeStringify(output)}
                 </pre>
               </Section>
@@ -112,7 +114,7 @@ export function ToolCard({
 
           {state === "output-error" && errorText && (
             <Section title="error" tone="error">
-              <pre className="overflow-x-auto whitespace-pre-wrap break-words">
+              <pre className="overflow-x-auto whitespace-pre-wrap wrap-break-word">
                 {errorText}
               </pre>
             </Section>
@@ -178,7 +180,7 @@ function WriteFileBody({
       )}
       {nextContent !== undefined && (
         <Section title="new content">
-          <pre className="overflow-x-auto whitespace-pre-wrap break-words">
+          <pre className="overflow-x-auto whitespace-pre-wrap wrap-break-word">
             {nextContent}
           </pre>
         </Section>

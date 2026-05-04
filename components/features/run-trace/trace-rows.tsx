@@ -17,7 +17,7 @@ import {
   type AntonRunStatus,
 } from "@/src/lib/trace";
 
-import { formatDuration, type TraceRow } from "./trace-data";
+import { formatDuration, type TraceRow, type StepGroup } from "./trace-data";
 import { ToolTraceRow } from "./tool-trace-row";
 
 export function TraceRowView({
@@ -73,6 +73,31 @@ function ActivityRow({
   );
 }
 
+export function InlineReasoningRow({
+  event,
+  runStatus,
+  text,
+}: {
+  event: AntonActivityEvent | undefined;
+  runStatus: AntonRunStatus;
+  text: string;
+}) {
+  const displayEvent = event ? displayEventForRun(event, runStatus) : undefined;
+  const running = displayEvent?.status === "running";
+  return (
+    <div className="flex gap-2 py-1 text-xs text-foreground/70">
+      {running ? (
+        <Loader2 className="mt-0.5 size-3.5 shrink-0 animate-spin text-sky-400" />
+      ) : (
+        <Brain className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/60" />
+      )}
+      <p className="whitespace-pre-wrap leading-relaxed text-foreground/70 italic font-mono text-[10px]">
+        {text}
+      </p>
+    </div>
+  );
+}
+
 function ReasoningRow({
   event,
   runStatus,
@@ -113,6 +138,46 @@ function ReasoningRow({
         <pre className="ml-5 mt-1 max-h-40 overflow-y-auto pr-2 font-mono text-[10px] leading-relaxed text-foreground/80 whitespace-pre-wrap">
           {text}
         </pre>
+      </div>
+    </Disclosure>
+  );
+}
+
+export function StepGroupView({
+  group,
+  onApproval,
+}: {
+  group: StepGroup;
+  onApproval: ChatAddToolApproveResponseFunction;
+}) {
+  const hasRunningTool = group.toolRows.some(
+    (row) => row.kind === "tool" && row.tool.activity?.status === "running",
+  );
+  return (
+    <Disclosure
+      className="py-0.5"
+      forceOpen={hasRunningTool}
+      trigger={({ open }) => (
+        <span className="inline-flex max-w-full items-center gap-1.5 rounded px-0 py-0 text-[11px] text-muted-foreground/80 hover:text-foreground/80">
+          <span className="truncate">{group.summary}</span>
+          {open ? (
+            <ChevronDown className="size-3 shrink-0" />
+          ) : (
+            <ChevronRight className="size-3 shrink-0" />
+          )}
+        </span>
+      )}
+    >
+      <div className="min-h-0 overflow-hidden">
+        <ol className="mt-1 space-y-0">
+          {group.toolRows.map((row) =>
+            row.kind === "tool" ? (
+              <li key={row.id}>
+                <ToolTraceRow entry={row.tool} onApproval={onApproval} />
+              </li>
+            ) : null,
+          )}
+        </ol>
       </div>
     </Disclosure>
   );

@@ -7,7 +7,6 @@ import {
   ChevronRight,
   XCircle,
 } from "lucide-react";
-import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 import { Disclosure } from "@/components/shared/disclosure";
@@ -15,10 +14,13 @@ import type { ToolTraceEntry } from "@/src/lib/trace";
 
 import { formatDuration, toolTitle } from "./trace-data";
 import {
+  pickString,
   previewToolInput,
   safeStringify,
   traceToolStateMeta,
 } from "./tool-display";
+import { TerminalOutput } from "./terminal-output";
+import { LiveTerminalOutput } from "./live-terminal";
 
 export function ToolTraceRow({
   entry,
@@ -35,6 +37,8 @@ export function ToolTraceRow({
       : undefined;
   const needsApproval = approvalId !== undefined;
   const showDetails = entry.name === "bash";
+  const forceOpen = showDetails && entry.activity?.status === "running";
+  const streamToken = pickString(entry.activity?.details, "streamToken");
   const title = toolTitle(entry);
   const preview = previewToolInput(entry.input);
   const showPreview = preview.length > 0 && preview !== title.target;
@@ -42,6 +46,7 @@ export function ToolTraceRow({
     <Disclosure
       className="py-0.5"
       disabled={needsApproval || !showDetails}
+      forceOpen={forceOpen}
       trigger={({ open }) => (
         <span className="grid grid-cols-[0.875rem_minmax(0,1fr)] gap-2 rounded px-0 py-0">
           <meta.Icon className={cn("mt-0.5 size-3.5", meta.iconClass)} />
@@ -55,7 +60,7 @@ export function ToolTraceRow({
                 ) : (
                   <ChevronRight className="size-3 shrink-0" />
                 ))}
-              {entry.name !== "bash" && (
+              {entry.name !== "bash" && meta.label.length > 0 && (
                 <span className={cn("shrink-0 text-[10px]", meta.textClass)}>
                   {meta.label}
                 </span>
@@ -80,22 +85,41 @@ export function ToolTraceRow({
     >
       {showDetails && (
         <div className="min-h-0 overflow-hidden">
-          <div className="ml-5 mt-1 rounded-md bg-card/50 px-2.5 py-2 ring-1 ring-border/70">
-            <LogLine title="Input">{safeStringify(entry.input)}</LogLine>
-            {entry.state === "output-error" && entry.errorText ? (
-              <LogLine title="Error" tone="error">
-                {entry.errorText}
-              </LogLine>
-            ) : entry.output !== undefined ? (
-              <LogLine title="Output">{safeStringify(entry.output)}</LogLine>
-            ) : null}
+          <div className="ml-5 mt-1">
+            {entry.name === "bash" && entry.activity?.status === "running" && entry.activity?.toolCallId ? (
+              <LiveTerminalOutput
+                command={pickString(entry.input, "command")}
+                streamId={entry.activity.toolCallId}
+                streamToken={streamToken}
+                initialOutput={
+                  typeof entry.output === "object" && entry.output !== null
+                    ? (entry.output as {
+                        stdout?: string;
+                        stderr?: string;
+                        exitCode?: number | null;
+                        timedOut?: boolean;
+                        killed?: boolean;
+                        failedReason?: "timeout" | "killed" | "max_buffer" | "error";
+                      })
+                    : undefined
+                }
+              />
+            ) : (
+              <TerminalOutput
+                command={pickString(entry.input, "command") ?? safeStringify(entry.input)}
+                output={
+                  entry.state === "output-error" && entry.errorText
+                    ? { stderr: entry.errorText, exitCode: 1 }
+                    : entry.output
+                }
+              />
+            )}
           </div>
         </div>
       )}
     </Disclosure>
   );
 }
-
 function ToolTitle({
   title,
 }: {
@@ -115,7 +139,6 @@ function ToolTitle({
     </span>
   );
 }
-
 function ApprovalControls({
   approvalId,
   onApproval,
@@ -150,31 +173,5 @@ function ApprovalControls({
         <XCircle className="size-3.5 text-destructive" />
       </button>
     </span>
-  );
-}
-
-function LogLine({
-  title,
-  tone,
-  children,
-}: {
-  title: string;
-  tone?: "error";
-  children: ReactNode;
-}) {
-  return (
-    <div className="space-y-1 py-1">
-      <div
-        className={cn(
-          "text-[10px] font-medium uppercase text-muted-foreground",
-          tone === "error" && "text-destructive",
-        )}
-      >
-        {title}
-      </div>
-      <pre className="max-h-32 overflow-auto font-mono text-[10px] leading-relaxed text-foreground/85 whitespace-pre-wrap">
-        {children}
-      </pre>
-    </div>
   );
 }
