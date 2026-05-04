@@ -31,7 +31,10 @@ export type AntonMessageMetadata = {
   startedAt?: number;
   finishedAt?: number;
   durationMs?: number;
+  inputTokens?: number;
+  outputTokens?: number;
   totalTokens?: number;
+  costUsd?: number;
 };
 
 export type AntonRunData = {
@@ -41,7 +44,10 @@ export type AntonRunData = {
   startedAt: number;
   finishedAt?: number;
   durationMs?: number;
+  inputTokens?: number;
+  outputTokens?: number;
   totalTokens?: number;
+  costUsd?: number;
 };
 
 export type AntonActivityEvent = {
@@ -129,7 +135,7 @@ export function getToolTraceEntries(
           ? part.toolCallId
           : undefined;
       entries.push({
-        id: `${message.id}:${index}`,
+        id: toolCallId ?? `${message.id}:${index}`,
         sourceMessageId: message.id,
         name: String(getToolName(part)),
         state,

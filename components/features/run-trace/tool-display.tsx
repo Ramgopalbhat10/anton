@@ -96,7 +96,7 @@ export function toolStateMeta(state: ToolState) {
       };
     case "output-available":
       return {
-        label: "done",
+        label: "",
         Icon: CheckCircle2,
         iconClass: "text-emerald-400",
         textClass: "text-emerald-400",
@@ -145,7 +145,7 @@ export function toolStateBadge(state: ToolState): {
       };
     case "output-available":
       return {
-        label: "done",
+        label: "",
         tone: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
       };
     case "output-error":

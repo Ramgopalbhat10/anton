@@ -4,6 +4,7 @@ import {
   createUIMessageStreamResponse,
   type FinishReason,
   type LanguageModelUsage,
+  type ProviderMetadata,
   type TextStreamPart,
   type ToolSet,
   type UIMessageStreamWriter,
@@ -13,6 +14,7 @@ import { z } from "zod";
 
 import { runAgent } from "@/src/agent/loop";
 import type { PermissionMode } from "@/src/agent/permissions";
+import { bashProgress } from "@/src/lib/bash-stream";
 import {
   addSessionTokens,
   createRun,
@@ -138,8 +140,8 @@ export async function POST(req: Request) {
           onStreamPart: (part) => trace.handleStreamPart(part),
           onAbort: () => trace.finalize("aborted"),
           onError: (error) => trace.fail(error),
-          onFinish: ({ totalUsage, finishReason }) => {
-            trace.finalize("completed", totalUsage, finishReason);
+          onFinish: ({ totalUsage, finishReason, providerMetadata }) => {
+            trace.finalize("completed", totalUsage, providerMetadata, finishReason);
             const delta = totalUsage.totalTokens;
             if (typeof delta === "number" && delta > 0) {
               addSessionTokens(sessionId, delta);
@@ -265,7 +267,7 @@ function createTraceWriter({
       finishedAt: event.finishedAt ? new Date(event.finishedAt) : null,
       durationMs: event.durationMs ?? null,
       toolCallId: event.toolCallId ?? null,
-      details: event.details ?? null,
+      details: persistableEventDetails(event.details),
     });
   };
 
@@ -357,6 +359,7 @@ function createTraceWriter({
   const finalize = (
     status: Exclude<AntonRunStatus, "running">,
     usage?: LanguageModelUsage,
+    providerMetadata?: ProviderMetadata,
     finishReason?: FinishReason,
   ) => {
     if (finalized) return;
@@ -364,13 +367,26 @@ function createTraceWriter({
     settleRunningEvents(status === "completed" ? "completed" : "error");
     const finishedAt = Date.now();
     const durationMs = Math.max(0, finishedAt - startedAt);
+    const inputTokens = usage?.inputTokens;
+    const outputTokens = usage?.outputTokens;
     const totalTokens = usage?.totalTokens;
-    writeRun(status, { finishedAt, durationMs, totalTokens });
+    const costUsd = openRouterCost(providerMetadata);
+    writeRun(status, {
+      finishedAt,
+      durationMs,
+      inputTokens,
+      outputTokens,
+      totalTokens,
+      costUsd,
+    });
     updateRun(runId, {
       status,
       finishedAt: new Date(finishedAt),
       durationMs,
+      inputTokens: inputTokens ?? null,
+      outputTokens: outputTokens ?? null,
       totalTokens: totalTokens ?? null,
+      costUsd: costUsd ?? null,
       finishReason: finishReason ?? null,
     });
   };
@@ -396,13 +412,20 @@ function createTraceWriter({
       toolName: string;
       input: unknown;
     }) {
+      const details: Record<string, unknown> = {
+        toolName: event.toolName,
+        stepNumber: event.stepNumber,
+      };
+      if (event.toolName === "bash") {
+        details.streamToken = bashProgress.prepareStream(event.toolCallId);
+      }
       startEvent({
         id: `${runId}:tool:${event.toolCallId}`,
         kind: "tool",
         label: toolLabel(event.toolName, event.input),
         summary: summarizeInput(event.input),
         toolCallId: event.toolCallId,
-        details: { toolName: event.toolName, stepNumber: event.stepNumber },
+        details,
       });
     },
     finishTool(event: {
@@ -467,4 +490,26 @@ function createTraceWriter({
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+function openRouterCost(providerMetadata: ProviderMetadata | undefined): number | undefined {
+  const openrouter = providerMetadata?.openrouter;
+  if (!isRecord(openrouter)) return undefined;
+  const usage = openrouter.usage;
+  if (!isRecord(usage)) return undefined;
+  const cost = usage.cost;
+  return typeof cost === "number" && Number.isFinite(cost) ? cost : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function persistableEventDetails(
+  details: Record<string, unknown> | undefined,
+): Record<string, unknown> | null {
+  if (!details) return null;
+  const persistable = { ...details };
+  delete persistable.streamToken;
+  return persistable;
 }

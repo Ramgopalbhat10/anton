@@ -25,6 +25,8 @@ import {
   toolStateMeta,
   type WriteFileOkOutput,
 } from "./tool-display";
+import { TerminalOutput } from "./terminal-output";
+import { LiveTerminalOutput } from "./live-terminal";
 
 export type WorklogEntry = ToolTraceEntry;
 
@@ -137,9 +139,11 @@ function WorklogRow({
           <span className="truncate font-mono text-[11px] text-foreground">
             {entry.name}
           </span>
-          <span className={cn("shrink-0 text-[10px]", state.textClass)}>
-            {state.label}
-          </span>
+          {state.label.length > 0 && (
+            <span className={cn("shrink-0 text-[10px]", state.textClass)}>
+              {state.label}
+            </span>
+          )}
         </div>
         <p className="truncate font-mono text-[10px] text-muted-foreground">
           {previewToolInput(entry.input)}
@@ -161,6 +165,7 @@ function WorklogDetail({
     entry.state === "output-available" &&
     isOkWriteFileOutput(entry.output) &&
     pickString(entry.input, "content") !== undefined;
+  const streamToken = pickString(entry.activity?.details, "streamToken");
 
   return (
     <section className="space-y-2.5 px-3 py-3">
@@ -168,7 +173,7 @@ function WorklogDetail({
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <state.Icon className={cn("size-3.5", state.iconClass)} />
-            <span>{state.label}</span>
+            {state.label.length > 0 && <span>{state.label}</span>}
           </div>
           <h2 className="mt-0.5 truncate font-mono text-xs font-semibold">
             {entry.name}
@@ -200,13 +205,42 @@ function WorklogDetail({
         )}
       </div>
 
-      <LogBlock title="Input">{safeStringify(entry.input)}</LogBlock>
+      {entry.name !== "bash" && (
+        <LogBlock title="Input">{safeStringify(entry.input)}</LogBlock>
+      )}
 
       {showWriteDiff ? (
         <DiffView
           previous={(entry.output as WriteFileOkOutput).previousContent ?? ""}
           next={pickString(entry.input, "content") ?? ""}
           newFile={(entry.output as WriteFileOkOutput).existed === false}
+        />
+      ) : entry.name === "bash" && entry.activity?.status === "running" && entry.activity?.toolCallId ? (
+        <LiveTerminalOutput
+          command={pickString(entry.input, "command")}
+          streamId={entry.activity.toolCallId}
+          streamToken={streamToken}
+          initialOutput={
+            typeof entry.output === "object" && entry.output !== null
+              ? (entry.output as {
+                  stdout?: string;
+                  stderr?: string;
+                  exitCode?: number | null;
+                  timedOut?: boolean;
+                  killed?: boolean;
+                  failedReason?: "timeout" | "killed" | "max_buffer" | "error";
+                })
+              : undefined
+          }
+        />
+      ) : entry.name === "bash" ? (
+        <TerminalOutput
+          command={pickString(entry.input, "command") ?? safeStringify(entry.input)}
+          output={
+            entry.state === "output-error" && entry.errorText
+              ? { stderr: entry.errorText, exitCode: 1 }
+              : entry.output
+          }
         />
       ) : entry.state === "output-error" && entry.errorText ? (
         <LogBlock title="Error" tone="error">

@@ -1,5 +1,12 @@
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  real,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 export const workspaceSettings = sqliteTable("workspace_settings", {
   id: text("id").primaryKey(),
@@ -98,7 +105,10 @@ export const runs = sqliteTable(
     startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
     finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
     durationMs: integer("duration_ms"),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
     totalTokens: integer("total_tokens"),
+    costUsd: real("cost_usd"),
     finishReason: text("finish_reason"),
   },
   (table) => [

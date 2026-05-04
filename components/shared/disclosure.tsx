@@ -5,7 +5,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 const DISCLOSURE_ANIMATION =
-  "overflow-hidden transition-[max-height,opacity] duration-300 ease-in-out will-change-[max-height,opacity] motion-reduce:transition-none";
+  "overflow-hidden transition-[max-height,opacity] ease-in-out will-change-[max-height,opacity] motion-reduce:transition-none";
 
 export function Disclosure({
   className,
@@ -68,7 +68,7 @@ export function Disclosure({
         id={id}
         className={cn(
           DISCLOSURE_ANIMATION,
-          effectiveOpen ? "opacity-100" : "opacity-0",
+          effectiveOpen ? "opacity-100 duration-100" : "opacity-0 duration-300",
         )}
         style={{
           maxHeight: effectiveOpen ? "var(--disclosure-height, 0px)" : "0px",
