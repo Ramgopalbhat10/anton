@@ -144,6 +144,19 @@ export function stripApprovalFlags<TTools extends ToolSet>(
   ) as TTools;
 }
 
+export function preClassifyBashInput(
+  input: unknown,
+): BashCommandClassification | undefined {
+  if (typeof input !== "object" || input === null) return undefined;
+  const command = (input as Record<string, unknown>)["command"];
+  if (typeof command !== "string") return undefined;
+  return classifyBashCommand(command);
+}
+
+export function isMcpTool(name: string): boolean {
+  return name.startsWith("mcp__");
+}
+
 export function classifyBashCommand(command: string): BashCommandClassification {
   const normalized = command.trim();
   if (!normalized) {

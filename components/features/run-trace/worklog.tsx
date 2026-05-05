@@ -11,6 +11,7 @@ import {
 
 import {
   getToolTraceEntries,
+  getApprovalMetadata,
   type AntonUIMessage,
   type ToolTraceEntry,
 } from "@/src/lib/trace";
@@ -21,6 +22,7 @@ import {
   isOkWriteFileOutput,
   pickString,
   previewToolInput,
+  riskCategoryBadge,
   safeStringify,
   toolStateMeta,
   type WriteFileOkOutput,
@@ -166,6 +168,10 @@ function WorklogDetail({
     isOkWriteFileOutput(entry.output) &&
     pickString(entry.input, "content") !== undefined;
   const streamToken = pickString(entry.activity?.details, "streamToken");
+  const approvalMeta =
+    entry.state === "approval-requested"
+      ? getApprovalMetadata(entry)
+      : undefined;
 
   return (
     <section className="space-y-2.5 px-3 py-3">
@@ -203,7 +209,35 @@ function WorklogDetail({
             </button>
           </div>
         )}
+        {approvalMeta && (
+          <div className="flex flex-wrap items-center gap-1">
+            {approvalMeta.riskCategories.map((cat) => {
+              const badge = riskCategoryBadge(cat);
+              return (
+                <span
+                  key={cat}
+                  className={cn(
+                    "rounded px-1.5 py-px font-mono text-[10px] uppercase",
+                    badge.baseClass,
+                  )}
+                >
+                  {badge.label}
+                </span>
+              );
+            })}
+          </div>
+        )}
       </div>
+
+      {approvalMeta && (
+        <p className="text-[10px] text-muted-foreground">
+          {approvalMeta.riskSummary}
+          {approvalMeta.bashClassification &&
+            !approvalMeta.bashClassification.forbidden && (
+              <> &mdash; {approvalMeta.bashClassification.reason}</>
+            )}
+        </p>
+      )}
 
       {entry.name !== "bash" && (
         <LogBlock title="Input">{safeStringify(entry.input)}</LogBlock>

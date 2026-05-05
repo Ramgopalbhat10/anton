@@ -10,7 +10,13 @@ import {
   Loader2,
 } from "lucide-react";
 
-import { getRunData, type AntonUIMessage } from "@/src/lib/trace";
+import {
+  getAssistantTextDisplay,
+  getMessageRunDurationMs,
+  getRunData,
+  hasPendingToolApproval,
+  type AntonUIMessage,
+} from "@/src/lib/trace";
 import { Disclosure } from "@/components/shared/disclosure";
 
 import {
@@ -20,7 +26,7 @@ import {
   getTraceRows,
   groupTraceRowsByStep,
 } from "./trace-data";
-import { InlineReasoningRow, StepGroupView, TraceRowView } from "./trace-rows";
+import { StepGroupView, TraceRowView } from "./trace-rows";
 
 function buildInterleaved(
   rows: ReturnType<typeof getTraceRows>,
@@ -55,12 +61,19 @@ export function RunTraceAccordion({
     (run?.status ?? metadata?.status) === "running" &&
     (status === "submitted" || status === "streaming");
 
-  const hasResponseText = useMemo(
-    () => message.parts.some((p) => p.type === "text" && (p as { text: string }).text.trim().length > 0),
-    [message.parts],
+  const pendingApproval = useMemo(
+    () => hasPendingToolApproval(message),
+    [message],
+  );
+  const hasFinalResponseText = useMemo(
+    () => getAssistantTextDisplay(message).finalText.length > 0,
+    [message],
   );
 
-  const showInline = isRunning && !hasResponseText;
+  const forceOpen =
+    isRunning ||
+    pendingApproval ||
+    (!hasFinalResponseText && (status === "submitted" || status === "streaming"));
 
   const now = useTick(isRunning);
   const rows = useMemo(() => getTraceRows(message), [message]);
@@ -71,62 +84,29 @@ export function RunTraceAccordion({
 
   const startedAt = run?.startedAt ?? metadata?.startedAt;
   const durationMs =
-    run?.durationMs ??
-    metadata?.durationMs ??
+    getMessageRunDurationMs(message, now) ??
     getTraceDurationMs(rows) ??
     (startedAt === undefined ? 0 : Math.max(0, now - startedAt));
   const runStatus = run?.status ?? metadata?.status ?? "completed";
   const header =
-    runStatus === "running"
+    pendingApproval
+      ? "Waiting for approval"
+      : runStatus === "running"
       ? `Working for ${formatDuration(durationMs)}`
       : runStatus === "completed"
         ? `Worked for ${formatDuration(durationMs)}`
         : `Stopped after ${formatDuration(durationMs)}`;
 
-  if (showInline) {
-    return (
-      <div className="mb-2 w-full space-y-0 text-xs text-muted-foreground">
-        <div className="flex items-center gap-1.5 px-1 py-0.5 text-[11px]">
-          <Loader2 className="size-3.5 animate-spin text-sky-400" />
-          <span className="font-medium text-foreground/90">{header}</span>
-        </div>
-        <div className="ml-1 space-y-0.5 pl-1">
-          {buildInterleaved(rows, stepGroups).map((item) =>
-            item.kind === "group" ? (
-              <StepGroupView
-                key={`step-${item.group.stepNumber}`}
-                group={item.group}
-                onApproval={onApproval}
-              />
-            ) : item.row.kind === "reasoning" ? (
-              <InlineReasoningRow
-                key={item.row.id}
-                event={item.row.event}
-                runStatus={runStatus}
-                text={item.row.text}
-              />
-            ) : (
-              <TraceRowView
-                key={item.row.id}
-                row={item.row}
-                runStatus={runStatus}
-                onApproval={onApproval}
-              />
-            ),
-          )}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <Disclosure
       className="mb-2 w-full text-xs text-muted-foreground"
-      defaultOpen={false}
-      forceOpen={isRunning}
+      defaultOpen={!hasFinalResponseText}
+      forceOpen={forceOpen}
       trigger={({ open }) => (
         <span className="inline-flex max-w-full items-center gap-1.5 rounded px-1 py-0.5 text-[11px]">
-          {runStatus === "running" ? (
+          {pendingApproval ? (
+            <AlertCircle className="size-3.5 text-amber-400" />
+          ) : runStatus === "running" ? (
             <Loader2 className="size-3.5 animate-spin text-sky-400" />
           ) : runStatus === "completed" ? (
             <CheckCircle2 className="size-3.5 text-emerald-400" />

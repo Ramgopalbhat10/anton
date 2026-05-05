@@ -232,6 +232,7 @@ function TokenCounter({
       title="Total tokens used in this session"
     >
       <span className="size-1.5 rounded-full bg-muted-foreground/50" aria-hidden />
+      <span className="text-muted-foreground/70">session</span>
       {formatTokens(tokens)}
       <span className="text-muted-foreground/70">tok</span>
     </span>

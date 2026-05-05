@@ -20,6 +20,7 @@ export default async function SessionPage({
 
   return (
     <Chat
+      key={session.id}
       sessionId={session.id}
       initialMessages={messages}
       initialModel={session.model as ModelId}

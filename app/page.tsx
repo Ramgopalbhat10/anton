@@ -1,5 +1,5 @@
 import { Chat } from "@/components/features/chat/chat";
 
 export default function Home() {
-  return <Chat />;
+  return <Chat key="new-chat" />;
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import {
   DefaultChatTransport,
@@ -10,7 +11,7 @@ import { PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 
 import { DEFAULT_MODEL_ID, type ModelId } from "@/src/lib/models";
 import type { PermissionMode } from "@/src/agent/permissions";
-import type { AntonUIMessage } from "@/src/lib/trace";
+import { getRunDataList, type AntonUIMessage } from "@/src/lib/trace";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { MessageList } from "./message-list";
@@ -33,7 +34,11 @@ interface ChatProps {
   initialProjectId?: string | null;
 }
 
-export function Chat({
+export function Chat(props: ChatProps) {
+  return <ChatSession key={props.sessionId ?? "new-chat"} {...props} />;
+}
+
+function ChatSession({
   sessionId: sessionIdProp,
   initialMessages,
   initialModel,
@@ -41,6 +46,7 @@ export function Chat({
   initialTokensTotal = 0,
   initialProjectId = null,
 }: ChatProps) {
+  const router = useRouter();
   const { sessions, refresh } = useSessionStore();
   const sidebar = useSidebar();
   const persistedRef = useRef(sessionIdProp !== undefined);
@@ -85,9 +91,7 @@ export function Chat({
     onFinish: () => {
       if (!persistedRef.current) {
         persistedRef.current = true;
-        if (typeof window !== "undefined") {
-          window.history.replaceState(null, "", `/s/${sessionId}`);
-        }
+        router.replace(`/s/${sessionId}`);
       }
       void refresh();
     },
@@ -95,8 +99,16 @@ export function Chat({
 
   const streaming = status === "streaming" || status === "submitted";
   const headerTitle = initialTitle ?? (sessionIdProp ? "Session" : "New chat");
-  const tokensTotal =
+  const persistedTokensTotal =
     sessions.find((s) => s.id === sessionId)?.tokensTotal ?? initialTokensTotal;
+  const messageTokensTotal = messages.reduce((sum, message) => {
+    return sum + getRunDataList(message).reduce((runSum, run) => {
+      return typeof run.totalTokens === "number" && Number.isFinite(run.totalTokens)
+        ? runSum + run.totalTokens
+        : runSum;
+    }, 0);
+  }, 0);
+  const tokensTotal = Math.max(persistedTokensTotal, messageTokensTotal);
 
   const toggleWorklog = () => {
     if (

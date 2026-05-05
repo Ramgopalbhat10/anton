@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useState, type ReactNode } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   MessageSquare,
   PanelLeftClose,
@@ -22,12 +22,19 @@ import { SidebarProvider, useSidebar } from "./sidebar-state";
 export { SidebarProvider, useSidebar };
 
 export function SessionSidebar() {
-  const { sessions, loading, error } = useSessionStore();
+  const { sessions, loading, error, removedSessionIds } = useSessionStore();
   const params = useParams<{ sessionId?: string }>();
+  const router = useRouter();
   const activeId = params?.sessionId;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const { open, setOpen } = useSidebar();
   const [activeProjectId, setActiveProjectId] = useActiveProjectIdState();
+
+  useEffect(() => {
+    if (!activeId || loading || !removedSessionIds.has(activeId)) return;
+    router.replace("/");
+    router.refresh();
+  }, [activeId, loading, removedSessionIds, router]);
 
   return (
     <aside
