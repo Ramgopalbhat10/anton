@@ -10,12 +10,16 @@ import {
 
 import { cn } from "@/lib/utils";
 import { Disclosure } from "@/components/shared/disclosure";
-import type { ToolTraceEntry } from "@/src/lib/trace";
+import {
+  getApprovalMetadata,
+  type ToolTraceEntry,
+} from "@/src/lib/trace";
 
 import { formatDuration, toolTitle } from "./trace-data";
 import {
   pickString,
   previewToolInput,
+  riskCategoryBadge,
   safeStringify,
   traceToolStateMeta,
 } from "./tool-display";
@@ -36,6 +40,7 @@ export function ToolTraceRow({
       ? entry.approvalId
       : undefined;
   const needsApproval = approvalId !== undefined;
+  const approvalMeta = needsApproval ? getApprovalMetadata(entry) : undefined;
   const showDetails = entry.name === "bash";
   const forceOpen = showDetails && entry.activity?.status === "running";
   const streamToken = pickString(entry.activity?.details, "streamToken");
@@ -66,7 +71,27 @@ export function ToolTraceRow({
                 </span>
               )}
               {approvalId && (
-                <ApprovalControls approvalId={approvalId} onApproval={onApproval} />
+                <>
+                  <ApprovalControls approvalId={approvalId} onApproval={onApproval} />
+                </>
+              )}
+              {approvalMeta && (
+                <span className="inline-flex items-center gap-0.5">
+                  {approvalMeta.riskCategories.map((cat) => {
+                    const badge = riskCategoryBadge(cat);
+                    return (
+                      <span
+                        key={cat}
+                        className={cn(
+                          "rounded px-1 py-px text-[9px] uppercase tracking-wide",
+                          badge.baseClass,
+                        )}
+                      >
+                        {badge.label}
+                      </span>
+                    );
+                  })}
+                </span>
               )}
               {entry.activity?.durationMs !== undefined && (
                 <span className="shrink-0 text-[10px]">
@@ -77,6 +102,15 @@ export function ToolTraceRow({
             {showPreview && (
               <span className="block truncate font-mono text-[10px]">
                 {preview}
+              </span>
+            )}
+            {approvalMeta && (
+              <span className="block text-[10px] text-muted-foreground">
+                {approvalMeta.riskSummary}
+                {approvalMeta.bashClassification &&
+                  !approvalMeta.bashClassification.forbidden && (
+                    <> &mdash; {approvalMeta.bashClassification.reason}</>
+                  )}
               </span>
             )}
           </span>

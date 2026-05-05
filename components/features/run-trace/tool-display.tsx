@@ -173,3 +173,28 @@ export function traceToolStateMeta(state: ToolTraceEntry["state"]) {
 function iconForTool({ className }: { className?: string }) {
   return <TerminalSquare className={className} />;
 }
+
+export function riskCategoryBadge(
+  category: string,
+): { label: string; baseClass: string } {
+  switch (category) {
+    case "read-only":
+      return { label: "read", baseClass: "bg-secondary text-muted-foreground ring-1 ring-border" };
+    case "write":
+      return { label: "write", baseClass: "bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/40" };
+    case "delete":
+      return { label: "delete", baseClass: "bg-red-500/15 text-red-300 ring-1 ring-red-500/40" };
+    case "network":
+      return { label: "network", baseClass: "bg-sky-500/15 text-sky-300 ring-1 ring-sky-500/40" };
+    case "package-install":
+      return { label: "install", baseClass: "bg-purple-500/15 text-purple-300 ring-1 ring-purple-500/40" };
+    case "git":
+      return { label: "git", baseClass: "bg-teal-500/15 text-teal-300 ring-1 ring-teal-500/40" };
+    case "long-running-process":
+      return { label: "long-run", baseClass: "bg-orange-500/15 text-orange-300 ring-1 ring-orange-500/40" };
+    case "external-integration":
+      return { label: "external", baseClass: "bg-rose-500/15 text-rose-300 ring-1 ring-rose-500/40" };
+    default:
+      return { label: category, baseClass: "bg-secondary text-muted-foreground ring-1 ring-border" };
+  }
+}

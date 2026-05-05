@@ -24,9 +24,10 @@ interface SessionStoreValue {
   sessions: SessionSummary[];
   loading: boolean;
   error: string | null;
+  removedSessionIds: ReadonlySet<string>;
   refresh: () => Promise<void>;
   rename: (id: string, title: string) => Promise<void>;
-  remove: (id: string) => Promise<void>;
+  remove: (id: string) => Promise<boolean>;
 }
 
 const SessionStoreContext = createContext<SessionStoreValue | null>(null);
@@ -35,6 +36,9 @@ export function SessionStoreProvider({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [removedSessionIds, setRemovedSessionIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
 
   const refresh = useCallback(async () => {
     try {
@@ -83,22 +87,38 @@ export function SessionStoreProvider({ children }: { children: ReactNode }) {
     async (id: string) => {
       const snapshot = sessions;
       setSessions((prev) => prev.filter((s) => s.id !== id));
+      setRemovedSessionIds((prev) => new Set(prev).add(id));
       try {
         const res = await fetch(`/api/sessions/${id}`, { method: "DELETE" });
         if (!res.ok && res.status !== 204) {
           throw new Error(`HTTP ${res.status}`);
         }
+        return true;
       } catch (err) {
         setError(err instanceof Error ? err.message : "Delete failed");
         setSessions(snapshot);
+        setRemovedSessionIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+        return false;
       }
     },
     [sessions],
   );
 
   const value = useMemo<SessionStoreValue>(
-    () => ({ sessions, loading, error, refresh, rename, remove }),
-    [sessions, loading, error, refresh, rename, remove],
+    () => ({
+      sessions,
+      loading,
+      error,
+      removedSessionIds,
+      refresh,
+      rename,
+      remove,
+    }),
+    [sessions, loading, error, removedSessionIds, refresh, rename, remove],
   );
 
   return (

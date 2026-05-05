@@ -13,7 +13,12 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { runAgent } from "@/src/agent/loop";
-import type { PermissionMode } from "@/src/agent/permissions";
+import {
+  getNativeToolPermissionMetadata,
+  isMcpTool,
+  preClassifyBashInput,
+  type PermissionMode,
+} from "@/src/agent/permissions";
 import { bashProgress } from "@/src/lib/bash-stream";
 import {
   addSessionTokens,
@@ -419,6 +424,28 @@ function createTraceWriter({
       if (event.toolName === "bash") {
         details.streamToken = bashProgress.prepareStream(event.toolCallId);
       }
+
+      const permissionMeta = getNativeToolPermissionMetadata(event.toolName);
+      if (permissionMeta) {
+        details.riskCategories = [...permissionMeta.categories];
+        details.riskSummary = permissionMeta.summary;
+      } else if (isMcpTool(event.toolName)) {
+        const parts = event.toolName.split("__");
+        details.riskCategories = ["external-integration"];
+        details.riskSummary = `Calls external MCP tool "${parts[2] ?? event.toolName}" from "${parts[1] ?? "unknown"}" server.`;
+      }
+
+      if (event.toolName === "bash") {
+        const classification = preClassifyBashInput(event.input);
+        if (classification) {
+          details.bashClassification = {
+            categories: [...classification.categories],
+            forbidden: classification.forbidden,
+            reason: classification.reason,
+          };
+        }
+      }
+
       startEvent({
         id: `${runId}:tool:${event.toolCallId}`,
         kind: "tool",
@@ -438,11 +465,13 @@ function createTraceWriter({
       output?: unknown;
       error?: unknown;
     }) {
+      const current = events.get(`${runId}:tool:${event.toolCallId}`);
       finishEvent(`${runId}:tool:${event.toolCallId}`, {
         status: event.success ? "completed" : "error",
         label: toolLabel(event.toolName, event.input),
         summary: summarizeInput(event.input),
         details: {
+          ...current?.details,
           toolName: event.toolName,
           stepNumber: event.stepNumber,
           success: event.success,

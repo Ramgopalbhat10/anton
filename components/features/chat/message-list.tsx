@@ -14,9 +14,14 @@ import {
 } from "lucide-react";
 
 import {
+  getAssistantTextDisplay,
+  getMessageRunDurationMs,
   getRunData,
+  getRunDataList,
   getToolTraceEntries,
+  hasPendingToolApproval,
   type AntonUIMessage,
+  type AntonRunData,
 } from "@/src/lib/trace";
 import { cn } from "@/lib/utils";
 import { Markdown } from "./markdown";
@@ -81,17 +86,30 @@ function MessageEvent({
   onApproval: ChatAddToolApproveResponseFunction;
 }) {
   const isUser = message.role === "user";
-  const plainText = message.parts
+  const userText = message.parts
     .filter((p) => p.type === "text")
     .map((p) => (p as { text: string }).text)
     .join("\n\n")
     .trim();
-  const fallbackText = !isUser && plainText.length === 0
+  const assistantText = !isUser
+    ? getAssistantTextDisplay(message).finalText
+    : "";
+  const pendingApproval = !isUser && hasPendingToolApproval(message);
+  const assistantFinal = !isUser && isAssistantMessageFinal(message);
+  const fallbackText = !isUser &&
+    assistantText.length === 0 &&
+    !pendingApproval &&
+    assistantFinal
     ? toolResultFallbackText(message)
     : "";
-  const finalText = plainText || fallbackText;
+  const responseText = isUser ? userText : assistantText || fallbackText;
   const responseTime = !isUser ? messageDisplayTime(message) : undefined;
   const metrics = !isUser ? messageMetrics(message) : undefined;
+  const showActions =
+    !isUser &&
+    responseText.length > 0 &&
+    !pendingApproval &&
+    assistantFinal;
 
   return (
     <div
@@ -115,30 +133,33 @@ function MessageEvent({
             onApproval={onApproval}
           />
         )}
-        {message.parts.map((part, i) => {
-          if (part.type !== "text") return null;
-          if (isUser) {
+        {isUser ? (
+          message.parts.map((part, i) => {
+            if (part.type !== "text") return null;
             return (
               <div key={i} className="whitespace-pre-wrap leading-normal">
                 {part.text}
               </div>
             );
-          }
-          return <Markdown key={i} className="text-xs">{part.text}</Markdown>;
-        })}
-        {!isUser && plainText.length === 0 && fallbackText.length > 0 && (
-          <Markdown className="text-xs">{fallbackText}</Markdown>
-        )}
+          })
+        ) : responseText.length > 0 ? (
+          <Markdown className="text-xs">{responseText}</Markdown>
+        ) : null}
       </div>
-      {!isUser && finalText.length > 0 && (
+      {showActions && (
         <MessageActions
-          text={finalText}
+          text={responseText}
           responseTime={responseTime}
           metrics={metrics}
         />
       )}
     </div>
   );
+}
+
+function isAssistantMessageFinal(message: AntonUIMessage): boolean {
+  const runStatus = getRunData(message)?.status ?? message.metadata?.status;
+  return runStatus === undefined || runStatus !== "running";
 }
 
 function toolResultFallbackText(message: AntonUIMessage): string {
@@ -172,7 +193,7 @@ function bashOutputFallback(output: unknown): string {
 function messageDisplayTime(message: AntonUIMessage): string | undefined {
   const metadata = message.metadata;
   const run = getRunData(message);
-  const timestamp = metadata?.finishedAt ?? metadata?.startedAt ?? run?.finishedAt ?? run?.startedAt;
+  const timestamp = run?.finishedAt ?? metadata?.finishedAt ?? run?.startedAt ?? metadata?.startedAt;
   if (typeof timestamp !== "number") return undefined;
   return new Intl.DateTimeFormat(undefined, {
     hour: "2-digit",
@@ -192,19 +213,42 @@ type ResponseMetrics = {
 
 function messageMetrics(message: AntonUIMessage): ResponseMetrics {
   const metadata = message.metadata;
-  const run = getRunData(message);
+  const runs = getRunDataList(message);
+  const run = runs.at(-1);
+  const aggregate = aggregateRunMetrics(runs);
   return {
-    model: metadata?.model ?? run?.model,
-    durationMs: metadata?.durationMs ?? run?.durationMs,
-    inputTokens: metadata?.inputTokens ?? run?.inputTokens,
-    outputTokens: metadata?.outputTokens ?? run?.outputTokens,
-    totalTokens: metadata?.totalTokens ?? run?.totalTokens,
+    model: run?.model ?? metadata?.model,
+    durationMs: getMessageRunDurationMs(message) ?? aggregate.durationMs,
+    inputTokens: aggregate.inputTokens ?? metadata?.inputTokens ?? run?.inputTokens,
+    outputTokens: aggregate.outputTokens ?? metadata?.outputTokens ?? run?.outputTokens,
+    totalTokens: aggregate.totalTokens ?? metadata?.totalTokens ?? run?.totalTokens,
     costUsd:
+      aggregate.costUsd ??
       readNumber(metadata, "costUsd") ??
       readNumber(metadata, "cost") ??
       readNumber(run, "costUsd") ??
       readNumber(run, "cost"),
   };
+}
+
+function aggregateRunMetrics(runs: AntonRunData[]): ResponseMetrics {
+  return {
+    inputTokens: sumDefined(runs.map((run) => run.inputTokens)),
+    outputTokens: sumDefined(runs.map((run) => run.outputTokens)),
+    totalTokens: sumDefined(runs.map((run) => run.totalTokens)),
+    costUsd: sumDefined(runs.map((run) => run.costUsd)),
+  };
+}
+
+function sumDefined(values: Array<number | undefined>): number | undefined {
+  let total = 0;
+  let hasValue = false;
+  for (const value of values) {
+    if (typeof value !== "number" || !Number.isFinite(value)) continue;
+    total += value;
+    hasValue = true;
+  }
+  return hasValue ? total : undefined;
 }
 
 function readNumber(value: unknown, key: string): number | undefined {
@@ -248,7 +292,7 @@ function StatsHoverCard({ metrics }: { metrics: ResponseMetrics }) {
           <Cpu className="size-3" />
         </button>
       </HoverCardTrigger>
-      <HoverCardContent className="w-56 px-2.5 py-2">
+      <HoverCardContent className="w-64 px-2.5 py-2">
         <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
           <Cpu className="size-3" />
           {modelName}
@@ -257,30 +301,30 @@ function StatsHoverCard({ metrics }: { metrics: ResponseMetrics }) {
           <div className="flex items-center gap-1.5 text-muted-foreground">
             <Hash className="size-3" />
             <span>Total</span>
-            <span className="ml-auto font-mono text-foreground">{formatNumber(metrics.totalTokens)}</span>
+            <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatNumber(metrics.totalTokens)}</span>
           </div>
           <div className="grid grid-cols-2 gap-x-3 gap-y-1">
             <div className="flex items-center gap-1.5">
               <ArrowDownToLine className="size-3 text-muted-foreground" />
               <span className="text-muted-foreground">In</span>
-              <span className="ml-auto font-mono text-foreground">{formatNumber(metrics.inputTokens)}</span>
+              <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatNumber(metrics.inputTokens)}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <ArrowUpFromLine className="size-3 text-muted-foreground" />
               <span className="text-muted-foreground">Out</span>
-              <span className="ml-auto font-mono text-foreground">{formatNumber(metrics.outputTokens)}</span>
+              <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatNumber(metrics.outputTokens)}</span>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-x-3 gap-y-1">
             <div className="flex items-center gap-1.5">
               <DollarSign className="size-3 text-muted-foreground" />
               <span className="text-muted-foreground">Cost</span>
-              <span className="ml-auto font-mono text-foreground">{formatCost(metrics.costUsd)}</span>
+              <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatCost(metrics.costUsd)}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <Clock className="size-3 text-muted-foreground" />
               <span className="text-muted-foreground">Duration</span>
-              <span className="ml-auto font-mono text-foreground">{formatDuration(metrics.durationMs)}</span>
+              <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatDuration(metrics.durationMs)}</span>
             </div>
           </div>
         </div>
@@ -307,8 +351,11 @@ function formatCost(value: number | undefined): string {
 
 function formatDuration(value: number | undefined): string {
   if (value === undefined) return "—";
-  if (value < 1000) return `${value}ms`;
-  return `${(value / 1000).toFixed(value < 10000 ? 1 : 0)}s`;
+  const seconds = Math.max(0, Math.round(value / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return remainder === 0 ? `${minutes}m` : `${minutes}m ${remainder}s`;
 }
 
 function formatModelName(value: string | undefined): string {

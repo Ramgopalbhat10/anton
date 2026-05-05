@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronRight,
   Loader2,
+  MessageCircleMore,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -36,6 +37,9 @@ export function TraceRowView({
     return (
       <ReasoningRow event={row.event} runStatus={runStatus} text={row.text} />
     );
+  }
+  if (row.kind === "progress") {
+    return <ProgressRow text={row.text} />;
   }
   return <ActivityRow event={row.event} runStatus={runStatus} />;
 }
@@ -143,6 +147,17 @@ function ReasoningRow({
   );
 }
 
+function ProgressRow({ text }: { text: string }) {
+  return (
+    <div className="grid grid-cols-[0.875rem_minmax(0,1fr)] gap-2 py-0.5">
+      <MessageCircleMore className="mt-0.5 size-3.5 text-muted-foreground" />
+      <p className="min-w-0 whitespace-pre-wrap font-mono text-[10px] leading-relaxed text-foreground/75">
+        {text}
+      </p>
+    </div>
+  );
+}
+
 export function StepGroupView({
   group,
   onApproval,
@@ -153,10 +168,13 @@ export function StepGroupView({
   const hasRunningTool = group.toolRows.some(
     (row) => row.kind === "tool" && row.tool.activity?.status === "running",
   );
+  const hasPendingApproval = group.toolRows.some(
+    (row) => row.kind === "tool" && row.tool.state === "approval-requested",
+  );
   return (
     <Disclosure
       className="py-0.5"
-      forceOpen={hasRunningTool}
+      forceOpen={hasRunningTool || hasPendingApproval}
       trigger={({ open }) => (
         <span className="inline-flex max-w-full items-center gap-1.5 rounded px-0 py-0 text-[11px] text-muted-foreground/80 hover:text-foreground/80">
           <span className="truncate">{group.summary}</span>

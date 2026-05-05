@@ -1,7 +1,7 @@
 import {
   getActivityEvents,
-  getReasoningTexts,
   getToolTraceEntries,
+  isReasoningPart,
   type AntonActivityEvent,
   type AntonUIMessage,
   type ToolTraceEntry,
@@ -33,63 +33,90 @@ export type TraceRow =
   | {
       id: string;
       order: number;
+      kind: "progress";
+      text: string;
+    }
+  | {
+      id: string;
+      order: number;
       kind: "tool";
       tool: ToolTraceEntry;
     };
 
 export function getTraceRows(message: AntonUIMessage): TraceRow[] {
   const activities = getActivityEvents(message);
-  const reasoningTexts = getReasoningTexts(message);
   const reasoningActivities = activities.filter(
     (event) => event.kind === "reasoning",
   );
   const toolEntries = getToolTraceEntries([message]);
   const rows: TraceRow[] = [];
+  let reasoningIndex = 0;
+  const lastToolIndex = message.parts.findLastIndex((part) =>
+    toolCallIdForPart(part)
+      ? toolEntries.some((entry) => entry.id === toolCallIdForPart(part))
+      : false,
+  );
+
+  message.parts.forEach((part, index) => {
+    if (isReasoningPart(part)) {
+      const text = part.text.trim();
+      if (!text) return;
+      const event = reasoningActivities[reasoningIndex];
+      reasoningIndex += 1;
+      rows.push({
+        id: event?.id ?? `${message.id}:reasoning:${index}`,
+        order: index,
+        kind: "reasoning",
+        event,
+        text,
+      });
+      return;
+    }
+
+    if (part.type === "text" && index < lastToolIndex) {
+      const text = part.text.trim();
+      if (!text) return;
+      rows.push({
+        id: `${message.id}:progress:${index}`,
+        order: index,
+        kind: "progress",
+        text,
+      });
+      return;
+    }
+
+    const toolCallId = toolCallIdForPart(part);
+    if (!toolCallId) return;
+    const tool = toolEntries.find((entry) => entry.id === toolCallId);
+    if (!tool) return;
+    rows.push({
+      id: tool.id,
+      order: index,
+      kind: "tool",
+      tool,
+    });
+  });
 
   for (const event of activities) {
     if (event.kind === "tool" || event.kind === "reasoning") continue;
     if (event.kind === "step") continue;
     rows.push({
       id: event.id,
-      order: event.sequence,
+      order: 10_000 + event.sequence,
       kind: "activity",
       event,
     });
   }
 
-  if (reasoningActivities.length > 0) {
-    reasoningActivities.forEach((event, index) => {
-      const text = reasoningTexts[index] ?? reasoningTexts.join("\n\n");
-      if (!text) return;
-      rows.push({
-        id: event.id,
-        order: event.sequence,
-        kind: "reasoning",
-        event,
-        text,
-      });
-    });
-  } else {
-    reasoningTexts.forEach((text, index) => {
-      rows.push({
-        id: `${message.id}:reasoning:${index}`,
-        order: 200 + index,
-        kind: "reasoning",
-        text,
-      });
-    });
-  }
-
-  toolEntries.forEach((tool, index) => {
-    rows.push({
-      id: tool.id,
-      order: tool.activity?.sequence ?? 500 + index,
-      kind: "tool",
-      tool,
-    });
-  });
-
   return rows.sort((a, b) => a.order - b.order);
+}
+
+function toolCallIdForPart(
+  part: AntonUIMessage["parts"][number],
+): string | undefined {
+  return "toolCallId" in part && typeof part.toolCallId === "string"
+    ? part.toolCallId
+    : undefined;
 }
 
 export function groupTraceRowsByStep(
@@ -97,7 +124,9 @@ export function groupTraceRowsByStep(
   rows: TraceRow[],
 ): StepGroup[] {
   const orderedRows = rows.toSorted((a, b) => a.order - b.order);
-  const reasoningRows = orderedRows.filter((row) => row.kind === "reasoning");
+  const boundaryRows = orderedRows.filter(
+    (row) => row.kind === "reasoning" || row.kind === "progress",
+  );
   const groups: StepGroup[] = [];
 
   const addGroup = (toolRows: TraceRow[]) => {
@@ -110,26 +139,26 @@ export function groupTraceRowsByStep(
     });
   };
 
-  if (reasoningRows.length === 0) {
+  if (boundaryRows.length === 0) {
     addGroup(orderedRows.filter((row) => row.kind === "tool"));
     return groups;
   }
 
   addGroup(
     orderedRows.filter(
-      (row) => row.kind === "tool" && row.order < reasoningRows[0].order,
+      (row) => row.kind === "tool" && row.order < boundaryRows[0].order,
     ),
   );
 
-  reasoningRows.forEach((reasoningRow, index) => {
-    const nextReasoningRow = reasoningRows[index + 1];
+  boundaryRows.forEach((boundaryRow, index) => {
+    const nextBoundaryRow = boundaryRows[index + 1];
     addGroup(
       orderedRows.filter(
         (row) =>
           row.kind === "tool" &&
-          row.order > reasoningRow.order &&
-          (nextReasoningRow === undefined ||
-            row.order < nextReasoningRow.order),
+          row.order > boundaryRow.order &&
+          (nextBoundaryRow === undefined ||
+            row.order < nextBoundaryRow.order),
       ),
     );
   });
@@ -189,6 +218,7 @@ export function getTraceDurationMs(rows: TraceRow[]): number | undefined {
     .map((row) => {
       if (row.kind === "activity") return row.event.durationMs;
       if (row.kind === "reasoning") return row.event?.durationMs;
+      if (row.kind === "progress") return undefined;
       return row.tool.activity?.durationMs;
     })
     .filter((duration): duration is number => duration !== undefined);
