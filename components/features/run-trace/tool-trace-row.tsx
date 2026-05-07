@@ -12,7 +12,9 @@ import { cn } from "@/lib/utils";
 import { Disclosure } from "@/components/shared/disclosure";
 import {
   getApprovalMetadata,
+  type AntonRunStatus,
   type ToolTraceEntry,
+  type ToolState,
 } from "@/src/lib/trace";
 
 import { formatDuration, toolTitle } from "./trace-data";
@@ -28,12 +30,15 @@ import { LiveTerminalOutput } from "./live-terminal";
 
 export function ToolTraceRow({
   entry,
+  runStatus,
   onApproval,
 }: {
   entry: ToolTraceEntry;
+  runStatus: AntonRunStatus;
   onApproval: ChatAddToolApproveResponseFunction;
 }) {
-  const meta = traceToolStateMeta(entry.state);
+  const displayState = displayToolState(entry, runStatus);
+  const meta = traceToolStateMeta(displayState);
   const approvalId =
     entry.state === "approval-requested" &&
     typeof entry.approvalId === "string"
@@ -42,16 +47,14 @@ export function ToolTraceRow({
   const needsApproval = approvalId !== undefined;
   const approvalMeta = needsApproval ? getApprovalMetadata(entry) : undefined;
   const showDetails = entry.name === "bash";
-  const forceOpen = showDetails && entry.activity?.status === "running";
   const streamToken = pickString(entry.activity?.details, "streamToken");
-  const title = toolTitle(entry);
+  const title = toolTitle(entry, runStatus);
   const preview = previewToolInput(entry.input);
   const showPreview = preview.length > 0 && preview !== title.target;
   return (
     <Disclosure
       className="py-0.5"
       disabled={needsApproval || !showDetails}
-      forceOpen={forceOpen}
       trigger={({ open }) => (
         <span className="grid grid-cols-[0.875rem_minmax(0,1fr)] gap-2 rounded px-0 py-0">
           <meta.Icon className={cn("mt-0.5 size-3.5", meta.iconClass)} />
@@ -120,7 +123,10 @@ export function ToolTraceRow({
       {showDetails && (
         <div className="min-h-0 overflow-hidden">
           <div className="ml-5 mt-1">
-            {entry.name === "bash" && entry.activity?.status === "running" && entry.activity?.toolCallId ? (
+            {entry.name === "bash" &&
+            runStatus === "running" &&
+            entry.activity?.status === "running" &&
+            entry.activity?.toolCallId ? (
               <LiveTerminalOutput
                 command={pickString(entry.input, "command")}
                 streamId={entry.activity.toolCallId}
@@ -154,6 +160,21 @@ export function ToolTraceRow({
     </Disclosure>
   );
 }
+
+function displayToolState(
+  entry: ToolTraceEntry,
+  runStatus: AntonRunStatus,
+): ToolState {
+  if (
+    runStatus !== "running" &&
+    entry.activity?.status === "running" &&
+    (entry.state === "input-streaming" || entry.state === "input-available")
+  ) {
+    return "output-error";
+  }
+  return entry.state;
+}
+
 function ToolTitle({
   title,
 }: {

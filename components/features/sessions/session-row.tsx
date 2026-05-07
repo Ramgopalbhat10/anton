@@ -49,10 +49,12 @@ export function SessionRow({
   };
 
   const onDelete = async () => {
+    if (isActive) {
+      router.replace("/");
+    }
     const deleted = await remove(session.id);
     if (!deleted) return;
     if (isActive) {
-      router.replace("/");
       router.refresh();
     }
   };

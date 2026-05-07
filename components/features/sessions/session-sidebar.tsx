@@ -31,10 +31,14 @@ export function SessionSidebar() {
   const [activeProjectId, setActiveProjectId] = useActiveProjectIdState();
 
   useEffect(() => {
-    if (!activeId || loading || !removedSessionIds.has(activeId)) return;
+    if (!activeId || loading || error) return;
+    const activeSessionMissing = !sessions.some(
+      (session) => session.id === activeId,
+    );
+    if (!removedSessionIds.has(activeId) && !activeSessionMissing) return;
     router.replace("/");
     router.refresh();
-  }, [activeId, loading, removedSessionIds, router]);
+  }, [activeId, error, loading, removedSessionIds, router, sessions]);
 
   return (
     <aside

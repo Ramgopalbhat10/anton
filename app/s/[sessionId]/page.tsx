@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { redirect } from "next/navigation";
 
 import { Chat } from "@/components/features/chat/chat";
 import { getSession, loadMessages } from "@/src/db/queries";
@@ -14,7 +14,7 @@ export default async function SessionPage({
 }) {
   const { sessionId } = await params;
   const session = getSession(sessionId);
-  if (!session) notFound();
+  if (!session) redirect("/");
 
   const messages = loadMessages<AntonUIMessage>(sessionId);
 

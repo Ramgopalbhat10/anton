@@ -153,6 +153,7 @@ export type AssistantTextDisplay = {
 
 export function getAssistantTextDisplay(
   message: AntonUIMessage,
+  options: { progressOnly?: boolean } = {},
 ): AssistantTextDisplay {
   const lastToolIndex = message.parts.findLastIndex(isToolUIPart);
   const progressText: string[] = [];
@@ -162,7 +163,7 @@ export function getAssistantTextDisplay(
     if (part.type !== "text") continue;
     const text = part.text.trim();
     if (!text) continue;
-    if (lastToolIndex !== -1 && index < lastToolIndex) {
+    if (options.progressOnly || (lastToolIndex !== -1 && index < lastToolIndex)) {
       progressText.push(text);
     } else {
       finalText.push(text);

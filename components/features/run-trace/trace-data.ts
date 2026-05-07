@@ -1,7 +1,9 @@
 import {
   getActivityEvents,
+  getRunData,
   getToolTraceEntries,
   isReasoningPart,
+  type AntonRunStatus,
   type AntonActivityEvent,
   type AntonUIMessage,
   type ToolTraceEntry,
@@ -45,6 +47,7 @@ export type TraceRow =
 
 export function getTraceRows(message: AntonUIMessage): TraceRow[] {
   const activities = getActivityEvents(message);
+  const running = (getRunData(message)?.status ?? message.metadata?.status) === "running";
   const reasoningActivities = activities.filter(
     (event) => event.kind === "reasoning",
   );
@@ -73,7 +76,7 @@ export function getTraceRows(message: AntonUIMessage): TraceRow[] {
       return;
     }
 
-    if (part.type === "text" && index < lastToolIndex) {
+    if (part.type === "text" && (running || index < lastToolIndex)) {
       const text = part.text.trim();
       if (!text) return;
       rows.push({
@@ -243,14 +246,14 @@ export function getModelTurnSummary(
     .join(", ")}`;
 }
 
-export function toolTitle(entry: ToolTraceEntry): {
+export function toolTitle(entry: ToolTraceEntry, runStatus?: AntonRunStatus): {
   verb: string;
   target?: string;
 } {
   const target = previewToolInput(entry.input);
   switch (entry.name) {
     case "bash":
-      return { verb: "Ran", target };
+      return { verb: bashVerb(entry, runStatus), target };
     case "read_file":
       return { verb: "Read", target };
     case "glob":
@@ -265,6 +268,16 @@ export function toolTitle(entry: ToolTraceEntry): {
         target: target.length > 0 ? target : undefined,
       };
   }
+}
+
+function bashVerb(entry: ToolTraceEntry, runStatus?: AntonRunStatus): string {
+  if (entry.state === "output-available" || entry.state === "output-error") {
+    return "Ran";
+  }
+  if (entry.state === "output-denied") return "Denied";
+  if (entry.state === "approval-requested") return "Review";
+  if (runStatus !== undefined && runStatus !== "running") return "Stopped";
+  return "Running";
 }
 
 export function formatDuration(ms: number): string {
