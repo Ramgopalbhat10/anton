@@ -166,9 +166,10 @@ export async function POST(req: Request) {
         throw err;
       }
     },
-    onFinish: ({ messages, isAborted }) => {
-      if (isAborted) return;
-      replaceMessages<AntonUIMessage>(sessionId, messages);
+    onFinish: ({ messages }) => {
+      const persistedMessages = messages.filter(hasSubstantiveHistoryParts);
+      if (persistedMessages.length === 0) return;
+      replaceMessages<AntonUIMessage>(sessionId, persistedMessages);
     },
   });
 
@@ -189,6 +190,7 @@ function isModelContextPart(
   part: AntonUIMessage["parts"][number],
 ): boolean {
   if (part.type === "reasoning") return false;
+  if (isUnfinishedToolPart(part)) return false;
   return !part.type.startsWith("data-");
 }
 
@@ -196,6 +198,23 @@ function isSubstantiveModelContextPart(
   part: AntonUIMessage["parts"][number],
 ): boolean {
   return part.type !== "step-start";
+}
+
+function isUnfinishedToolPart(part: AntonUIMessage["parts"][number]): boolean {
+  if (!("state" in part) || typeof part.state !== "string") return false;
+  return (
+    part.state === "input-streaming" ||
+    part.state === "input-available"
+  );
+}
+
+function hasSubstantiveHistoryParts(message: AntonUIMessage): boolean {
+  return message.parts.some((part) => {
+    if (part.type === "text" || part.type === "reasoning") {
+      return part.text.trim().length > 0;
+    }
+    return part.type !== "step-start";
+  });
 }
 
 function stripProviderReplayMetadata(

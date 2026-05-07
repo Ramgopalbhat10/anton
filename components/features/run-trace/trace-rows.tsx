@@ -31,7 +31,13 @@ export function TraceRowView({
   onApproval: ChatAddToolApproveResponseFunction;
 }) {
   if (row.kind === "tool") {
-    return <ToolTraceRow entry={row.tool} onApproval={onApproval} />;
+    return (
+      <ToolTraceRow
+        entry={row.tool}
+        runStatus={runStatus}
+        onApproval={onApproval}
+      />
+    );
   }
   if (row.kind === "reasoning") {
     return (
@@ -160,21 +166,20 @@ function ProgressRow({ text }: { text: string }) {
 
 export function StepGroupView({
   group,
+  runStatus,
   onApproval,
 }: {
   group: StepGroup;
+  runStatus: AntonRunStatus;
   onApproval: ChatAddToolApproveResponseFunction;
 }) {
-  const hasRunningTool = group.toolRows.some(
-    (row) => row.kind === "tool" && row.tool.activity?.status === "running",
-  );
   const hasPendingApproval = group.toolRows.some(
     (row) => row.kind === "tool" && row.tool.state === "approval-requested",
   );
   return (
     <Disclosure
       className="py-0.5"
-      forceOpen={hasRunningTool || hasPendingApproval}
+      forceOpen={hasPendingApproval}
       trigger={({ open }) => (
         <span className="inline-flex max-w-full items-center gap-1.5 rounded px-0 py-0 text-[11px] text-muted-foreground/80 hover:text-foreground/80">
           <span className="truncate">{group.summary}</span>
@@ -191,7 +196,11 @@ export function StepGroupView({
           {group.toolRows.map((row) =>
             row.kind === "tool" ? (
               <li key={row.id}>
-                <ToolTraceRow entry={row.tool} onApproval={onApproval} />
+                <ToolTraceRow
+                  entry={row.tool}
+                  runStatus={runStatus}
+                  onApproval={onApproval}
+                />
               </li>
             ) : null,
           )}

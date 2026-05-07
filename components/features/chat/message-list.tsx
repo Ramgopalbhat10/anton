@@ -35,10 +35,16 @@ import {
 interface MessageListProps {
   messages: AntonUIMessage[];
   status: "submitted" | "streaming" | "ready" | "error";
+  recovering?: boolean;
   onApproval: ChatAddToolApproveResponseFunction;
 }
 
-export function MessageList({ messages, status, onApproval }: MessageListProps) {
+export function MessageList({
+  messages,
+  status,
+  recovering = false,
+  onApproval,
+}: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -51,11 +57,16 @@ export function MessageList({ messages, status, onApproval }: MessageListProps) 
   if (messages.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">
-        Start a session by asking Anton to inspect or change the selected
-        workspace.
+        {recovering
+          ? "Loading session..."
+          : "Start a session by asking Anton to inspect or change the selected workspace."}
       </div>
     );
   }
+
+  const latestAssistantMessageId = messages.findLast(
+    (message) => message.role === "assistant",
+  )?.id;
 
   return (
     <div
@@ -67,7 +78,7 @@ export function MessageList({ messages, status, onApproval }: MessageListProps) 
           <MessageEvent
             key={message.id}
             message={message}
-            status={status}
+            status={message.id === latestAssistantMessageId ? status : "ready"}
             onApproval={onApproval}
           />
         ))}
@@ -92,7 +103,9 @@ function MessageEvent({
     .join("\n\n")
     .trim();
   const assistantText = !isUser
-    ? getAssistantTextDisplay(message).finalText
+    ? getAssistantTextDisplay(message, {
+        progressOnly: status === "submitted" || status === "streaming",
+      }).finalText
     : "";
   const pendingApproval = !isUser && hasPendingToolApproval(message);
   const assistantFinal = !isUser && isAssistantMessageFinal(message);

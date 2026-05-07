@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import {
@@ -50,6 +50,10 @@ function ChatSession({
   const { sessions, refresh } = useSessionStore();
   const sidebar = useSidebar();
   const persistedRef = useRef(sessionIdProp !== undefined);
+  const lastNonEmptyMessagesRef = useRef<AntonUIMessage[]>(
+    initialMessages?.filter(hasVisibleMessageParts) ?? [],
+  );
+  const restoreMessagesRef = useRef<AntonUIMessage[] | null>(null);
 
   const [sessionId] = useState<string>(() => sessionIdProp ?? generateChatId());
   const [activeProjectId, setActiveProjectId] = useActiveProjectIdState(
@@ -59,6 +63,10 @@ function ChatSession({
   const [worklogOpen, setWorklogOpen] = useState(false);
   const [mobileWorklogOpen, setMobileWorklogOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [restoreVersion, setRestoreVersion] = useState(0);
+  const [messageDisplayOverride, setMessageDisplayOverride] = useState<
+    AntonUIMessage[] | null
+  >(null);
   const [model, setModel] = useState<ModelId>(
     (initialModel ?? DEFAULT_MODEL_ID) as ModelId,
   );
@@ -83,12 +91,23 @@ function ChatSession({
     status,
     stop,
     error,
+    setMessages,
     addToolApprovalResponse,
   } = useChat<AntonUIMessage>({
     transport,
     messages: initialMessages,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
-    onFinish: () => {
+    onFinish: ({ messages: finishedMessages, isAbort }) => {
+      const visibleMessages = finishedMessages.filter(hasVisibleMessageParts);
+      if (visibleMessages.length > 0) {
+        lastNonEmptyMessagesRef.current = visibleMessages;
+        setMessageDisplayOverride(null);
+      } else if (isAbort && lastNonEmptyMessagesRef.current.length > 0) {
+        setMessageDisplayOverride(lastNonEmptyMessagesRef.current);
+        restoreMessagesRef.current = lastNonEmptyMessagesRef.current;
+        setRestoreVersion((version) => version + 1);
+      }
+
       if (!persistedRef.current) {
         persistedRef.current = true;
         router.replace(`/s/${sessionId}`);
@@ -97,11 +116,53 @@ function ChatSession({
     },
   });
 
+  useEffect(() => {
+    const visibleMessages = messages.filter(hasVisibleMessageParts);
+    if (visibleMessages.length > 0) {
+      lastNonEmptyMessagesRef.current = visibleMessages;
+    }
+  }, [messages]);
+
+  useEffect(() => {
+    const messagesToRestore = restoreMessagesRef.current;
+    if (!messagesToRestore) return;
+    restoreMessagesRef.current = null;
+    setMessages(messagesToRestore);
+  }, [restoreVersion, setMessages]);
+
+  useEffect(() => {
+    if (!sessionIdProp || messages.length > 0) return;
+
+    let cancelled = false;
+    const restorePersistedMessages = async () => {
+      try {
+        const res = await fetch(`/api/sessions/${sessionIdProp}`, {
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as { messages?: AntonUIMessage[] };
+        const persistedMessages = data.messages?.filter(hasVisibleMessageParts);
+        if (!cancelled && persistedMessages && persistedMessages.length > 0) {
+          setMessages(data.messages ?? persistedMessages);
+        }
+      } catch {
+        // Keep the current local state; the route refresh still has server truth.
+      }
+    };
+
+    void restorePersistedMessages();
+    return () => {
+      cancelled = true;
+    };
+  }, [messages.length, sessionIdProp, setMessages]);
+
   const streaming = status === "streaming" || status === "submitted";
+  const displayMessages =
+    messages.length > 0 ? messages : messageDisplayOverride ?? messages;
   const headerTitle = initialTitle ?? (sessionIdProp ? "Session" : "New chat");
   const persistedTokensTotal =
     sessions.find((s) => s.id === sessionId)?.tokensTotal ?? initialTokensTotal;
-  const messageTokensTotal = messages.reduce((sum, message) => {
+  const messageTokensTotal = displayMessages.reduce((sum, message) => {
     return sum + getRunDataList(message).reduce((runSum, run) => {
       return typeof run.totalTokens === "number" && Number.isFinite(run.totalTokens)
         ? runSum + run.totalTokens
@@ -163,12 +224,13 @@ function ChatSession({
       <div className="relative flex min-h-0 max-w-full flex-1 overflow-hidden">
         <section className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden">
           <MessageList
-            messages={messages}
+            messages={displayMessages}
             status={status}
+            recovering={sessionIdProp !== undefined}
             onApproval={addToolApprovalResponse}
           />
 
-          {messages.length === 0 && !effectiveProjectId && (
+          {displayMessages.length === 0 && !effectiveProjectId && (
             <WorkspaceRequired onOpenSettings={() => setSettingsOpen(true)} />
           )}
 
@@ -199,7 +261,7 @@ function ChatSession({
         </section>
 
         <Worklog
-          messages={messages}
+          messages={displayMessages}
           onApproval={addToolApprovalResponse}
           className={cn(
             "hidden shrink-0 overflow-hidden transition-[width] duration-200 ease-out xl:flex",
@@ -217,7 +279,7 @@ function ChatSession({
             }}
           >
             <Worklog
-              messages={messages}
+              messages={displayMessages}
               onApproval={addToolApprovalResponse}
               className="ml-auto h-full w-[min(420px,100%)] border-l"
               onClose={() => setMobileWorklogOpen(false)}
@@ -236,3 +298,11 @@ function ChatSession({
   );
 }
 
+function hasVisibleMessageParts(message: AntonUIMessage): boolean {
+  return message.parts.some((part) => {
+    if (part.type === "text" || part.type === "reasoning") {
+      return part.text.trim().length > 0;
+    }
+    return part.type !== "step-start";
+  });
+}

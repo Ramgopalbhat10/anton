@@ -16,6 +16,7 @@ import {
   getRunData,
   hasPendingToolApproval,
   type AntonUIMessage,
+  type AntonRunStatus,
 } from "@/src/lib/trace";
 import { Disclosure } from "@/components/shared/disclosure";
 
@@ -57,9 +58,12 @@ export function RunTraceAccordion({
 }: RunTraceAccordionProps) {
   const run = getRunData(message);
   const metadata = message.metadata;
-  const isRunning =
-    (run?.status ?? metadata?.status) === "running" &&
-    (status === "submitted" || status === "streaming");
+  const transportRunning = status === "submitted" || status === "streaming";
+  const runStatus = effectiveRunStatus(
+    run?.status ?? metadata?.status,
+    transportRunning,
+  );
+  const isRunning = runStatus === "running";
 
   const pendingApproval = useMemo(
     () => hasPendingToolApproval(message),
@@ -70,10 +74,7 @@ export function RunTraceAccordion({
     [message],
   );
 
-  const forceOpen =
-    isRunning ||
-    pendingApproval ||
-    (!hasFinalResponseText && (status === "submitted" || status === "streaming"));
+  const forceOpen = pendingApproval;
 
   const now = useTick(isRunning);
   const rows = useMemo(() => getTraceRows(message), [message]);
@@ -87,7 +88,6 @@ export function RunTraceAccordion({
     getMessageRunDurationMs(message, now) ??
     getTraceDurationMs(rows) ??
     (startedAt === undefined ? 0 : Math.max(0, now - startedAt));
-  const runStatus = run?.status ?? metadata?.status ?? "completed";
   const header =
     pendingApproval
       ? "Waiting for approval"
@@ -131,6 +131,7 @@ export function RunTraceAccordion({
               <StepGroupView
                 key={`step-${item.group.stepNumber}`}
                 group={item.group}
+                runStatus={runStatus}
                 onApproval={onApproval}
               />
             ) : (
@@ -147,6 +148,14 @@ export function RunTraceAccordion({
       </div>
     </Disclosure>
   );
+}
+
+function effectiveRunStatus(
+  status: AntonRunStatus | undefined,
+  transportRunning: boolean,
+): AntonRunStatus {
+  if (status === "running" && !transportRunning) return "aborted";
+  return status ?? "completed";
 }
 
 function useTick(active: boolean): number {
