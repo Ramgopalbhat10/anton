@@ -27,6 +27,7 @@ import {
 } from "./tool-display";
 import { TerminalOutput } from "./terminal-output";
 import { LiveTerminalOutput } from "./live-terminal";
+import { ApprovalDetails } from "./approval-details";
 
 export function ToolTraceRow({
   entry,
@@ -108,13 +109,7 @@ export function ToolTraceRow({
               </span>
             )}
             {approvalMeta && (
-              <span className="block text-[10px] text-muted-foreground">
-                {approvalMeta.riskSummary}
-                {approvalMeta.bashClassification &&
-                  !approvalMeta.bashClassification.forbidden && (
-                    <> &mdash; {approvalMeta.bashClassification.reason}</>
-                  )}
-              </span>
+              <ApprovalDetails approval={approvalMeta} compact />
             )}
           </span>
         </span>

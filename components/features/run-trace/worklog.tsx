@@ -29,6 +29,7 @@ import {
 } from "./tool-display";
 import { TerminalOutput } from "./terminal-output";
 import { LiveTerminalOutput } from "./live-terminal";
+import { ApprovalDetails } from "./approval-details";
 
 export type WorklogEntry = ToolTraceEntry;
 
@@ -230,13 +231,7 @@ function WorklogDetail({
       </div>
 
       {approvalMeta && (
-        <p className="text-[10px] text-muted-foreground">
-          {approvalMeta.riskSummary}
-          {approvalMeta.bashClassification &&
-            !approvalMeta.bashClassification.forbidden && (
-              <> &mdash; {approvalMeta.bashClassification.reason}</>
-            )}
-        </p>
+        <ApprovalDetails approval={approvalMeta} />
       )}
 
       {entry.name !== "bash" && (
