@@ -1,4 +1,11 @@
 import type { ToolSet } from "ai";
+import fs from "node:fs";
+
+import {
+  ensureWorkspaceRoot,
+  ensureWorkspaceRootAt,
+  resolveInWorkspace,
+} from "./sandbox";
 
 // Permission gate helpers for tool execution.
 //
@@ -37,6 +44,32 @@ export type BashCommandClassification = {
   forbidden: boolean;
   reason: string;
 };
+
+export type ToolApprovalMetadata = {
+  title: string;
+  summary: string;
+  riskCategories: readonly ToolRiskCategory[];
+  details: readonly string[];
+  target?: string;
+  command?: {
+    command: string;
+    shell: "bash -lc";
+    cwd: string;
+    timeoutMs: number;
+    outputCapBytes: number;
+    classification: BashCommandClassification;
+  };
+  external?: {
+    serverName: string;
+    toolName: string;
+    sandboxedByAnton: boolean;
+  };
+};
+
+const BASH_DEFAULT_TIMEOUT_MS = 30_000;
+const BASH_OUTPUT_CAP_BYTES = 64 * 1024;
+const WRITE_FILE_MAX_BYTES = 1024 * 1024;
+const READ_FILE_MAX_BYTES = 256 * 1024;
 
 const READ_ONLY = toolMetadata(
   ["read-only"],
@@ -93,6 +126,27 @@ export function getNativeToolPermissionMetadata(
   return NATIVE_TOOL_PERMISSION_METADATA[
     name as keyof typeof NATIVE_TOOL_PERMISSION_METADATA
   ];
+}
+
+export function buildToolApprovalMetadata({
+  toolName,
+  input,
+  workspaceRoot,
+}: {
+  toolName: string;
+  input: unknown;
+  workspaceRoot?: string;
+}): ToolApprovalMetadata | undefined {
+  const nativeMetadata = getNativeToolPermissionMetadata(toolName);
+  if (nativeMetadata) {
+    return buildNativeToolApprovalMetadata(toolName, input, workspaceRoot);
+  }
+
+  if (isMcpTool(toolName)) {
+    return buildMcpToolApprovalMetadata(toolName);
+  }
+
+  return undefined;
 }
 
 type ToolWithApproval = ToolSet[string] & {
@@ -157,6 +211,225 @@ export function isMcpTool(name: string): boolean {
   return name.startsWith("mcp__");
 }
 
+function buildNativeToolApprovalMetadata(
+  toolName: string,
+  input: unknown,
+  workspaceRoot: string | undefined,
+): ToolApprovalMetadata | undefined {
+  const metadata = getNativeToolPermissionMetadata(toolName);
+  if (!metadata) return undefined;
+  const record = isRecord(input) ? input : {};
+
+  switch (toolName) {
+    case "bash":
+      return buildBashApproval(record, metadata, workspaceRoot);
+    case "write_file":
+      return buildWriteFileApproval(record, metadata, workspaceRoot);
+    case "read_file":
+      return {
+        title: "Read workspace file",
+        summary: metadata.summary,
+        riskCategories: metadata.categories,
+        target: stringValue(record.path),
+        details: [
+          pathDetail(record.path, workspaceRoot),
+          lineRangeDetail(record.startLine, record.endLine),
+          `Reads UTF-8 text only, capped at ${READ_FILE_MAX_BYTES} bytes.`,
+        ],
+      };
+    case "grep":
+      return {
+        title: "Search workspace files",
+        summary: metadata.summary,
+        riskCategories: metadata.categories,
+        target: stringValue(record.path) ?? "workspace root",
+        details: [
+          `Pattern: ${stringValue(record.pattern) ?? "(missing)"}`,
+          `Target: ${stringValue(record.path) ?? "workspace root"}`,
+          `Glob filter: ${stringValue(record.glob) ?? "none"}`,
+          `Case insensitive: ${booleanValue(record.caseInsensitive) ? "yes" : "no"}`,
+        ],
+      };
+    case "glob":
+      return {
+        title: "List workspace files",
+        summary: metadata.summary,
+        riskCategories: metadata.categories,
+        target: stringValue(record.path) ?? "workspace root",
+        details: [
+          `Pattern: ${stringValue(record.pattern) ?? "(missing)"}`,
+          `Base path: ${stringValue(record.path) ?? "workspace root"}`,
+          "Lists matching file paths without reading file contents.",
+        ],
+      };
+    case "remember":
+      return {
+        title: "Create project memory",
+        summary: metadata.summary,
+        riskCategories: metadata.categories,
+        details: [
+          "Creates one durable project memory stored in Anton's SQLite database.",
+          `Content length: ${stringValue(record.content)?.length ?? 0} characters.`,
+        ],
+      };
+    case "update_memory":
+      return {
+        title: "Update project memory",
+        summary: metadata.summary,
+        riskCategories: metadata.categories,
+        target: stringValue(record.id),
+        details: [
+          `Memory ID: ${stringValue(record.id) ?? "(missing)"}`,
+          "Replaces the memory content in Anton's SQLite database.",
+          `Replacement length: ${stringValue(record.content)?.length ?? 0} characters.`,
+        ],
+      };
+    case "forget_memory":
+      return {
+        title: "Delete project memory",
+        summary: metadata.summary,
+        riskCategories: metadata.categories,
+        target: stringValue(record.id),
+        details: [
+          `Memory ID: ${stringValue(record.id) ?? "(missing)"}`,
+          "Deletes the durable project memory from Anton's SQLite database.",
+        ],
+      };
+    case "list_memory":
+      return {
+        title: "List project memories",
+        summary: metadata.summary,
+        riskCategories: metadata.categories,
+        details: [
+          `Limit: ${numberValue(record.limit) ?? "default"}`,
+          "Reads durable project memories from Anton's SQLite database.",
+        ],
+      };
+    case "list_skills":
+      return {
+        title: "List workspace skills",
+        summary: metadata.summary,
+        riskCategories: metadata.categories,
+        details: ["Lists skills under skills/<slug>/SKILL.md in the active workspace."],
+      };
+    case "read_skill":
+      return {
+        title: "Read workspace skill",
+        summary: metadata.summary,
+        riskCategories: metadata.categories,
+        target: stringValue(record.slug),
+        details: [
+          `Skill slug: ${stringValue(record.slug) ?? "(missing)"}`,
+          "Reads skills/<slug>/SKILL.md from the active workspace.",
+        ],
+      };
+    case "delegate_task":
+      return {
+        title: "Delegate read-only investigation",
+        summary: metadata.summary,
+        riskCategories: metadata.categories,
+        details: [
+          "Starts a bounded child Anton agent with read/search/skills/memory access only.",
+          "The delegate cannot write files, run shell commands, or mutate memory.",
+        ],
+      };
+    default:
+      return {
+        title: toolName,
+        summary: metadata.summary,
+        riskCategories: metadata.categories,
+        details: ["Runs this native Anton tool with the shown input."],
+      };
+  }
+}
+
+function buildBashApproval(
+  input: Record<string, unknown>,
+  metadata: ToolPermissionMetadata,
+  workspaceRoot: string | undefined,
+): ToolApprovalMetadata {
+  const command = stringValue(input.command) ?? "";
+  const timeoutMs = numberValue(input.timeoutMs) ?? BASH_DEFAULT_TIMEOUT_MS;
+  const cwd = workspaceRootLabel(workspaceRoot);
+  const classification = classifyBashCommand(command);
+
+  return {
+    title: "Run shell command",
+    summary: metadata.summary,
+    riskCategories: classification.categories,
+    target: command,
+    command: {
+      command,
+      shell: "bash -lc",
+      cwd,
+      timeoutMs,
+      outputCapBytes: BASH_OUTPUT_CAP_BYTES,
+      classification,
+    },
+    details: [
+      `Command: ${command || "(empty)"}`,
+      `Shell: bash -lc`,
+      `Working directory: ${cwd}`,
+      `Timeout: ${timeoutMs}ms`,
+      `Output cap: ${BASH_OUTPUT_CAP_BYTES} bytes per stream.`,
+      `Classification: ${classification.reason}.`,
+      classification.forbidden
+        ? "This command matches a forbidden pattern and will be refused even if approved."
+        : "Approval lets the command start; it does not bypass sandbox cwd, timeout, or output limits.",
+    ],
+  };
+}
+
+function buildWriteFileApproval(
+  input: Record<string, unknown>,
+  metadata: ToolPermissionMetadata,
+  workspaceRoot: string | undefined,
+): ToolApprovalMetadata {
+  const relPath = stringValue(input.path);
+  const content = stringValue(input.content) ?? "";
+  const byteLength = Buffer.byteLength(content, "utf8");
+  const { target, status } = fileStatusDetail(relPath, workspaceRoot);
+
+  return {
+    title: status === "exists" ? "Overwrite workspace file" : "Write workspace file",
+    summary: metadata.summary,
+    riskCategories: metadata.categories,
+    target: relPath,
+    details: [
+      target,
+      status === "exists"
+        ? "Existing regular file will be fully replaced."
+        : status === "missing"
+          ? "A new UTF-8 file will be created."
+          : "The target could not be confirmed before execution; the tool will validate it again.",
+      "Parent directories are created if needed.",
+      `Writes ${byteLength} UTF-8 bytes, capped at ${WRITE_FILE_MAX_BYTES} bytes.`,
+      "Approval is for full-file replacement, not a patch.",
+    ],
+  };
+}
+
+function buildMcpToolApprovalMetadata(toolName: string): ToolApprovalMetadata {
+  const [, serverName = "unknown", mcpToolName = toolName] = toolName.split("__");
+  return {
+    title: "Call external MCP tool",
+    summary: `Calls external MCP tool "${mcpToolName}" from "${serverName}" server.`,
+    riskCategories: ["external-integration"],
+    target: `${serverName}/${mcpToolName}`,
+    details: [
+      `MCP server: ${serverName}`,
+      `MCP tool: ${mcpToolName}`,
+      "The tool runs through the configured MCP server, outside Anton's native workspace sandbox.",
+      "Anton still requires approval before invoking this MCP tool.",
+    ],
+    external: {
+      serverName,
+      toolName: mcpToolName,
+      sandboxedByAnton: false,
+    },
+  };
+}
+
 export function classifyBashCommand(command: string): BashCommandClassification {
   const normalized = command.trim();
   if (!normalized) {
@@ -217,6 +490,86 @@ export function isForbiddenBashCommand(command: string): RegExp | null {
     if (re.test(command)) return re;
   }
   return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+function booleanValue(value: unknown): boolean {
+  return value === true;
+}
+
+function workspaceRootLabel(workspaceRoot: string | undefined): string {
+  try {
+    return workspaceRoot
+      ? ensureWorkspaceRootAt(workspaceRoot)
+      : ensureWorkspaceRoot();
+  } catch (err) {
+    return `unresolved workspace root (${errorMessage(err)})`;
+  }
+}
+
+function pathDetail(value: unknown, workspaceRoot: string | undefined): string {
+  const relPath = stringValue(value);
+  if (!relPath) return "Path: (missing)";
+  try {
+    const root = workspaceRoot
+      ? ensureWorkspaceRootAt(workspaceRoot)
+      : ensureWorkspaceRoot();
+    return `Path: ${relPath} (${resolveInWorkspace(relPath, root)})`;
+  } catch (err) {
+    return `Path: ${relPath} (${errorMessage(err)})`;
+  }
+}
+
+function lineRangeDetail(startLine: unknown, endLine: unknown): string {
+  const start = numberValue(startLine);
+  const end = numberValue(endLine);
+  if (start === undefined && end === undefined) return "Line range: default";
+  return `Line range: ${start ?? "default"} to ${end ?? "default"}`;
+}
+
+function fileStatusDetail(
+  relPath: string | undefined,
+  workspaceRoot: string | undefined,
+): { target: string; status: "exists" | "missing" | "unknown" } {
+  if (!relPath) return { target: "Path: (missing)", status: "unknown" };
+
+  try {
+    const root = workspaceRoot
+      ? ensureWorkspaceRootAt(workspaceRoot)
+      : ensureWorkspaceRoot();
+    const abs = resolveInWorkspace(relPath, root);
+    if (!fs.existsSync(abs)) {
+      return { target: `Path: ${relPath} (${abs})`, status: "missing" };
+    }
+    const stat = fs.statSync(abs);
+    return {
+      target: `Path: ${relPath} (${abs})`,
+      status: stat.isFile() ? "exists" : "unknown",
+    };
+  } catch (err) {
+    return {
+      target: `Path: ${relPath} (${errorMessage(err)})`,
+      status: "unknown",
+    };
+  }
+}
+
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return String(err);
 }
 
 function toolMetadata(

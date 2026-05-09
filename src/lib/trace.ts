@@ -98,8 +98,29 @@ export type ToolTraceEntry = {
 };
 
 export type ApprovalMetadata = {
+  title: string;
+  summary: string;
   riskCategories: string[];
   riskSummary: string;
+  details: string[];
+  target?: string;
+  command?: {
+    command: string;
+    shell: string;
+    cwd: string;
+    timeoutMs: number;
+    outputCapBytes: number;
+    classification: {
+      categories: string[];
+      forbidden: boolean;
+      reason: string;
+    };
+  };
+  external?: {
+    serverName: string;
+    toolName: string;
+    sandboxedByAnton: boolean;
+  };
   bashClassification?: {
     categories: string[];
     forbidden: boolean;
@@ -112,6 +133,9 @@ export function getApprovalMetadata(
 ): ApprovalMetadata | undefined {
   const details = entry.activity?.details;
   if (!details) return undefined;
+  const structured = structuredApprovalMetadata(details.approval);
+  if (structured) return structured;
+
   const riskCategories = stringArray(details.riskCategories);
   const riskSummary = details.riskSummary;
   if (
@@ -137,11 +161,17 @@ export function getApprovalMetadata(
     };
   }
   return {
+    title: entry.name,
+    summary: riskSummary,
     riskCategories:
       entry.name === "bash" && bashClassification?.categories.length
         ? bashClassification.categories
         : riskCategories,
     riskSummary,
+    details:
+      bashClassification && !bashClassification.forbidden
+        ? [riskSummary, bashClassification.reason]
+        : [riskSummary],
     bashClassification,
   };
 }
@@ -185,6 +215,98 @@ export function hasPendingToolApproval(message: AntonUIMessage): boolean {
 function stringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === "string");
+}
+
+function structuredApprovalMetadata(value: unknown): ApprovalMetadata | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const record = value as Record<string, unknown>;
+  const title = record.title;
+  const summary = record.summary;
+  const riskCategories = stringArray(record.riskCategories);
+  const details = stringArray(record.details);
+
+  if (
+    typeof title !== "string" ||
+    typeof summary !== "string" ||
+    riskCategories.length === 0
+  ) {
+    return undefined;
+  }
+
+  const command = structuredCommandMetadata(record.command);
+  return {
+    title,
+    summary,
+    riskCategories:
+      command?.classification.categories.length
+        ? command.classification.categories
+        : riskCategories,
+    riskSummary: summary,
+    details: details.length > 0 ? details : [summary],
+    target:
+      typeof record.target === "string" ? record.target : undefined,
+    command,
+    external: structuredExternalMetadata(record.external),
+    bashClassification: command?.classification,
+  };
+}
+
+function structuredCommandMetadata(
+  value: unknown,
+): ApprovalMetadata["command"] | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const record = value as Record<string, unknown>;
+  const classification = structuredClassification(record.classification);
+  if (
+    typeof record.command !== "string" ||
+    typeof record.shell !== "string" ||
+    typeof record.cwd !== "string" ||
+    typeof record.timeoutMs !== "number" ||
+    typeof record.outputCapBytes !== "number" ||
+    !classification
+  ) {
+    return undefined;
+  }
+  return {
+    command: record.command,
+    shell: record.shell,
+    cwd: record.cwd,
+    timeoutMs: record.timeoutMs,
+    outputCapBytes: record.outputCapBytes,
+    classification,
+  };
+}
+
+function structuredClassification(
+  value: unknown,
+): NonNullable<ApprovalMetadata["command"]>["classification"] | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const record = value as Record<string, unknown>;
+  if (typeof record.reason !== "string") return undefined;
+  return {
+    categories: stringArray(record.categories),
+    forbidden: Boolean(record.forbidden),
+    reason: record.reason,
+  };
+}
+
+function structuredExternalMetadata(
+  value: unknown,
+): ApprovalMetadata["external"] | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.serverName !== "string" ||
+    typeof record.toolName !== "string" ||
+    typeof record.sandboxedByAnton !== "boolean"
+  ) {
+    return undefined;
+  }
+  return {
+    serverName: record.serverName,
+    toolName: record.toolName,
+    sandboxedByAnton: record.sandboxedByAnton,
+  };
 }
 
 export function getRunData(message: AntonUIMessage): AntonRunData | undefined {

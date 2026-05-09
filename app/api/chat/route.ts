@@ -14,6 +14,7 @@ import { z } from "zod";
 
 import { runAgent } from "@/src/agent/loop";
 import {
+  buildToolApprovalMetadata,
   getNativeToolPermissionMetadata,
   isMcpTool,
   preClassifyBashInput,
@@ -127,6 +128,7 @@ export async function POST(req: Request) {
         runId,
         model,
         startedAt,
+        workspaceRoot: project.localPath,
       });
       trace.writeRun("running");
 
@@ -232,11 +234,13 @@ function createTraceWriter({
   runId,
   model,
   startedAt,
+  workspaceRoot,
 }: {
   writer: UIMessageStreamWriter<AntonUIMessage>;
   runId: string;
   model: string;
   startedAt: number;
+  workspaceRoot: string;
 }) {
   let sequence = 0;
   let finalized = false;
@@ -452,6 +456,17 @@ function createTraceWriter({
         const parts = event.toolName.split("__");
         details.riskCategories = ["external-integration"];
         details.riskSummary = `Calls external MCP tool "${parts[2] ?? event.toolName}" from "${parts[1] ?? "unknown"}" server.`;
+      }
+
+      const approval = buildToolApprovalMetadata({
+        toolName: event.toolName,
+        input: event.input,
+        workspaceRoot,
+      });
+      if (approval) {
+        details.approval = approval;
+        details.riskCategories = [...approval.riskCategories];
+        details.riskSummary = approval.summary;
       }
 
       if (event.toolName === "bash") {
