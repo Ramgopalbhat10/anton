@@ -52,3 +52,56 @@ export type SkillSummary = {
 export type SkillDocument = SkillSummary & {
   body: string;
 };
+
+export type McpTransport = "stdio" | "http" | "sse";
+
+export type StdioMcpConfig = {
+  type: "stdio";
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  cwd?: string;
+};
+
+export type RemoteMcpConfig = {
+  type: "http" | "sse";
+  url: string;
+  headers: Record<string, string>;
+  redirect: "follow" | "error";
+};
+
+export type McpServerConfig = StdioMcpConfig | RemoteMcpConfig;
+
+export type McpTrustSummary = {
+  fingerprint: string;
+  trusted: boolean;
+  decision: "approved" | "denied" | null;
+  approval: {
+    title: string;
+    summary: string;
+    riskCategories: string[];
+    details: string[];
+    target: string;
+  };
+};
+
+export type McpServerSummary = {
+  id: string;
+  displayName: string;
+  namespace: string;
+  transport: McpTransport;
+  config: McpServerConfig;
+  enabled: boolean;
+  summary: string;
+  trust: McpTrustSummary;
+  lastStatus: "untested" | "ok" | "error";
+  lastError: string | null;
+  lastCheckedAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type McpPreflightServer = Pick<
+  McpServerSummary,
+  "id" | "displayName" | "namespace" | "transport" | "summary" | "trust"
+>;

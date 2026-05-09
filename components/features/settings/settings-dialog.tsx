@@ -10,6 +10,7 @@ import {
   SettingsShell,
   type SettingsSection,
 } from "./settings-shell";
+import { McpSettingsPanel } from "./mcp-settings-panel";
 import { WorkspaceSettingsPanel } from "./workspace-settings-panel";
 
 interface SettingsDialogProps {
@@ -58,6 +59,7 @@ export function SettingsDialog({
           onActiveProjectChange={onActiveProjectChange}
         />
       )}
+      {section === "mcp" && <McpSettingsPanel />}
       {section === "memories" && (
         <SettingsPageShell
           title="Memories"

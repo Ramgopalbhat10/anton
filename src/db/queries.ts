@@ -1,4 +1,4 @@
-import { asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { UIMessage } from "ai";
 import { randomUUID } from "node:crypto";
 
@@ -7,6 +7,8 @@ import {
   githubInstallations,
   memories,
   messages,
+  mcpServers,
+  mcpTrustDecisions,
   projects,
   runEvents,
   runs,
@@ -14,6 +16,9 @@ import {
   workspaceSettings,
   type GithubInstallation,
   type Memory,
+  type McpServer,
+  type McpTrustDecision,
+  type NewMcpServer,
   type NewRun,
   type NewRunEvent,
   type Project,
@@ -22,6 +27,12 @@ import {
   type Session,
   type WorkspaceSettings,
 } from "./schema";
+import {
+  fingerprintMcpConfig,
+  namespaceFromDisplayName,
+  normalizeMcpConfig,
+  type McpServerConfig,
+} from "@/src/agent/mcp-config";
 
 export type StoredMessage<UI extends UIMessage = UIMessage> = {
   id: string;
@@ -415,6 +426,157 @@ export function upsertRunEvent(input: NewRunEvent): RunEvent {
     .get() as RunEvent;
 }
 
+export function listMcpServers(): McpServer[] {
+  return db.select().from(mcpServers).orderBy(asc(mcpServers.displayName)).all();
+}
+
+export function listEnabledMcpServers(ids?: string[]): McpServer[] {
+  if (ids && ids.length === 0) return [];
+  const enabledFilter = eq(mcpServers.enabled, true);
+  const where =
+    ids && ids.length > 0
+      ? and(enabledFilter, inArray(mcpServers.id, ids))
+      : enabledFilter;
+  return db.select().from(mcpServers).where(where).orderBy(asc(mcpServers.displayName)).all();
+}
+
+export function getMcpServer(id: string): McpServer | undefined {
+  return db.select().from(mcpServers).where(eq(mcpServers.id, id)).get();
+}
+
+export function createMcpServer(input: {
+  displayName: string;
+  transport: McpServer["transport"];
+  config: McpServerConfig;
+  enabled?: boolean;
+}): McpServer {
+  const now = new Date();
+  const displayName = input.displayName.trim();
+  const row: NewMcpServer = {
+    id: randomUUID(),
+    displayName,
+    namespace: uniqueMcpNamespace(namespaceFromDisplayName(displayName)),
+    transport: input.transport,
+    config: normalizeMcpConfig(input.config) as unknown,
+    enabled: input.enabled ?? true,
+    lastStatus: "untested",
+    lastError: null,
+    lastCheckedAt: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  db.insert(mcpServers).values(row).run();
+  return getMcpServer(row.id) as McpServer;
+}
+
+export function updateMcpServer(
+  id: string,
+  input: {
+    displayName?: string;
+    transport?: McpServer["transport"];
+    config?: McpServerConfig;
+    enabled?: boolean;
+  },
+): McpServer | undefined {
+  const current = getMcpServer(id);
+  if (!current) return undefined;
+
+  const displayName = input.displayName?.trim() ?? current.displayName;
+  const update: Partial<NewMcpServer> = {
+    displayName,
+    enabled: input.enabled ?? current.enabled,
+    updatedAt: new Date(),
+  };
+  if (displayName !== current.displayName) {
+    update.namespace = uniqueMcpNamespace(
+      namespaceFromDisplayName(displayName),
+      current.id,
+    );
+  }
+  if (input.transport) update.transport = input.transport;
+  if (input.config) {
+    update.config = normalizeMcpConfig(input.config) as unknown;
+    update.lastStatus = "untested";
+    update.lastError = null;
+    update.lastCheckedAt = null;
+  }
+
+  db.update(mcpServers).set(update).where(eq(mcpServers.id, id)).run();
+  return getMcpServer(id);
+}
+
+export function deleteMcpServer(id: string): boolean {
+  const result = db.delete(mcpServers).where(eq(mcpServers.id, id)).run();
+  return result.changes > 0;
+}
+
+export function updateMcpServerStatus(
+  id: string,
+  status: McpServer["lastStatus"],
+  error: string | null,
+): McpServer | undefined {
+  db
+    .update(mcpServers)
+    .set({
+      lastStatus: status,
+      lastError: error,
+      lastCheckedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(mcpServers.id, id))
+    .run();
+  return getMcpServer(id);
+}
+
+export function getMcpTrustDecision(
+  mcpServerId: string,
+  fingerprint: string,
+): McpTrustDecision | undefined {
+  return db
+    .select()
+    .from(mcpTrustDecisions)
+    .where(
+      and(
+        eq(mcpTrustDecisions.mcpServerId, mcpServerId),
+        eq(mcpTrustDecisions.fingerprint, fingerprint),
+      ),
+    )
+    .get();
+}
+
+export function isMcpServerTrusted(server: McpServer): boolean {
+  const fingerprint = fingerprintMcpConfig(server.config as McpServerConfig);
+  return getMcpTrustDecision(server.id, fingerprint)?.decision === "approved";
+}
+
+export function upsertMcpTrustDecision(input: {
+  mcpServerId: string;
+  fingerprint: string;
+  decision: "approved" | "denied";
+}): McpTrustDecision {
+  const now = new Date();
+  const existing = getMcpTrustDecision(input.mcpServerId, input.fingerprint);
+  if (existing) {
+    db
+      .update(mcpTrustDecisions)
+      .set({ decision: input.decision, updatedAt: now })
+      .where(eq(mcpTrustDecisions.id, existing.id))
+      .run();
+    return getMcpTrustDecision(input.mcpServerId, input.fingerprint) as McpTrustDecision;
+  }
+
+  const row = {
+    id: randomUUID(),
+    mcpServerId: input.mcpServerId,
+    fingerprint: input.fingerprint,
+    decision: input.decision,
+    createdAt: now,
+    updatedAt: now,
+  };
+  db.insert(mcpTrustDecisions).values(row).run();
+  return getMcpTrustDecision(input.mcpServerId, input.fingerprint) as McpTrustDecision;
+}
+
 export function deriveTitleFromMessages(
   incoming: Pick<UIMessage, "role" | "parts">[],
 ): string {
@@ -438,5 +600,15 @@ function messageId<UI extends UIMessage>(
   const id = message.id.trim();
   if (id.length > 0) return id;
   return `${sessionId}:message:${index}`;
+}
+
+function uniqueMcpNamespace(base: string, currentId?: string): string {
+  const existing = listMcpServers().filter((server) => server.id !== currentId);
+  const namespaces = new Set(existing.map((server) => server.namespace));
+  if (!namespaces.has(base)) return base;
+
+  let suffix = 2;
+  while (namespaces.has(`${base}_${suffix}`)) suffix += 1;
+  return `${base}_${suffix}`;
 }
 

@@ -1,5 +1,12 @@
-import type { Memory, Project } from "@/src/db/schema";
-import type { ProjectMemory, ProjectSummary } from "./api-types";
+import {
+  fingerprintMcpConfig,
+  makeMcpApprovalDetails,
+  summarizeMcpConfig,
+  type McpServerConfig,
+} from "@/src/agent/mcp-config";
+import { getMcpTrustDecision } from "@/src/db/queries";
+import type { Memory, McpServer, Project } from "@/src/db/schema";
+import type { McpServerSummary, ProjectMemory, ProjectSummary } from "./api-types";
 
 export function serializeProject(project: Project): ProjectSummary {
   return {
@@ -26,5 +33,34 @@ export function serializeMemory(memory: Memory): ProjectMemory {
     content: memory.content,
     createdAt: memory.createdAt.getTime(),
     updatedAt: memory.updatedAt.getTime(),
+  };
+}
+
+export function serializeMcpServer(server: McpServer): McpServerSummary {
+  const config = server.config as McpServerConfig;
+  const fingerprint = fingerprintMcpConfig(config);
+  const decision = getMcpTrustDecision(server.id, fingerprint)?.decision ?? null;
+  return {
+    id: server.id,
+    displayName: server.displayName,
+    namespace: server.namespace,
+    transport: server.transport,
+    config,
+    enabled: server.enabled,
+    summary: summarizeMcpConfig(config),
+    trust: {
+      fingerprint,
+      trusted: decision === "approved",
+      decision,
+      approval: makeMcpApprovalDetails({
+        displayName: server.displayName,
+        config,
+      }),
+    },
+    lastStatus: server.lastStatus,
+    lastError: server.lastError,
+    lastCheckedAt: server.lastCheckedAt?.getTime() ?? null,
+    createdAt: server.createdAt.getTime(),
+    updatedAt: server.updatedAt.getTime(),
   };
 }

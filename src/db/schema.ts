@@ -145,6 +145,55 @@ export const runEvents = sqliteTable(
   ],
 );
 
+export const mcpServers = sqliteTable(
+  "mcp_servers",
+  {
+    id: text("id").primaryKey(),
+    displayName: text("display_name").notNull(),
+    namespace: text("namespace").notNull(),
+    transport: text("transport", { enum: ["stdio", "http", "sse"] }).notNull(),
+    config: text("config", { mode: "json" }).notNull(),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    lastStatus: text("last_status", {
+      enum: ["untested", "ok", "error"],
+    }).notNull().default("untested"),
+    lastError: text("last_error"),
+    lastCheckedAt: integer("last_checked_at", { mode: "timestamp_ms" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch('now') * 1000)`),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch('now') * 1000)`),
+  },
+  (table) => [uniqueIndex("mcp_servers_namespace_unique").on(table.namespace)],
+);
+
+export const mcpTrustDecisions = sqliteTable(
+  "mcp_trust_decisions",
+  {
+    id: text("id").primaryKey(),
+    mcpServerId: text("mcp_server_id")
+      .notNull()
+      .references(() => mcpServers.id, { onDelete: "cascade" }),
+    fingerprint: text("fingerprint").notNull(),
+    decision: text("decision", { enum: ["approved", "denied"] }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch('now') * 1000)`),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch('now') * 1000)`),
+  },
+  (table) => [
+    uniqueIndex("mcp_trust_decisions_server_fingerprint_unique").on(
+      table.mcpServerId,
+      table.fingerprint,
+    ),
+    index("mcp_trust_decisions_server_idx").on(table.mcpServerId),
+  ],
+);
+
 export const memories = sqliteTable("memories", {
   id: text("id").primaryKey(),
   content: text("content").notNull(),
@@ -170,5 +219,9 @@ export type Run = typeof runs.$inferSelect;
 export type NewRun = typeof runs.$inferInsert;
 export type RunEvent = typeof runEvents.$inferSelect;
 export type NewRunEvent = typeof runEvents.$inferInsert;
+export type McpServer = typeof mcpServers.$inferSelect;
+export type NewMcpServer = typeof mcpServers.$inferInsert;
+export type McpTrustDecision = typeof mcpTrustDecisions.$inferSelect;
+export type NewMcpTrustDecision = typeof mcpTrustDecisions.$inferInsert;
 export type Memory = typeof memories.$inferSelect;
 export type NewMemory = typeof memories.$inferInsert;

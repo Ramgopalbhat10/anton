@@ -53,6 +53,7 @@ const bodySchema = z.object({
   projectId: z.string().min(1).nullable().optional(),
   model: z.string().min(1).optional(),
   permissionMode: z.enum(["default", "auto-review", "full-access"]).optional(),
+  enabledMcpServerIds: z.array(z.string().min(1)).optional(),
   messages: z.array(z.unknown()).min(1),
 });
 
@@ -140,6 +141,7 @@ export async function POST(req: Request) {
           permissionMode: parsed.data.permissionMode as
             | PermissionMode
             | undefined,
+          enabledMcpServerIds: parsed.data.enabledMcpServerIds,
           onStepStart: ({ stepNumber }) => trace.startStep(stepNumber),
           onStepFinish: ({ stepNumber }) => trace.finishStep(stepNumber),
           onToolCallStart: (event) => trace.startTool(event),

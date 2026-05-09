@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
   ArrowUp,
   ChevronDown,
+  DatabaseZap,
   GitBranch,
   Monitor,
   Plus,
@@ -15,6 +16,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -25,11 +27,11 @@ import {
 } from "@/components/ui/select";
 import type { ModelId } from "@/src/lib/models";
 import type { PermissionMode } from "@/src/agent/permissions";
-import type { ProjectSummary } from "@/src/lib/api-types";
+import type { McpServerSummary, ProjectSummary } from "@/src/lib/api-types";
 import { ModelPicker } from "./model-picker";
 
 interface ComposerProps {
-  onSend: (text: string) => void;
+  onSend: (text: string) => boolean | Promise<boolean>;
   onStop: () => void;
   disabled: boolean;
   streaming: boolean;
@@ -39,6 +41,9 @@ interface ComposerProps {
   project: ProjectSummary | null;
   permissionMode: PermissionMode;
   onPermissionModeChange: (mode: PermissionMode) => void;
+  mcpServers: McpServerSummary[];
+  selectedMcpServerIds: string[];
+  onSelectedMcpServerIdsChange: (ids: string[]) => void;
 }
 
 const MIN_HEIGHT = 24;
@@ -55,8 +60,12 @@ export function Composer({
   project,
   permissionMode,
   onPermissionModeChange,
+  mcpServers,
+  selectedMcpServerIds,
+  onSelectedMcpServerIdsChange,
 }: ComposerProps) {
   const [input, setInput] = useState("");
+  const [mcpOpen, setMcpOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useLayoutEffect(() => {
@@ -71,8 +80,9 @@ export function Composer({
   const submit = () => {
     const trimmed = input.trim();
     if (!trimmed || disabled) return;
-    onSend(trimmed);
-    setInput("");
+    void Promise.resolve(onSend(trimmed)).then((sent) => {
+      if (sent) setInput("");
+    });
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -117,6 +127,13 @@ export function Composer({
               <PermissionsDropdown
                 value={permissionMode}
                 onChange={onPermissionModeChange}
+              />
+              <McpSelector
+                servers={mcpServers}
+                selectedIds={selectedMcpServerIds}
+                open={mcpOpen}
+                onOpenChange={setMcpOpen}
+                onSelectedIdsChange={onSelectedMcpServerIdsChange}
               />
             </div>
 
@@ -177,6 +194,86 @@ export function Composer({
         </div>
       </div>
     </form>
+  );
+}
+
+function McpSelector({
+  servers,
+  selectedIds,
+  open,
+  onOpenChange,
+  onSelectedIdsChange,
+}: {
+  servers: McpServerSummary[];
+  selectedIds: string[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSelectedIdsChange: (ids: string[]) => void;
+}) {
+  const enabledServers = servers.filter((server) => server.enabled);
+  const selectedCount = enabledServers.filter((server) =>
+    selectedIds.includes(server.id),
+  ).length;
+  return (
+    <div className="relative">
+      <Button
+        type="button"
+        variant="ghost"
+        size="xs"
+        className="h-5 px-1.5 text-[11px] text-primary hover:bg-primary/10"
+        onClick={() => onOpenChange(!open)}
+        aria-expanded={open}
+        aria-label="Select MCP servers"
+      >
+        <DatabaseZap />
+        MCP {selectedCount}
+      </Button>
+      {open && (
+        <div className="absolute bottom-7 left-0 z-20 w-64 rounded-md bg-popover p-2 text-xs text-popover-foreground shadow-md ring-1 ring-border">
+          {enabledServers.length === 0 ? (
+            <div className="px-1 py-2 text-muted-foreground">
+              No enabled MCP servers.
+            </div>
+          ) : (
+            <ul className="grid gap-1">
+              {enabledServers.map((server) => {
+                const checked = selectedIds.includes(server.id);
+                return (
+                  <li key={server.id}>
+                    <button
+                      type="button"
+                      className={cn(
+                        "grid w-full grid-cols-[1fr_auto] gap-2 rounded px-2 py-1.5 text-left hover:bg-accent",
+                        checked && "bg-primary/10 text-primary",
+                      )}
+                      onClick={() => {
+                        onSelectedIdsChange(
+                          checked
+                            ? selectedIds.filter((id) => id !== server.id)
+                            : [...selectedIds, server.id],
+                        );
+                      }}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium">
+                          {server.displayName}
+                        </span>
+                        <span className="block truncate font-mono text-[10px] text-muted-foreground">
+                          {server.summary}
+                        </span>
+                      </span>
+                      <span className="text-[10px] uppercase">
+                        {checked ? "on" : "off"}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
