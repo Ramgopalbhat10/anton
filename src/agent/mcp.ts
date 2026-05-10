@@ -236,9 +236,13 @@ function transportForServer(
     const root = workspaceRoot
       ? ensureWorkspaceRootAt(workspaceRoot)
       : ensureWorkspaceRoot();
+    const invocation = stdioCommandInvocation(
+      normalized.command,
+      normalized.args,
+    );
     return new Experimental_StdioMCPTransport({
-      command: normalized.command,
-      args: normalized.args,
+      command: invocation.command,
+      args: invocation.args,
       env: normalized.env,
       cwd: normalized.cwd ? resolveMcpCwd(normalized.cwd, root) : root,
     });
@@ -335,6 +339,41 @@ function safeNamespace(name: string): string {
 
 function resolveMcpCwd(cwd: string, workspaceRoot: string): string {
   return path.isAbsolute(cwd) ? path.resolve(cwd) : resolveInWorkspace(cwd, workspaceRoot);
+}
+
+function stdioCommandInvocation(
+  command: string,
+  args: string[],
+): { command: string; args: string[] } {
+  if (process.platform !== "win32") return { command, args };
+  const resolved = resolveWindowsCommand(command);
+  if (/\.(?:bat|cmd)$/i.test(resolved)) {
+    return {
+      command: process.env.ComSpec ?? "cmd.exe",
+      args: ["/d", "/s", "/c", resolved, ...args],
+    };
+  }
+  return { command: resolved, args };
+}
+
+function resolveWindowsCommand(command: string): string {
+  if (command.includes("/") || command.includes("\\") || path.extname(command)) {
+    return command;
+  }
+
+  const pathValue = process.env.PATH ?? process.env.Path ?? "";
+  const extensions = (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD")
+    .split(";")
+    .filter(Boolean);
+  for (const dir of pathValue.split(path.delimiter)) {
+    for (const ext of extensions) {
+      const candidate = path.join(dir, `${command}${ext.toLowerCase()}`);
+      if (fs.existsSync(candidate)) return candidate;
+      const upperCandidate = path.join(dir, `${command}${ext.toUpperCase()}`);
+      if (fs.existsSync(upperCandidate)) return upperCandidate;
+    }
+  }
+  return command;
 }
 
 function isSafeName(name: string): boolean {

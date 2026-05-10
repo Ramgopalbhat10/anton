@@ -37,6 +37,7 @@ export async function POST(_req: Request, { params }: Ctx) {
       const updated = updateMcpServerStatus(id, "error", failedWarning) ?? server;
       return Response.json(
         {
+          error: failedWarning,
           server: serializeMcpServer(updated),
           warnings: loaded.warnings,
           tools: loaded.toolSummaries,
