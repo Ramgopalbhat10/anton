@@ -347,6 +347,8 @@ function stdioCommandInvocation(
 ): { command: string; args: string[] } {
   if (process.platform !== "win32") return { command, args };
   const resolved = resolveWindowsCommand(command);
+  const npmInvocation = npmShimInvocation(resolved, args);
+  if (npmInvocation) return npmInvocation;
   if (/\.(?:bat|cmd)$/i.test(resolved)) {
     return {
       command: process.env.ComSpec ?? "cmd.exe",
@@ -374,6 +376,30 @@ function resolveWindowsCommand(command: string): string {
     }
   }
   return command;
+}
+
+function npmShimInvocation(
+  resolvedCommand: string,
+  args: string[],
+): { command: string; args: string[] } | null {
+  const basename = path.basename(resolvedCommand).toLowerCase();
+  const cliScript =
+    basename === "npx.cmd"
+      ? "npx-cli.js"
+      : basename === "npm.cmd"
+        ? "npm-cli.js"
+        : null;
+  if (!cliScript) return null;
+
+  const nodeDir = path.dirname(resolvedCommand);
+  const nodeExe = path.join(nodeDir, "node.exe");
+  const cliPath = path.join(nodeDir, "node_modules", "npm", "bin", cliScript);
+  if (!fs.existsSync(nodeExe) || !fs.existsSync(cliPath)) return null;
+
+  return {
+    command: nodeExe,
+    args: [cliPath, ...args],
+  };
 }
 
 function isSafeName(name: string): boolean {
