@@ -241,14 +241,15 @@ function McpSelector({
                 return (
                   <li key={server.id}>
                     <div
-                      className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded bg-primary/10 px-2 py-1.5 text-primary"
+                      className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded px-2 py-1.5 text-primary"
                     >
                       <span className="truncate font-medium">
                         {server.displayName}
                       </span>
                       <Switch
                         checked={checked}
-                        className="h-5 w-8 ring-0 data-[state=checked]:ring-0"
+                        className="h-4 w-7 ring-0 data-[state=checked]:ring-0"
+                        thumbClassName="size-3 data-[state=checked]:translate-x-3.5 data-[state=unchecked]:translate-x-0.5"
                         aria-label={`${checked ? "Disable" : "Enable"} ${server.displayName} MCP server`}
                         onCheckedChange={() => {
                           onSelectedIdsChange(

@@ -7,8 +7,11 @@ import { cn } from "@/lib/utils";
 
 function Switch({
   className,
+  thumbClassName,
   ...props
-}: React.ComponentProps<typeof SwitchPrimitive.Root>) {
+}: React.ComponentProps<typeof SwitchPrimitive.Root> & {
+  thumbClassName?: string;
+}) {
   return (
     <SwitchPrimitive.Root
       data-slot="switch"
@@ -20,7 +23,10 @@ function Switch({
     >
       <SwitchPrimitive.Thumb
         data-slot="switch-thumb"
-        className="pointer-events-none block size-4 rounded-full bg-foreground shadow-sm transition-transform data-[state=checked]:translate-x-4 data-[state=unchecked]:translate-x-0.5"
+        className={cn(
+          "pointer-events-none block size-4 rounded-full bg-foreground shadow-sm transition-transform data-[state=checked]:translate-x-4 data-[state=unchecked]:translate-x-0.5",
+          thumbClassName,
+        )}
       />
     </SwitchPrimitive.Root>
   );
