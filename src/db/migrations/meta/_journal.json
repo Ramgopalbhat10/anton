@@ -43,6 +43,13 @@
       "when": 1777909003397,
       "tag": "0005_bright_blue_shield",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1778346791233,
+      "tag": "0006_new_firebrand",
+      "breakpoints": true
     }
   ]
 }

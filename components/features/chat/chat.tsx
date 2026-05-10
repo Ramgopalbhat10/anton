@@ -12,6 +12,18 @@ import { PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { DEFAULT_MODEL_ID, type ModelId } from "@/src/lib/models";
 import type { PermissionMode } from "@/src/agent/permissions";
 import { getRunDataList, type AntonUIMessage } from "@/src/lib/trace";
+import type { McpPreflightServer, McpServerSummary } from "@/src/lib/api-types";
+import { getJson, jsonHeaders, requestJson } from "@/src/lib/client-fetch";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { MessageList } from "./message-list";
@@ -71,6 +83,12 @@ function ChatSession({
     (initialModel ?? DEFAULT_MODEL_ID) as ModelId,
   );
   const [permissionMode, setPermissionMode] = useState<PermissionMode>("auto-review");
+  const [mcpServers, setMcpServers] = useState<McpServerSummary[]>([]);
+  const [selectedMcpServerIds, setSelectedMcpServerIds] = useState<string[]>([]);
+  const [pendingMcpSend, setPendingMcpSend] = useState<{
+    text: string;
+    untrusted: McpPreflightServer[];
+  } | null>(null);
   const effectiveProjectId = initialProjectId ?? activeProjectId;
   const project = useProjectSummary(effectiveProjectId);
 
@@ -155,6 +173,80 @@ function ChatSession({
       cancelled = true;
     };
   }, [messages.length, sessionIdProp, setMessages]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadMcpServers = async () => {
+      try {
+        const data = await getJson<{ servers: McpServerSummary[] }>(
+          "/api/mcp/servers",
+        );
+        if (cancelled) return;
+        setMcpServers(data.servers);
+        setSelectedMcpServerIds((current) => {
+          if (current.length > 0) return current;
+          return data.servers
+            .filter((server) => server.enabled)
+            .map((server) => server.id);
+        });
+      } catch {
+        if (!cancelled) setMcpServers([]);
+      }
+    };
+    void loadMcpServers();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const sendWithMcp = async (text: string): Promise<boolean> => {
+    if (!effectiveProjectId) return false;
+    const selectedIds = selectedMcpServerIds.filter((id) =>
+      mcpServers.some((server) => server.id === id && server.enabled),
+    );
+    const preflight = await requestJson<{
+      ok: boolean;
+      untrusted: McpPreflightServer[];
+    }>("/api/mcp/preflight", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ serverIds: selectedIds }),
+    });
+    if (!preflight.ok) {
+      setPendingMcpSend({ text, untrusted: preflight.untrusted });
+      return false;
+    }
+    void sendMessage(
+      { text },
+      {
+        body: {
+          projectId: effectiveProjectId,
+          model,
+          permissionMode,
+          enabledMcpServerIds: selectedIds,
+        },
+      },
+    );
+    return true;
+  };
+
+  const trustAndSend = async () => {
+    if (!pendingMcpSend) return;
+    const pending = pendingMcpSend;
+    for (const server of pending.untrusted) {
+      await requestJson<{ server: McpServerSummary }>("/api/mcp/trust", {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({
+          serverId: server.id,
+          fingerprint: server.trust.fingerprint,
+          approved: true,
+        }),
+      });
+    }
+    setPendingMcpSend(null);
+    await sendWithMcp(pending.text);
+  };
 
   const streaming = status === "streaming" || status === "submitted";
   const displayMessages =
@@ -241,13 +333,7 @@ function ChatSession({
           )}
 
           <Composer
-            onSend={(text) => {
-              if (!effectiveProjectId) return;
-              void sendMessage(
-                { text },
-                { body: { projectId: effectiveProjectId, model, permissionMode } },
-              );
-            }}
+            onSend={sendWithMcp}
             onStop={stop}
             disabled={streaming || !effectiveProjectId}
             streaming={streaming}
@@ -257,6 +343,9 @@ function ChatSession({
             project={project}
             permissionMode={permissionMode}
             onPermissionModeChange={setPermissionMode}
+            mcpServers={mcpServers}
+            selectedMcpServerIds={selectedMcpServerIds}
+            onSelectedMcpServerIdsChange={setSelectedMcpServerIds}
           />
         </section>
 
@@ -294,7 +383,60 @@ function ChatSession({
         onActiveProjectChange={setActiveProjectId}
         initialSection="workspaces"
       />
+      <McpTrustDialog
+        pending={pendingMcpSend}
+        onClose={() => setPendingMcpSend(null)}
+        onApprove={() => void trustAndSend()}
+      />
     </div>
+  );
+}
+
+function McpTrustDialog({
+  pending,
+  onClose,
+  onApprove,
+}: {
+  pending: { text: string; untrusted: McpPreflightServer[] } | null;
+  onClose: () => void;
+  onApprove: () => void;
+}) {
+  const first = pending?.untrusted[0];
+  return (
+    <AlertDialog open={pending !== null}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {pending && pending.untrusted.length > 1
+              ? `Trust ${pending.untrusted.length} MCP servers`
+              : first?.trust.approval.title}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {pending && pending.untrusted.length > 1
+              ? "Anton needs startup approval before connecting to these MCP servers."
+              : first?.trust.approval.summary}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="max-h-64 overflow-auto">
+          {pending?.untrusted.map((server) => (
+            <div key={server.id} className="mb-3 last:mb-0">
+              <div className="text-xs font-medium">{server.displayName}</div>
+              <ul className="mt-1 grid gap-1 text-xs text-muted-foreground">
+                {server.trust.approval.details.map((detail) => (
+                  <li key={detail} className="break-words">
+                    {detail}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={onClose}>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={onApprove}>Trust and send</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 

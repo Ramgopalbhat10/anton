@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import { z } from "zod";
 import {
   createMCPClient,
@@ -8,6 +9,15 @@ import {
 import { Experimental_StdioMCPTransport } from "@ai-sdk/mcp/mcp-stdio";
 import type { ToolSet } from "ai";
 
+import {
+  isMcpServerTrusted,
+  listEnabledMcpServers,
+} from "@/src/db/queries";
+import {
+  mcpServerConfigSchema,
+  normalizeMcpConfig,
+  type McpServerConfig,
+} from "./mcp-config";
 import {
   ensureWorkspaceRoot,
   ensureWorkspaceRootAt,
@@ -21,6 +31,7 @@ const SAFE_NAME_RE = /^[A-Za-z0-9_-]+$/;
 type McpToolSummary = {
   name: string;
   serverName: string;
+  namespace: string;
   toolName: string;
   description: string;
 };
@@ -32,7 +43,7 @@ export type LoadedMcpTools = {
   close: () => Promise<void>;
 };
 
-const stdioServerSchema = z
+const workspaceStdioServerSchema = z
   .object({
     command: z.string().trim().min(1),
     args: z.array(z.string()).optional(),
@@ -41,7 +52,7 @@ const stdioServerSchema = z
   })
   .strict();
 
-const httpServerSchema = z
+const workspaceHttpServerSchema = z
   .object({
     type: z.enum(["http", "sse"]).default("http"),
     url: z.string().url(),
@@ -52,71 +63,99 @@ const httpServerSchema = z
 
 const mcpConfigSchema = z
   .object({
-    mcpServers: z.record(z.string(), z.union([stdioServerSchema, httpServerSchema])),
+    mcpServers: z.record(
+      z.string(),
+      z.union([workspaceStdioServerSchema, workspaceHttpServerSchema]),
+    ),
   })
   .strict();
 
-type McpServerConfig = z.infer<typeof stdioServerSchema> | z.infer<typeof httpServerSchema>;
+type WorkspaceMcpServerConfig =
+  | z.infer<typeof workspaceStdioServerSchema>
+  | z.infer<typeof workspaceHttpServerSchema>;
+
+type McpServerSpec = {
+  id?: string;
+  displayName: string;
+  namespace: string;
+  config: McpServerConfig;
+  trusted: boolean;
+  source: "global" | "workspace";
+};
 
 type ExecutableTool = ToolSet[string] & {
   description?: string;
   execute?: (input: unknown, options: never) => unknown;
 };
 
-export async function loadMcpTools(workspaceRoot?: string): Promise<LoadedMcpTools> {
-  const config = readMcpConfig(workspaceRoot);
-  if (!config) {
-    return emptyMcpTools();
-  }
-
+export async function loadMcpTools({
+  workspaceRoot,
+  enabledMcpServerIds,
+}: {
+  workspaceRoot?: string;
+  enabledMcpServerIds?: string[];
+} = {}): Promise<LoadedMcpTools> {
   const tools: ToolSet = {};
   const toolSummaries: McpToolSummary[] = [];
-  const warnings: string[] = [...config.warnings];
+  const workspaceConfig = readMcpConfig(workspaceRoot);
+  const warnings: string[] = [...(workspaceConfig?.warnings ?? [])];
   const clients: MCPClient[] = [];
+  const specs = [
+    ...globalMcpServerSpecs(enabledMcpServerIds),
+    ...(workspaceConfig ? workspaceMcpServerSpecs(workspaceConfig.servers) : []),
+  ];
 
-  for (const [serverName, serverConfig] of Object.entries(config.servers)) {
-    if (!isSafeName(serverName)) {
-      warnings.push(`skipping MCP server with invalid name: ${serverName}`);
+  if (specs.length === 0) {
+    return emptyMcpTools(warnings);
+  }
+
+  for (const spec of specs) {
+    if (!spec.trusted) {
+      warnings.push(
+        `skipping untrusted MCP server ${spec.displayName}; approve it in Settings before use`,
+      );
       continue;
     }
 
     try {
       const client = await createMCPClient({
-        transport: transportForServer(serverConfig, workspaceRoot),
+        transport: transportForServer(spec.config, workspaceRoot),
         name: "anton",
         version: "0.1.0",
         onUncaughtError: (err) => {
-          warnings.push(`MCP server ${serverName} error: ${errorMessage(err)}`);
+          warnings.push(`MCP server ${spec.displayName} error: ${errorMessage(err)}`);
         },
       });
       clients.push(client);
 
       const serverTools = await client.tools();
       for (const [toolName, mcpTool] of Object.entries(serverTools)) {
-        if (!isSafeName(toolName)) {
+        const safeToolName = safeNamespace(toolName);
+        if (!isSafeName(safeToolName)) {
           warnings.push(
-            `skipping MCP tool with invalid name: ${serverName}/${toolName}`,
+            `skipping MCP tool with invalid name: ${spec.displayName}/${toolName}`,
           );
           continue;
         }
 
-        const exposedName = `mcp__${serverName}__${toolName}`;
+        const exposedName = `mcp__${spec.namespace}__${safeToolName}`;
         if (tools[exposedName]) {
           warnings.push(`skipping duplicate MCP tool name: ${exposedName}`);
           continue;
         }
 
-        tools[exposedName] = wrapMcpTool(serverName, toolName, mcpTool);
+        tools[exposedName] = wrapMcpTool(spec.displayName, toolName, mcpTool);
         toolSummaries.push({
           name: exposedName,
-          serverName,
+          serverName: spec.displayName,
+          namespace: spec.namespace,
           toolName,
           description:
             typeof mcpTool.description === "string" ? mcpTool.description : "",
         });
       }
     } catch (err) {
-      warnings.push(`failed to load MCP server ${serverName}: ${errorMessage(err)}`);
+      warnings.push(`failed to load MCP server ${spec.displayName}: ${errorMessage(err)}`);
     }
   }
 
@@ -130,10 +169,10 @@ export async function loadMcpTools(workspaceRoot?: string): Promise<LoadedMcpToo
   };
 }
 
-function readMcpConfig(
+export function readMcpConfig(
   workspaceRoot?: string,
 ):
-  | { servers: Record<string, McpServerConfig>; warnings: string[] }
+  | { servers: Record<string, WorkspaceMcpServerConfig>; warnings: string[] }
   | null {
   const configPath = resolveInWorkspace(MCP_CONFIG_FILE, workspaceRoot);
   if (!fs.existsSync(configPath)) return null;
@@ -179,11 +218,11 @@ function readMcpConfig(
   return { servers: parsed.data.mcpServers, warnings: [] };
 }
 
-function emptyMcpTools(): LoadedMcpTools {
+function emptyMcpTools(warnings: string[] = []): LoadedMcpTools {
   return {
     tools: {},
     toolSummaries: [],
-    warnings: [],
+    warnings,
     close: async () => {},
   };
 }
@@ -192,23 +231,28 @@ function transportForServer(
   config: McpServerConfig,
   workspaceRoot?: string,
 ): MCPClientConfig["transport"] {
-  if ("command" in config) {
+  const normalized = normalizeMcpConfig(config);
+  if (normalized.type === "stdio") {
     const root = workspaceRoot
       ? ensureWorkspaceRootAt(workspaceRoot)
       : ensureWorkspaceRoot();
+    const invocation = stdioCommandInvocation(
+      normalized.command,
+      normalized.args,
+    );
     return new Experimental_StdioMCPTransport({
-      command: config.command,
-      args: config.args,
-      env: config.env,
-      cwd: config.cwd ? resolveInWorkspace(config.cwd, root) : root,
+      command: invocation.command,
+      args: invocation.args,
+      env: normalized.env,
+      cwd: normalized.cwd ? resolveMcpCwd(normalized.cwd, root) : root,
     });
   }
 
   return {
-    type: config.type,
-    url: config.url,
-    headers: config.headers,
-    redirect: config.redirect ?? "error",
+    type: normalized.type,
+    url: normalized.url,
+    headers: normalized.headers,
+    redirect: normalized.redirect,
   };
 }
 
@@ -235,6 +279,127 @@ function wrapMcpTool(
       }
     },
   } as ToolSet[string];
+}
+
+function globalMcpServerSpecs(enabledMcpServerIds?: string[]): McpServerSpec[] {
+  return listEnabledMcpServers(enabledMcpServerIds).flatMap((server) => {
+    const parsed = mcpServerConfigSchema.safeParse(server.config);
+    if (!parsed.success) return [];
+    return [
+      {
+        id: server.id,
+        displayName: server.displayName,
+        namespace: server.namespace,
+        config: parsed.data,
+        trusted: isMcpServerTrusted(server),
+        source: "global" as const,
+      },
+    ];
+  });
+}
+
+function workspaceMcpServerSpecs(
+  servers: Record<string, WorkspaceMcpServerConfig>,
+): McpServerSpec[] {
+  return Object.entries(servers).map(([displayName, serverConfig]) => {
+    const config: McpServerConfig =
+      "command" in serverConfig
+        ? {
+            type: "stdio",
+            command: serverConfig.command,
+            args: serverConfig.args ?? [],
+            env: serverConfig.env ?? {},
+            ...(serverConfig.cwd ? { cwd: serverConfig.cwd } : {}),
+          }
+        : {
+            type: serverConfig.type ?? "http",
+            url: serverConfig.url,
+            headers: serverConfig.headers ?? {},
+            redirect: serverConfig.redirect ?? "error",
+          };
+
+    return {
+      displayName,
+      namespace: safeNamespace(displayName),
+      config,
+      trusted: false,
+      source: "workspace" as const,
+    };
+  });
+}
+
+function safeNamespace(name: string): string {
+  const safe = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return safe.length > 0 ? safe : "mcp";
+}
+
+function resolveMcpCwd(cwd: string, workspaceRoot: string): string {
+  return path.isAbsolute(cwd) ? path.resolve(cwd) : resolveInWorkspace(cwd, workspaceRoot);
+}
+
+function stdioCommandInvocation(
+  command: string,
+  args: string[],
+): { command: string; args: string[] } {
+  if (process.platform !== "win32") return { command, args };
+  const resolved = resolveWindowsCommand(command);
+  const npmInvocation = npmShimInvocation(resolved, args);
+  if (npmInvocation) return npmInvocation;
+  if (/\.(?:bat|cmd)$/i.test(resolved)) {
+    return {
+      command: process.env.ComSpec ?? "cmd.exe",
+      args: ["/d", "/s", "/c", resolved, ...args],
+    };
+  }
+  return { command: resolved, args };
+}
+
+function resolveWindowsCommand(command: string): string {
+  if (command.includes("/") || command.includes("\\") || path.extname(command)) {
+    return command;
+  }
+
+  const pathValue = process.env.PATH ?? process.env.Path ?? "";
+  const extensions = (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD")
+    .split(";")
+    .filter(Boolean);
+  for (const dir of pathValue.split(path.delimiter)) {
+    for (const ext of extensions) {
+      const candidate = path.join(dir, `${command}${ext.toLowerCase()}`);
+      if (fs.existsSync(candidate)) return candidate;
+      const upperCandidate = path.join(dir, `${command}${ext.toUpperCase()}`);
+      if (fs.existsSync(upperCandidate)) return upperCandidate;
+    }
+  }
+  return command;
+}
+
+function npmShimInvocation(
+  resolvedCommand: string,
+  args: string[],
+): { command: string; args: string[] } | null {
+  const basename = path.basename(resolvedCommand).toLowerCase();
+  const cliScript =
+    basename === "npx.cmd"
+      ? "npx-cli.js"
+      : basename === "npm.cmd"
+        ? "npm-cli.js"
+        : null;
+  if (!cliScript) return null;
+
+  const nodeDir = path.dirname(resolvedCommand);
+  const nodeExe = path.join(nodeDir, "node.exe");
+  const cliPath = path.join(nodeDir, "node_modules", "npm", "bin", cliScript);
+  if (!fs.existsSync(nodeExe) || !fs.existsSync(cliPath)) return null;
+
+  return {
+    command: nodeExe,
+    args: [cliPath, ...args],
+  };
 }
 
 function isSafeName(name: string): boolean {

@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
-export type SettingsSection = "workspaces" | "memories" | "skills";
+export type SettingsSection = "workspaces" | "mcp" | "memories" | "skills";
 
 export function SettingsShell({
   section,
@@ -62,6 +62,12 @@ export function SettingsShell({
             </SettingsGroup>
             <SettingsGroup title="Project context">
               <SettingsNavButton
+                active={section === "mcp"}
+                onClick={() => onSectionChange("mcp")}
+              >
+                MCP
+              </SettingsNavButton>
+              <SettingsNavButton
                 active={section === "memories"}
                 onClick={() => onSectionChange("memories")}
               >
@@ -108,6 +114,7 @@ export function SettingsShell({
           >
             <TabsList>
               <TabsTrigger value="workspaces">Workspaces</TabsTrigger>
+              <TabsTrigger value="mcp">MCP</TabsTrigger>
               <TabsTrigger value="memories">Memories</TabsTrigger>
               <TabsTrigger value="skills">Skills</TabsTrigger>
             </TabsList>
@@ -213,6 +220,8 @@ function sectionTitle(section: SettingsSection): string {
   switch (section) {
     case "workspaces":
       return "Workspaces";
+    case "mcp":
+      return "MCP";
     case "memories":
       return "Memories";
     case "skills":

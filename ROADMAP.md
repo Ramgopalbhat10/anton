@@ -53,8 +53,8 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Replace scattered `needsApproval` usage with a central server-side permission policy.
 - [✔️] Classify tools and commands by risk: read-only, write, delete, network, package install, git, long-running process, and external integration.
 - [✔️] Add per-tool and per-command approval metadata that explains exactly what will happen before execution.
-- [] Require explicit approval before starting stdio MCP servers, not only before invoking MCP tools.
-- [] Add a trust store for approved MCP server configs, commands, environment variables, and workspace roots.
+- [✔️] Require explicit approval before starting stdio MCP servers, not only before invoking MCP tools.
+- [✔️] Add a trust store for approved MCP server configs, commands, environment variables, and workspace roots.
 - [] Scrub shell environment by default and pass only an allowlist of required variables.
 - [] Add command policy checks for absolute paths, shell redirection outside workspace, destructive filesystem operations, network access, and secret-printing commands.
 - [] Replace the current `sudo`/`su` denylist with a parser-backed or policy-backed command classifier.

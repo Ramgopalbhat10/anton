@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
   ArrowUp,
   ChevronDown,
+  DatabaseZap,
   GitBranch,
   Monitor,
   Plus,
@@ -23,13 +24,14 @@ import {
   SelectValue,
   SelectViewport,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import type { ModelId } from "@/src/lib/models";
 import type { PermissionMode } from "@/src/agent/permissions";
-import type { ProjectSummary } from "@/src/lib/api-types";
+import type { McpServerSummary, ProjectSummary } from "@/src/lib/api-types";
 import { ModelPicker } from "./model-picker";
 
 interface ComposerProps {
-  onSend: (text: string) => void;
+  onSend: (text: string) => boolean | Promise<boolean>;
   onStop: () => void;
   disabled: boolean;
   streaming: boolean;
@@ -39,6 +41,9 @@ interface ComposerProps {
   project: ProjectSummary | null;
   permissionMode: PermissionMode;
   onPermissionModeChange: (mode: PermissionMode) => void;
+  mcpServers: McpServerSummary[];
+  selectedMcpServerIds: string[];
+  onSelectedMcpServerIdsChange: (ids: string[]) => void;
 }
 
 const MIN_HEIGHT = 24;
@@ -55,8 +60,12 @@ export function Composer({
   project,
   permissionMode,
   onPermissionModeChange,
+  mcpServers,
+  selectedMcpServerIds,
+  onSelectedMcpServerIdsChange,
 }: ComposerProps) {
   const [input, setInput] = useState("");
+  const [mcpOpen, setMcpOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useLayoutEffect(() => {
@@ -71,8 +80,9 @@ export function Composer({
   const submit = () => {
     const trimmed = input.trim();
     if (!trimmed || disabled) return;
-    onSend(trimmed);
-    setInput("");
+    void Promise.resolve(onSend(trimmed)).then((sent) => {
+      if (sent) setInput("");
+    });
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -88,7 +98,7 @@ export function Composer({
         e.preventDefault();
         submit();
       }}
-      className="w-full max-w-full shrink-0 overflow-hidden bg-background/95 px-3 pb-2 pt-1 sm:px-4"
+      className="relative z-40 w-full max-w-full shrink-0 overflow-visible bg-background/95 px-3 pb-2 pt-1 sm:px-4"
     >
       <div className="mx-auto w-full max-w-[calc(100vw-1.5rem)] min-w-0 sm:max-w-3xl">
         <div className="rounded-lg bg-card p-2 ring-1 ring-border">
@@ -117,6 +127,13 @@ export function Composer({
               <PermissionsDropdown
                 value={permissionMode}
                 onChange={onPermissionModeChange}
+              />
+              <McpSelector
+                servers={mcpServers}
+                selectedIds={selectedMcpServerIds}
+                open={mcpOpen}
+                onOpenChange={setMcpOpen}
+                onSelectedIdsChange={onSelectedMcpServerIdsChange}
               />
             </div>
 
@@ -177,6 +194,80 @@ export function Composer({
         </div>
       </div>
     </form>
+  );
+}
+
+function McpSelector({
+  servers,
+  selectedIds,
+  open,
+  onOpenChange,
+  onSelectedIdsChange,
+}: {
+  servers: McpServerSummary[];
+  selectedIds: string[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSelectedIdsChange: (ids: string[]) => void;
+}) {
+  const enabledServers = servers.filter((server) => server.enabled);
+  const selectedCount = enabledServers.filter((server) =>
+    selectedIds.includes(server.id),
+  ).length;
+  return (
+    <div className="relative">
+      <Button
+        type="button"
+        variant="ghost"
+        size="xs"
+        className="h-5 px-1.5 text-[11px] text-primary hover:bg-primary/10"
+        onClick={() => onOpenChange(!open)}
+        aria-expanded={open}
+        aria-label="Select MCP servers"
+      >
+        <DatabaseZap />
+        MCP {selectedCount}
+      </Button>
+      {open && (
+        <div className="absolute bottom-full left-0 z-50 mb-2 w-64 rounded-md bg-popover p-1.5 text-xs text-popover-foreground shadow-lg ring-1 ring-border">
+          {enabledServers.length === 0 ? (
+            <div className="px-1 py-2 text-muted-foreground">
+              No enabled MCP servers.
+            </div>
+          ) : (
+            <ul className="grid gap-1">
+              {enabledServers.map((server) => {
+                const checked = selectedIds.includes(server.id);
+                return (
+                  <li key={server.id}>
+                    <div
+                      className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded px-2 py-1.5 text-primary"
+                    >
+                      <span className="truncate font-medium">
+                        {server.displayName}
+                      </span>
+                      <Switch
+                        checked={checked}
+                        className="h-4 w-7 ring-0 data-[state=checked]:ring-0"
+                        thumbClassName="size-3 data-[state=checked]:translate-x-3.5 data-[state=unchecked]:translate-x-0.5"
+                        aria-label={`${checked ? "Disable" : "Enable"} ${server.displayName} MCP server`}
+                        onCheckedChange={() => {
+                          onSelectedIdsChange(
+                            checked
+                              ? selectedIds.filter((id) => id !== server.id)
+                              : [...selectedIds, server.id],
+                          );
+                        }}
+                      />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
