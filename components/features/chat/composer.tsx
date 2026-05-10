@@ -16,7 +16,6 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -241,25 +240,25 @@ function McpSelector({
                 const checked = selectedIds.includes(server.id);
                 return (
                   <li key={server.id}>
-                    <button
-                      type="button"
-                      className={cn(
-                        "grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded px-2 py-1.5 text-left hover:bg-accent",
-                        checked && "bg-primary/10 text-primary",
-                      )}
-                      onClick={() => {
-                        onSelectedIdsChange(
-                          checked
-                            ? selectedIds.filter((id) => id !== server.id)
-                            : [...selectedIds, server.id],
-                        );
-                      }}
+                    <div
+                      className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded bg-primary/10 px-2 py-1.5 text-primary"
                     >
                       <span className="truncate font-medium">
                         {server.displayName}
                       </span>
-                      <Switch checked={checked} aria-hidden tabIndex={-1} />
-                    </button>
+                      <Switch
+                        checked={checked}
+                        className="h-5 w-8 ring-0 data-[state=checked]:ring-0"
+                        aria-label={`${checked ? "Disable" : "Enable"} ${server.displayName} MCP server`}
+                        onCheckedChange={() => {
+                          onSelectedIdsChange(
+                            checked
+                              ? selectedIds.filter((id) => id !== server.id)
+                              : [...selectedIds, server.id],
+                          );
+                        }}
+                      />
+                    </div>
                   </li>
                 );
               })}
