@@ -24,6 +24,7 @@ export function ensureWorkspaceRoot(): string {
 
 export function ensureWorkspaceRootAt(rootPath: string): string {
   const root = path.resolve(rootPath);
+  validateSandboxWorkspaceRoot(root);
   if (!fs.existsSync(root)) {
     fs.mkdirSync(root, { recursive: true });
   }
@@ -84,6 +85,40 @@ export function workspaceRelativeTo(rootPath: string, absPath: string): string {
 function isInside(child: string, parent: string): boolean {
   const rel = path.relative(parent, child);
   return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+function validateSandboxWorkspaceRoot(root: string): void {
+  const resolved = path.resolve(root);
+  const appRoot = path.resolve(process.cwd());
+  if (samePath(resolved, appRoot)) {
+    throw new SandboxError("workspace root cannot be the Anton source directory");
+  }
+  if (samePath(resolved, path.parse(resolved).root)) {
+    throw new SandboxError("workspace root cannot be a filesystem root");
+  }
+  if (samePath(resolved, homeDir())) {
+    throw new SandboxError("workspace root cannot be the user home directory");
+  }
+  if (hasUnsafeSegment(resolved)) {
+    throw new SandboxError(
+      "workspace root cannot be inside .git, dependencies, or build output",
+    );
+  }
+}
+
+function hasUnsafeSegment(target: string): boolean {
+  const parts = path.resolve(target).split(path.sep).map((part) => part.toLowerCase());
+  return parts.some((part) =>
+    [".git", "node_modules", ".next", "dist", "build"].includes(part),
+  );
+}
+
+function homeDir(): string {
+  return process.env.USERPROFILE || process.env.HOME || "";
+}
+
+function samePath(a: string, b: string): boolean {
+  return b.length > 0 && path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
 }
 
 function realpathOfExistingAncestor(target: string): string {

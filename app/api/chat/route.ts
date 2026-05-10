@@ -35,6 +35,7 @@ import {
   upsertRunEvent,
 } from "@/src/db/queries";
 import { DEFAULT_MODEL } from "@/src/lib/providers";
+import { redactText, redactValue } from "@/src/lib/redaction";
 import type {
   AntonActivityEvent,
   AntonActivityKind,
@@ -173,7 +174,10 @@ export async function POST(req: Request) {
     onFinish: ({ messages }) => {
       const persistedMessages = messages.filter(hasSubstantiveHistoryParts);
       if (persistedMessages.length === 0) return;
-      replaceMessages<AntonUIMessage>(sessionId, persistedMessages);
+      replaceMessages<AntonUIMessage>(
+        sessionId,
+        redactValue(persistedMessages) as AntonUIMessage[],
+      );
     },
   });
 
@@ -292,7 +296,7 @@ function createTraceWriter({
       kind: event.kind,
       status: event.status,
       label: event.label,
-      summary: event.summary ?? null,
+      summary: event.summary ? redactText(event.summary) : null,
       startedAt: new Date(event.startedAt),
       finishedAt: event.finishedAt ? new Date(event.finishedAt) : null,
       durationMs: event.durationMs ?? null,
@@ -302,9 +306,10 @@ function createTraceWriter({
   };
 
   const writeEvent = (event: AntonActivityEvent) => {
-    events.set(event.id, event);
-    persistEvent(event);
-    writer.write({ type: "data-activity", id: event.id, data: event });
+    const safeEvent = redactActivityEvent(event);
+    events.set(safeEvent.id, safeEvent);
+    persistEvent(safeEvent);
+    writer.write({ type: "data-activity", id: safeEvent.id, data: safeEvent });
   };
 
   const startEvent = ({
@@ -371,7 +376,7 @@ function createTraceWriter({
     if (typeof input !== "object" || input === null) return undefined;
     const record = input as Record<string, unknown>;
     for (const key of ["command", "path", "pattern", "slug", "task"]) {
-      if (typeof record[key] === "string") return record[key];
+      if (typeof record[key] === "string") return redactText(record[key]);
     }
     return undefined;
   };
@@ -466,7 +471,7 @@ function createTraceWriter({
         workspaceRoot,
       });
       if (approval) {
-        details.approval = approval;
+        details.approval = redactValue(approval);
         details.riskCategories = [...approval.riskCategories];
         details.riskSummary = approval.summary;
       }
@@ -534,7 +539,7 @@ function createTraceWriter({
           kind: "error",
           status: "error",
           label: "Stream error",
-          summary: errorMessage(part.error),
+          summary: redactText(errorMessage(part.error)),
         });
       }
     },
@@ -544,7 +549,7 @@ function createTraceWriter({
         kind: "error",
         status: "error",
         label: "Run failed",
-        summary: errorMessage(error),
+        summary: redactText(errorMessage(error)),
       });
       finalize("error");
     },
@@ -576,5 +581,20 @@ function persistableEventDetails(
   if (!details) return null;
   const persistable = { ...details };
   delete persistable.streamToken;
-  return persistable;
+  return redactValue(persistable) as Record<string, unknown>;
+}
+
+function redactActivityEvent(event: AntonActivityEvent): AntonActivityEvent {
+  const details = event.details
+    ? (redactValue(event.details) as Record<string, unknown>)
+    : undefined;
+  if (details && event.details && "streamToken" in event.details) {
+    details.streamToken = event.details.streamToken;
+  }
+  return {
+    ...event,
+    label: redactText(event.label),
+    summary: event.summary ? redactText(event.summary) : event.summary,
+    details,
+  };
 }

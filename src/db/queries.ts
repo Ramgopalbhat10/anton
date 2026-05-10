@@ -31,6 +31,7 @@ import {
   fingerprintMcpConfig,
   namespaceFromDisplayName,
   normalizeMcpConfig,
+  preserveRedactedMcpConfigValues,
   type McpServerConfig,
 } from "@/src/agent/mcp-config";
 
@@ -495,7 +496,12 @@ export function updateMcpServer(
   }
   if (input.transport) update.transport = input.transport;
   if (input.config) {
-    update.config = normalizeMcpConfig(input.config) as unknown;
+    update.config = normalizeMcpConfig(
+      preserveRedactedMcpConfigValues(
+        input.config,
+        current.config as McpServerConfig,
+      ),
+    ) as unknown;
     update.lastStatus = "untested";
     update.lastError = null;
     update.lastCheckedAt = null;
