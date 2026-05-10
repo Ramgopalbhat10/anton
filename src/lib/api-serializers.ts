@@ -1,6 +1,7 @@
 import {
   fingerprintMcpConfig,
   makeMcpApprovalDetails,
+  redactMcpConfig,
   summarizeMcpConfig,
   type McpServerConfig,
 } from "@/src/agent/mcp-config";
@@ -45,7 +46,7 @@ export function serializeMcpServer(server: McpServer): McpServerSummary {
     displayName: server.displayName,
     namespace: server.namespace,
     transport: server.transport,
-    config,
+    config: redactMcpConfig(config),
     enabled: server.enabled,
     summary: summarizeMcpConfig(config),
     trust: {

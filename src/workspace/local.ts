@@ -51,6 +51,15 @@ export async function validateAndPrepareLocalWorkspacesRoot(
   if (!path.isAbsolute(inputPath)) {
     throw new WorkspaceRootError("Workspace root must be an absolute path.");
   }
+  if (isFilesystemRoot(resolved)) {
+    throw new WorkspaceRootError("Workspace root cannot be a filesystem root.");
+  }
+  if (isSamePath(resolved, os.homedir())) {
+    throw new WorkspaceRootError("Workspace root cannot be the user home directory.");
+  }
+  if (isSystemDirectory(resolved)) {
+    throw new WorkspaceRootError("Workspace root cannot be a system directory.");
+  }
   if (hasUnsafeSegment(resolved)) {
     throw new WorkspaceRootError(
       "Workspace root cannot be inside .git, node_modules, or build output.",
@@ -110,9 +119,49 @@ function hasUnsafeSegment(target: string): boolean {
   );
 }
 
+function isFilesystemRoot(target: string): boolean {
+  const resolved = path.resolve(target);
+  return isSamePath(resolved, path.parse(resolved).root);
+}
+
+function isSystemDirectory(target: string): boolean {
+  const resolved = path.resolve(target);
+  return systemDirectories().some(
+    (dir) => isSamePath(resolved, dir) || isInside(resolved, dir),
+  );
+}
+
+function systemDirectories(): string[] {
+  const dirs = [
+    process.env.SystemRoot,
+    process.env.WINDIR,
+    process.env.ProgramFiles,
+    process.env["ProgramFiles(x86)"],
+    process.env.ProgramData,
+    "/bin",
+    "/boot",
+    "/dev",
+    "/etc",
+    "/lib",
+    "/lib64",
+    "/proc",
+    "/sbin",
+    "/sys",
+    "/usr",
+    "/var",
+  ];
+  return dirs
+    .filter((dir): dir is string => typeof dir === "string" && dir.trim().length > 0)
+    .map((dir) => path.resolve(dir));
+}
+
 function isInside(child: string, parent: string): boolean {
   const rel = path.relative(parent, child);
   return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+function isSamePath(a: string, b: string): boolean {
+  return path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
 }
 
 function safePathSegment(segment: string): string {

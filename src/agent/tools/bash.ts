@@ -2,11 +2,16 @@ import { z } from "zod";
 import { execa } from "execa";
 import { tool } from "ai";
 import { ensureWorkspaceRoot, ensureWorkspaceRootAt } from "../sandbox";
-import { classifyBashCommand } from "../permissions";
+import {
+  buildBashEnvironment,
+  classifyBashCommand,
+  evaluateBashCommandPolicy,
+} from "../command-policy";
 import {
   bashProgress,
   type BashFailedReason,
 } from "@/src/lib/bash-stream";
+import { redactText } from "@/src/lib/redaction";
 
 const MAX_OUTPUT_BYTES = 64 * 1024;
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -29,20 +34,21 @@ export function createBashTool(workspaceRoot?: string) {
         ),
     }),
     execute: async ({ command, timeoutMs }, { toolCallId }) => {
-      const classification = classifyBashCommand(command);
-      if (classification.forbidden) {
+      const root = workspaceRoot
+        ? ensureWorkspaceRootAt(workspaceRoot)
+        : ensureWorkspaceRoot();
+      const policy = evaluateBashCommandPolicy(command, { workspaceRoot: root });
+      if (!policy.allowed) {
         return {
           ok: false as const,
-          classification,
-          riskCategories: classification.categories as string[],
-          error: classification.reason,
+          classification: policy.classification,
+          riskCategories: policy.classification.categories as string[],
+          error: policy.reason,
         };
       }
 
       const timeout = timeoutMs ?? DEFAULT_TIMEOUT_MS;
-      const root = workspaceRoot
-        ? ensureWorkspaceRootAt(workspaceRoot)
-        : ensureWorkspaceRoot();
+      const classification = policy.classification;
 
       return executeWithStreaming(command, root, timeout, toolCallId, classification);
     },
@@ -52,8 +58,9 @@ export function createBashTool(workspaceRoot?: string) {
 export const bashTool = createBashTool();
 
 function truncate(output: string): string {
-  const buf = Buffer.from(output, "utf8");
-  if (buf.byteLength <= MAX_OUTPUT_BYTES) return output;
+  const redacted = redactText(output);
+  const buf = Buffer.from(redacted, "utf8");
+  if (buf.byteLength <= MAX_OUTPUT_BYTES) return redacted;
   const head = buf.subarray(0, MAX_OUTPUT_BYTES).toString("utf8");
   return `${head}\n…[truncated ${buf.byteLength - MAX_OUTPUT_BYTES} bytes]`;
 }
@@ -74,6 +81,8 @@ async function executeWithStreaming(
   try {
     const subprocess = execa("bash", ["-lc", command], {
       cwd: root,
+      env: buildBashEnvironment(),
+      extendEnv: false,
       timeout,
       reject: false,
       stripFinalNewline: false,
@@ -81,13 +90,13 @@ async function executeWithStreaming(
     });
 
     subprocess.stdout?.on("data", (chunk: Buffer) => {
-      const text = chunk.toString("utf8");
+      const text = redactText(chunk.toString("utf8"));
       stdoutChunks.push(text);
       bashProgress.emitChunk(streamId, { type: "stdout", chunk: text });
     });
 
     subprocess.stderr?.on("data", (chunk: Buffer) => {
-      const text = chunk.toString("utf8");
+      const text = redactText(chunk.toString("utf8"));
       stderrChunks.push(text);
       bashProgress.emitChunk(streamId, { type: "stderr", chunk: text });
     });
@@ -124,7 +133,7 @@ async function executeWithStreaming(
       streamId,
     };
   } catch (err) {
-    const error = errorMessage(err);
+    const error = redactText(errorMessage(err));
     const stderr = truncate([...stderrChunks, error].filter(Boolean).join("\n"));
     bashProgress.emitChunk(streamId, { type: "stderr", chunk: `${error}\n` });
     bashProgress.emitChunk(streamId, {

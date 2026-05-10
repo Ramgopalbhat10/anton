@@ -2,6 +2,12 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
+import {
+  preserveRedactedRecordValues,
+  redactRecordSecrets,
+  redactText,
+} from "@/src/lib/redaction";
+
 export const mcpTransportSchema = z.enum(["stdio", "http", "sse"]);
 export type McpTransport = z.infer<typeof mcpTransportSchema>;
 
@@ -62,6 +68,42 @@ export function normalizeMcpConfig(config: McpServerConfig): McpServerConfig {
   };
 }
 
+export function redactMcpConfig(config: McpServerConfig): McpServerConfig {
+  if (config.type === "stdio") {
+    return {
+      ...config,
+      args: config.args.map(redactText),
+      env: redactRecordSecrets(config.env),
+      ...(config.cwd ? { cwd: redactText(config.cwd) } : {}),
+    };
+  }
+
+  return {
+    ...config,
+    url: redactText(config.url),
+    headers: redactRecordSecrets(config.headers),
+  };
+}
+
+export function preserveRedactedMcpConfigValues(
+  next: McpServerConfig,
+  current: McpServerConfig,
+): McpServerConfig {
+  if (next.type === "stdio" && current.type === "stdio") {
+    return {
+      ...next,
+      env: preserveRedactedRecordValues(next.env, current.env),
+    };
+  }
+  if (next.type !== "stdio" && current.type !== "stdio") {
+    return {
+      ...next,
+      headers: preserveRedactedRecordValues(next.headers, current.headers),
+    };
+  }
+  return next;
+}
+
 export function fingerprintMcpConfig(config: McpServerConfig): string {
   const stable = stableJson(normalizeMcpConfig(config));
   return createHash("sha256").update(stable).digest("hex");
@@ -84,9 +126,9 @@ export function makeMcpApprovalDetails({
       riskCategories: ["external-integration", "long-running-process"],
       target: normalized.command,
       details: [
-        `Command: ${normalized.command}`,
-        `Args: ${normalized.args.length > 0 ? normalized.args.join(" ") : "none"}`,
-        `Working directory: ${normalized.cwd ?? "workspace root"}`,
+        `Command: ${redactText(normalized.command)}`,
+        `Args: ${normalized.args.length > 0 ? redactText(normalized.args.join(" ")) : "none"}`,
+        `Working directory: ${normalized.cwd ? redactText(normalized.cwd) : "workspace root"}`,
         `Environment keys: ${envKeys.length > 0 ? envKeys.join(", ") : "none"}`,
         "Trust only allows server startup; individual MCP tool calls still require approval.",
       ],
@@ -102,7 +144,7 @@ export function makeMcpApprovalDetails({
     target: normalized.url,
     details: [
       `Transport: ${normalized.type.toUpperCase()}`,
-      `URL: ${normalized.url}`,
+      `URL: ${redactText(normalized.url)}`,
       `Headers: ${headerKeys.length > 0 ? headerKeys.join(", ") : "none"}`,
       `Redirect mode: ${normalized.redirect}`,
       "Trust only allows server connection; individual MCP tool calls still require approval.",
@@ -121,9 +163,9 @@ export function namespaceFromDisplayName(displayName: string): string {
 
 export function summarizeMcpConfig(config: McpServerConfig): string {
   if (config.type === "stdio") {
-    return [config.command, ...(config.args ?? [])].join(" ");
+    return redactText([config.command, ...(config.args ?? [])].join(" "));
   }
-  return config.url;
+  return redactText(config.url);
 }
 
 function sortedRecord(record: Record<string, string>): Record<string, string> {

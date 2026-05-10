@@ -55,12 +55,12 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Add per-tool and per-command approval metadata that explains exactly what will happen before execution.
 - [✔️] Require explicit approval before starting stdio MCP servers, not only before invoking MCP tools.
 - [✔️] Add a trust store for approved MCP server configs, commands, environment variables, and workspace roots.
-- [] Scrub shell environment by default and pass only an allowlist of required variables.
-- [] Add command policy checks for absolute paths, shell redirection outside workspace, destructive filesystem operations, network access, and secret-printing commands.
-- [] Replace the current `sudo`/`su` denylist with a parser-backed or policy-backed command classifier.
-- [] Add secret redaction for tool inputs, tool outputs, logs, and UI rendering.
-- [] Add workspace-root validation that prevents using Anton source, `.git`, dependency folders, build output, system directories, and user home as agent workspaces.
-- [] Add tests for sandbox traversal, symlink escapes, workspace root validation, and command policy behavior.
+- [✔️] Scrub shell environment by default and pass only an allowlist of required variables.
+- [✔️] Add command policy checks for absolute paths, shell redirection outside workspace, destructive filesystem operations, network access, and secret-printing commands.
+- [✔️] Replace the current `sudo`/`su` denylist with a parser-backed or policy-backed command classifier.
+- [✔️] Add secret redaction for tool inputs, tool outputs, logs, and UI rendering.
+- [✔️] Add workspace-root validation that prevents using Anton source, `.git`, dependency folders, build output, system directories, and user home as agent workspaces.
+- [✔️] Add tests for sandbox traversal, symlink escapes, workspace root validation, and command policy behavior.
 
 ## Phase 2: Real Coding-Agent Editing
 
@@ -158,12 +158,12 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 ## Known Implementation Risks
 
 - [] Chat message input is still validated as `z.array(z.unknown())` before casting to `AntonUIMessage[]`.
-- [] Shell tool still runs through `bash -lc` with broad process capability and no environment allowlist.
+- [] Shell tool still runs through `bash -lc`; command policy is heuristic rather than a full shell parser.
 - [] MCP stdio server startup can execute configured commands before user approval.
 - [] Full-file `write_file` remains the main write primitive.
 - [] Message persistence still deletes and reinserts the full session transcript.
 - [] There is no durable tool-call audit table yet.
 - [] There is no automated test suite yet.
 - [] GitHub clone/fetch runs synchronously inside request handling and may exceed request duration for large repositories.
-- [] Installation tokens are injected into git through extra headers; logs and errors need explicit secret redaction guarantees.
+- [] Installation tokens are injected into git through extra headers; keep redaction coverage current as clone/fetch behavior evolves.
 - [] Active project selection is client-local and not yet a durable user/workspace preference.
