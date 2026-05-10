@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { UIMessage } from "ai";
 import { randomUUID } from "node:crypto";
 
+import { hydrateMessagesWithRunMetrics, type AntonUIMessage } from "@/src/lib/trace";
 import { db } from "./client";
 import {
   githubInstallations,
@@ -350,7 +351,7 @@ export function loadMessages<UI extends UIMessage>(
     .orderBy(asc(messages.createdAt))
     .all();
 
-  return rows.map((row) => {
+  const loaded = rows.map((row) => {
     const parts = row.parts as UI["parts"];
     return {
       id: row.id,
@@ -359,6 +360,23 @@ export function loadMessages<UI extends UIMessage>(
       metadata: (row.metadata ?? undefined) as UI["metadata"],
     } as UI;
   });
+
+  const sessionRuns = db
+    .select({
+      id: runs.id,
+      inputTokens: runs.inputTokens,
+      outputTokens: runs.outputTokens,
+      totalTokens: runs.totalTokens,
+      costUsd: runs.costUsd,
+    })
+    .from(runs)
+    .where(eq(runs.sessionId, sessionId))
+    .all();
+
+  return hydrateMessagesWithRunMetrics(
+    loaded as unknown as AntonUIMessage[],
+    sessionRuns,
+  ) as unknown as UI[];
 }
 
 export function replaceMessages<UI extends UIMessage>(
