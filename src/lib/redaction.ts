@@ -1,7 +1,19 @@
 export const REDACTED = "[redacted]";
 
-const SECRET_KEY_RE =
-  /(?:api[_-]?key|authorization|bearer|client[_-]?secret|credential|password|private[_-]?key|secret|token)/i;
+const NON_SECRET_TOKEN_KEYS = new Set([
+  "cached_input_tokens",
+  "cache_read_tokens",
+  "cache_write_tokens",
+  "input_tokens",
+  "max_output_tokens",
+  "no_cache_tokens",
+  "output_tokens",
+  "reasoning_tokens",
+  "text_tokens",
+  "token_count",
+  "tokens_total",
+  "total_tokens",
+]);
 
 const SECRET_TEXT_PATTERNS: readonly [RegExp, string][] = [
   [
@@ -20,7 +32,19 @@ export function isRedactedSentinel(value: unknown): boolean {
 }
 
 export function isSecretKey(key: string): boolean {
-  return SECRET_KEY_RE.test(key);
+  const normalized = normalizeKey(key);
+  if (NON_SECRET_TOKEN_KEYS.has(normalized)) return false;
+  return (
+    normalized.includes("api_key") ||
+    normalized.includes("authorization") ||
+    normalized.includes("bearer") ||
+    normalized.includes("client_secret") ||
+    normalized.includes("credential") ||
+    normalized.includes("password") ||
+    normalized.includes("private_key") ||
+    normalized.includes("secret") ||
+    normalized.split("_").includes("token")
+  );
 }
 
 export function redactText(value: string): string {
@@ -68,4 +92,13 @@ export function preserveRedactedRecordValues(
       isRedactedSentinel(value) && key in current ? current[key] : value,
     ]),
   );
+}
+
+function normalizeKey(key: string): string {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    .join("_");
 }

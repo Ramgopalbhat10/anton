@@ -49,6 +49,22 @@ test("redacts nested structured secret values", () => {
   });
 });
 
+test("does not redact token usage metric fields", () => {
+  const output = redactValue({
+    inputTokens: 10,
+    outputTokens: 5,
+    totalTokens: 15,
+    token: `ghs_${"e".repeat(36)}`,
+  });
+
+  assert.deepEqual(output, {
+    inputTokens: 10,
+    outputTokens: 5,
+    totalTokens: 15,
+    token: REDACTED,
+  });
+});
+
 test("redacts only secret-looking record values", () => {
   assert.deepEqual(
     redactRecordSecrets({

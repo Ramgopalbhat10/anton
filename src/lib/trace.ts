@@ -50,6 +50,14 @@ export type AntonRunData = {
   costUsd?: number;
 };
 
+export type AntonRunMetricSnapshot = {
+  id: string;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  totalTokens?: number | null;
+  costUsd?: number | null;
+};
+
 export type AntonActivityEvent = {
   id: string;
   runId: string;
@@ -323,6 +331,56 @@ export function getRunDataList(message: AntonUIMessage): AntonRunData[] {
     if (isRunDataPart(part)) byRunId.set(part.data.runId, part.data);
   }
   return Array.from(byRunId.values());
+}
+
+export function hydrateMessagesWithRunMetrics<UI extends AntonUIMessage>(
+  messages: UI[],
+  runs: AntonRunMetricSnapshot[],
+): UI[] {
+  const runsById = new Map(runs.map((run) => [run.id, run]));
+  if (runsById.size === 0) return messages;
+
+  return messages.map((message) => {
+    const metadata = hydrateMetricRecord(message.metadata, runsById);
+    let partsChanged = false;
+    const parts = message.parts.map((part) => {
+      if (!isRunDataPart(part)) return part;
+      const data = hydrateMetricRecord(part.data, runsById);
+      if (data !== part.data) partsChanged = true;
+      return data === part.data ? part : { ...part, data };
+    }) as UI["parts"];
+
+    return metadata === message.metadata && !partsChanged
+      ? message
+      : {
+          ...message,
+          metadata: metadata as UI["metadata"],
+          parts,
+      };
+  });
+}
+
+function hydrateMetricRecord<T>(
+  value: T,
+  runsById: Map<string, AntonRunMetricSnapshot>,
+): T {
+  if (typeof value !== "object" || value === null) return value;
+  const record = value as Record<string, unknown>;
+  const runId = record.runId;
+  if (typeof runId !== "string") return value;
+  const run = runsById.get(runId);
+  if (!run) return value;
+
+  let next: Record<string, unknown> | undefined;
+  for (const key of ["inputTokens", "outputTokens", "totalTokens", "costUsd"] as const) {
+    const metric = run[key];
+    if (typeof metric !== "number" || !Number.isFinite(metric)) continue;
+    if (record[key] === metric) continue;
+    next ??= { ...record };
+    next[key] = metric;
+  }
+
+  return (next ?? value) as T;
 }
 
 export function getMessageRunDurationMs(
