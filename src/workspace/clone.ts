@@ -3,6 +3,7 @@ import path from "node:path";
 import { execa } from "execa";
 
 import { createInstallationToken, type GitHubRepository } from "@/src/github/app";
+import { redactText } from "@/src/lib/redaction";
 import {
   getProjectByGithubRepoId,
   upsertProject,
@@ -51,7 +52,7 @@ export async function cloneGitHubRepository(input: {
     });
     return updateProjectStatus(project.id, "ready", null) ?? project;
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = redactText(err instanceof Error ? err.message : String(err));
     updateProjectStatus(project.id, "error", message);
     throw new CloneError(message);
   }

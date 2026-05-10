@@ -6,6 +6,10 @@ import {
   ensureWorkspaceRootAt,
   resolveInWorkspace,
 } from "./sandbox";
+import {
+  classifyBashCommand as classifyBashCommandByPolicy,
+  type BashCommandClassification,
+} from "./command-policy";
 
 // Permission gate helpers for tool execution.
 //
@@ -37,12 +41,6 @@ export type ToolPermissionMetadata = {
   categories: readonly ToolRiskCategory[];
   requiresApproval: boolean;
   summary: string;
-};
-
-export type BashCommandClassification = {
-  categories: readonly ToolRiskCategory[];
-  forbidden: boolean;
-  reason: string;
 };
 
 export type ToolApprovalMetadata = {
@@ -431,65 +429,7 @@ function buildMcpToolApprovalMetadata(toolName: string): ToolApprovalMetadata {
 }
 
 export function classifyBashCommand(command: string): BashCommandClassification {
-  const normalized = command.trim();
-  if (!normalized) {
-    return {
-      categories: ["read-only"],
-      forbidden: false,
-      reason: "empty command",
-    };
-  }
-
-  const forbidden = isForbiddenBashCommand(normalized);
-  if (forbidden) {
-    return {
-      categories: ["external-integration"],
-      forbidden: true,
-      reason: `forbidden command pattern: ${forbidden}`,
-    };
-  }
-
-  const categories = new Set<ToolRiskCategory>();
-
-  if (isGitCommand(normalized)) categories.add("git");
-  if (hasNetworkPattern(normalized)) categories.add("network");
-  if (hasPackageInstallPattern(normalized)) categories.add("package-install");
-  if (hasLongRunningPattern(normalized)) categories.add("long-running-process");
-  if (hasDeletePattern(normalized)) categories.add("delete");
-  if (hasWritePattern(normalized)) categories.add("write");
-  if (hasExternalIntegrationPattern(normalized)) {
-    categories.add("external-integration");
-  }
-
-  if (
-    isReadOnlyShellCommand(normalized) &&
-    (categories.size === 0 || (categories.size === 1 && categories.has("git")))
-  ) {
-    categories.add("read-only");
-  } else if (categories.size === 0) {
-    categories.add("write");
-  }
-
-  const orderedCategories = orderedRiskCategories(categories);
-  return {
-    categories: orderedCategories,
-    forbidden: false,
-    reason: reasonForCategories(orderedCategories),
-  };
-}
-
-// Commands we refuse to execute in `bash` even after approval — the user
-// should never be able to approve these by accident.
-export const FORBIDDEN_BASH_PATTERNS: readonly RegExp[] = [
-  /(^|\s|;|&&|\|\|)\s*sudo(\s|$)/,
-  /(^|\s|;|&&|\|\|)\s*su(\s|$)/,
-];
-
-export function isForbiddenBashCommand(command: string): RegExp | null {
-  for (const re of FORBIDDEN_BASH_PATTERNS) {
-    if (re.test(command)) return re;
-  }
-  return null;
+  return classifyBashCommandByPolicy(command);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -579,148 +519,3 @@ function toolMetadata(
 ): ToolPermissionMetadata {
   return { categories, requiresApproval, summary };
 }
-
-function orderedRiskCategories(
-  categories: ReadonlySet<ToolRiskCategory>,
-): ToolRiskCategory[] {
-  return TOOL_RISK_CATEGORIES.filter((category) => categories.has(category));
-}
-
-function reasonForCategories(categories: readonly ToolRiskCategory[]): string {
-  if (categories.length === 1 && categories[0] === "read-only") {
-    return "matched read-only command patterns";
-  }
-
-  return `matched ${categories.join(", ")} command risk patterns`;
-}
-
-function isGitCommand(command: string): boolean {
-  return /(^|[\s;&|()])git(\s|$)/.test(command);
-}
-
-function hasNetworkPattern(command: string): boolean {
-  return (
-    /\b(?:curl|wget|ssh|scp|sftp|rsync|nc|netcat|telnet|ftp)\b/.test(command) ||
-    /\b(?:https?|ssh|git):\/\/\S+/.test(command) ||
-    /\bgit@[A-Za-z0-9_.-]+:[^\s]+/.test(command) ||
-    /\bgit\s+(?:clone|fetch|pull|push|ls-remote|submodule\s+update)\b/.test(
-      command,
-    ) ||
-    /\bgh\s+(?:api|auth|browse|codespace|gist|issue|pr|release|repo|run|workflow)\b/.test(
-      command,
-    )
-  );
-}
-
-function hasPackageInstallPattern(command: string): boolean {
-  return (
-    /\b(?:npm|pnpm|yarn|bun)\s+(?:install|i|add|remove|rm|update|upgrade|dlx|create|init)\b/.test(
-      command,
-    ) ||
-    /\bnpx\b/.test(command) ||
-    /\bpip3?\s+install\b/.test(command) ||
-    /\buv\s+(?:add|remove|sync|pip\s+install)\b/.test(command) ||
-    /\bpoetry\s+(?:add|install|remove|update)\b/.test(command) ||
-    /\bcargo\s+install\b/.test(command) ||
-    /\bgo\s+(?:get|install)\b/.test(command) ||
-    /\bgem\s+install\b/.test(command) ||
-    /\bbundle\s+(?:add|install|update)\b/.test(command) ||
-    /\bcomposer\s+(?:install|require|remove|update)\b/.test(command)
-  );
-}
-
-function hasLongRunningPattern(command: string): boolean {
-  return (
-    /(^|[\s;&|()])(?:watch|top|htop|less|more)\b/.test(command) ||
-    /\b(?:tail)\s+[^;&|]*\s-f\b/.test(command) ||
-    /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:dev|start|serve|preview|watch)\b/.test(
-      command,
-    ) ||
-    /\b(?:next|vite|webpack|turbo)\s+(?:dev|start|serve|preview|watch)\b/.test(
-      command,
-    ) ||
-    /\b(?:nodemon|tsx\s+watch|ts-node-dev)\b/.test(command) ||
-    /\bpython3?\s+-m\s+http\.server\b/.test(command) ||
-    /(^|[\s;&|()])sleep\s+(?:[3-9]\d|\d{3,})\b/.test(command) ||
-    /(^|[^&])&\s*(?:$|[#;])/.test(command)
-  );
-}
-
-function hasDeletePattern(command: string): boolean {
-  return (
-    /(^|[\s;&|()])(?:rm|unlink|rmdir)\b/.test(command) ||
-    /\bfind\b[^;&|]*\s-delete\b/.test(command) ||
-    /\bgit\s+(?:clean|reset\s+--hard)\b/.test(command)
-  );
-}
-
-function hasWritePattern(command: string): boolean {
-  return (
-    /(^|[^<>])>{1,2}(?![>&])/.test(command) ||
-    /(^|[\s;&|()])(?:tee|touch|mkdir|mv|cp|install|chmod|chown|truncate)\b/.test(
-      command,
-    ) ||
-    /\b(?:sed|perl)\s+[^;&|]*\s-i(?:\s|$)/.test(command) ||
-    /\bgit\s+(?:add|am|apply|checkout|cherry-pick|commit|merge|mv|rebase|restore|revert|switch|tag)\b/.test(
-      command,
-    ) ||
-    hasPackageInstallPattern(command)
-  );
-}
-
-function hasExternalIntegrationPattern(command: string): boolean {
-  return (
-    /\b(?:gh|aws|gcloud|az|vercel|netlify|flyctl|railway|supabase|stripe|kubectl|docker|docker-compose)\b/.test(
-      command,
-    ) || hasNetworkPattern(command)
-  );
-}
-
-function isReadOnlyShellCommand(command: string): boolean {
-  const segments = command
-    .split(/&&|\|\||[;|]/)
-    .map((segment) => segment.trim())
-    .filter(Boolean);
-  if (segments.length === 0) return true;
-
-  return segments.every((segment) => {
-    const executable = segment.match(/^(?:env\s+)?([A-Za-z0-9_.-]+)/)?.[1];
-    if (!executable) return false;
-    if (executable === "git") {
-      return /\bgit\s+(?:status|diff|show|log|branch|rev-parse|ls-files)\b/.test(
-        segment,
-      );
-    }
-    if (executable === "find" && /\s-delete\b/.test(segment)) return false;
-    return READ_ONLY_COMMANDS.has(executable);
-  });
-}
-
-const READ_ONLY_COMMANDS = new Set([
-  "awk",
-  "basename",
-  "cat",
-  "dirname",
-  "du",
-  "echo",
-  "env",
-  "file",
-  "find",
-  "grep",
-  "head",
-  "jq",
-  "ls",
-  "pwd",
-  "realpath",
-  "rg",
-  "sed",
-  "sort",
-  "stat",
-  "tail",
-  "test",
-  "tree",
-  "tr",
-  "type",
-  "wc",
-  "which",
-]);

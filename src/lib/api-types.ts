@@ -55,6 +55,8 @@ export type SkillDocument = SkillSummary & {
 
 export type McpTransport = "stdio" | "http" | "sse";
 
+// UI-facing MCP configs redact secret-looking env/header values as "[redacted]".
+// PATCH requests may submit that sentinel to preserve the stored value.
 export type StdioMcpConfig = {
   type: "stdio";
   command: string;
