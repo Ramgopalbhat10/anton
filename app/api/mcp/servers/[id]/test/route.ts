@@ -34,12 +34,21 @@ export async function POST(_req: Request, { params }: Ctx) {
       warning.includes(server.displayName),
     );
     if (failedWarning) {
-      const updated = updateMcpServerStatus(id, "error", failedWarning) ?? server;
+      const error = mcpTestError(
+        {
+          displayName: server.displayName,
+          transport: server.transport,
+        },
+        failedWarning,
+      );
+      const updated = updateMcpServerStatus(id, "error", error) ?? server;
       return Response.json(
         {
-          error: failedWarning,
+          error,
           server: serializeMcpServer(updated),
-          warnings: loaded.warnings,
+          warnings: loaded.warnings.map((warning) =>
+            warning === failedWarning ? error : warning,
+          ),
           tools: loaded.toolSummaries,
         },
         { status: 502 },
@@ -55,4 +64,19 @@ export async function POST(_req: Request, { params }: Ctx) {
   } finally {
     await loaded.close();
   }
+}
+
+function mcpTestError(
+  server: { displayName: string; transport: string },
+  warning: string,
+): string {
+  if (server.transport !== "stdio" || !warning.includes("Connection closed")) {
+    return warning;
+  }
+
+  return [
+    warning,
+    "The server process exited before MCP initialization completed.",
+    "For @modelcontextprotocol/server-filesystem, put allowed directories in Args, for example: -y @modelcontextprotocol/server-filesystem <allowed-directory>. The Process cwd field only changes where the command starts.",
+  ].join(" ");
 }

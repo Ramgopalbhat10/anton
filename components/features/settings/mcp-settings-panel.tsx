@@ -333,13 +333,15 @@ export function McpSettingsPanel() {
                   label="Args"
                   value={draft.args}
                   onChange={(args) => setDraft((d) => ({ ...d, args }))}
-                  placeholder="-y @modelcontextprotocol/server-filesystem"
+                  placeholder="-y @modelcontextprotocol/server-filesystem <allowed-directory>"
+                  hint="Arguments passed to the command. Filesystem MCP allowed directories go here."
                 />
                 <LabeledInput
-                  label="Cwd"
+                  label="Process cwd"
                   value={draft.cwd}
                   onChange={(cwd) => setDraft((d) => ({ ...d, cwd }))}
-                  placeholder="optional"
+                  placeholder="optional process working directory"
+                  hint="This only changes where the process starts; it does not configure filesystem access."
                 />
                 <LabeledTextarea
                   label="Env"
@@ -467,11 +469,13 @@ function LabeledInput({
   value,
   onChange,
   placeholder,
+  hint,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
+  hint?: string;
 }) {
   return (
     <div className="grid gap-1">
@@ -484,6 +488,7 @@ function LabeledInput({
         placeholder={placeholder}
         className="h-8 font-mono"
       />
+      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
     </div>
   );
 }
@@ -493,11 +498,13 @@ function LabeledTextarea({
   value,
   onChange,
   placeholder,
+  hint,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
+  hint?: string;
 }) {
   return (
     <div className="grid gap-1">
@@ -510,6 +517,7 @@ function LabeledTextarea({
         placeholder={placeholder}
         className="min-h-16 font-mono text-xs"
       />
+      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
     </div>
   );
 }
