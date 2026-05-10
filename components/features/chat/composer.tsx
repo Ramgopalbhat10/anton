@@ -25,6 +25,7 @@ import {
   SelectValue,
   SelectViewport,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import type { ModelId } from "@/src/lib/models";
 import type { PermissionMode } from "@/src/agent/permissions";
 import type { McpServerSummary, ProjectSummary } from "@/src/lib/api-types";
@@ -98,7 +99,7 @@ export function Composer({
         e.preventDefault();
         submit();
       }}
-      className="w-full max-w-full shrink-0 overflow-hidden bg-background/95 px-3 pb-2 pt-1 sm:px-4"
+      className="relative z-40 w-full max-w-full shrink-0 overflow-visible bg-background/95 px-3 pb-2 pt-1 sm:px-4"
     >
       <div className="mx-auto w-full max-w-[calc(100vw-1.5rem)] min-w-0 sm:max-w-3xl">
         <div className="rounded-lg bg-card p-2 ring-1 ring-border">
@@ -229,7 +230,7 @@ function McpSelector({
         MCP {selectedCount}
       </Button>
       {open && (
-        <div className="absolute bottom-7 left-0 z-20 w-64 rounded-md bg-popover p-2 text-xs text-popover-foreground shadow-md ring-1 ring-border">
+        <div className="absolute bottom-full left-0 z-50 mb-2 w-64 rounded-md bg-popover p-1.5 text-xs text-popover-foreground shadow-lg ring-1 ring-border">
           {enabledServers.length === 0 ? (
             <div className="px-1 py-2 text-muted-foreground">
               No enabled MCP servers.
@@ -243,7 +244,7 @@ function McpSelector({
                     <button
                       type="button"
                       className={cn(
-                        "grid w-full grid-cols-[1fr_auto] gap-2 rounded px-2 py-1.5 text-left hover:bg-accent",
+                        "grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded px-2 py-1.5 text-left hover:bg-accent",
                         checked && "bg-primary/10 text-primary",
                       )}
                       onClick={() => {
@@ -254,17 +255,10 @@ function McpSelector({
                         );
                       }}
                     >
-                      <span className="min-w-0">
-                        <span className="block truncate font-medium">
-                          {server.displayName}
-                        </span>
-                        <span className="block truncate font-mono text-[10px] text-muted-foreground">
-                          {server.summary}
-                        </span>
+                      <span className="truncate font-medium">
+                        {server.displayName}
                       </span>
-                      <span className="text-[10px] uppercase">
-                        {checked ? "on" : "off"}
-                      </span>
+                      <Switch checked={checked} aria-hidden tabIndex={-1} />
                     </button>
                   </li>
                 );
