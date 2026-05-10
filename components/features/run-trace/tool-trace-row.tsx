@@ -28,6 +28,7 @@ import {
 import { TerminalOutput } from "./terminal-output";
 import { LiveTerminalOutput } from "./live-terminal";
 import { ApprovalDetails } from "./approval-details";
+import { DiffView } from "./diff-view";
 
 export function ToolTraceRow({
   entry,
@@ -47,7 +48,7 @@ export function ToolTraceRow({
       : undefined;
   const needsApproval = approvalId !== undefined;
   const approvalMeta = needsApproval ? getApprovalMetadata(entry) : undefined;
-  const showDetails = entry.name === "bash";
+  const showDetails = entry.name === "bash" || approvalMeta?.diffPreview !== undefined;
   const streamToken = pickString(entry.activity?.details, "streamToken");
   const title = toolTitle(entry, runStatus);
   const preview = previewToolInput(entry.input);
@@ -55,7 +56,7 @@ export function ToolTraceRow({
   return (
     <Disclosure
       className="py-0.5"
-      disabled={needsApproval || !showDetails}
+      disabled={!showDetails}
       trigger={({ open }) => (
         <span className="grid grid-cols-[0.875rem_minmax(0,1fr)] gap-2 rounded px-0 py-0">
           <meta.Icon className={cn("mt-0.5 size-3.5", meta.iconClass)} />
@@ -118,7 +119,13 @@ export function ToolTraceRow({
       {showDetails && (
         <div className="min-h-0 overflow-hidden">
           <div className="ml-5 mt-1">
-            {entry.name === "bash" &&
+            {approvalMeta?.diffPreview ? (
+              <DiffView
+                previous={approvalMeta.diffPreview.previous}
+                next={approvalMeta.diffPreview.next}
+                newFile={approvalMeta.diffPreview.previous.length === 0}
+              />
+            ) : entry.name === "bash" &&
             runStatus === "running" &&
             entry.activity?.status === "running" &&
             entry.activity?.toolCallId ? (

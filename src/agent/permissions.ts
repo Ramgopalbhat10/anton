@@ -7,6 +7,11 @@ import {
   resolveInWorkspace,
 } from "./sandbox";
 import {
+  DIFF_PREVIEW_BYTES,
+  applySingleFilePatch,
+  sha256,
+} from "./tools/edit-utils";
+import {
   classifyBashCommand as classifyBashCommandByPolicy,
   type BashCommandClassification,
 } from "./command-policy";
@@ -49,6 +54,12 @@ export type ToolApprovalMetadata = {
   riskCategories: readonly ToolRiskCategory[];
   details: readonly string[];
   target?: string;
+  diffPreview?: {
+    path: string;
+    previous: string;
+    next: string;
+    truncated: boolean;
+  };
   command?: {
     command: string;
     shell: "bash -lc";
@@ -82,7 +93,12 @@ export const NATIVE_TOOL_PERMISSION_METADATA = {
   write_file: toolMetadata(
     ["write"],
     true,
-    "Writes or replaces a workspace file.",
+    "Creates or explicitly replaces a workspace file.",
+  ),
+  edit_file: toolMetadata(
+    ["write"],
+    true,
+    "Applies a patch to an existing workspace file.",
   ),
   bash: toolMetadata(
     [
@@ -221,6 +237,8 @@ function buildNativeToolApprovalMetadata(
   switch (toolName) {
     case "bash":
       return buildBashApproval(record, metadata, workspaceRoot);
+    case "edit_file":
+      return buildEditFileApproval(record, metadata, workspaceRoot);
     case "write_file":
       return buildWriteFileApproval(record, metadata, workspaceRoot);
     case "read_file":
@@ -387,22 +405,63 @@ function buildWriteFileApproval(
   const content = stringValue(input.content) ?? "";
   const byteLength = Buffer.byteLength(content, "utf8");
   const { target, status } = fileStatusDetail(relPath, workspaceRoot);
+  const diff = buildWriteFileDiffPreview(
+    relPath,
+    content,
+    stringValue(input.expectedHash),
+    workspaceRoot,
+  );
+  const previewDetails = diff.message ? [diff.message] : [];
 
   return {
     title: status === "exists" ? "Overwrite workspace file" : "Write workspace file",
     summary: metadata.summary,
     riskCategories: metadata.categories,
     target: relPath,
+    diffPreview: diff.preview,
     details: [
       target,
       status === "exists"
-        ? "Existing regular file will be fully replaced."
+        ? "Existing regular file will be fully replaced only if expectedHash matches."
         : status === "missing"
           ? "A new UTF-8 file will be created."
           : "The target could not be confirmed before execution; the tool will validate it again.",
       "Parent directories are created if needed.",
       `Writes ${byteLength} UTF-8 bytes, capped at ${WRITE_FILE_MAX_BYTES} bytes.`,
+      `Expected hash: ${stringValue(input.expectedHash) ?? "not provided"}.`,
       "Approval is for full-file replacement, not a patch.",
+      ...previewDetails,
+    ],
+  };
+}
+
+function buildEditFileApproval(
+  input: Record<string, unknown>,
+  metadata: ToolPermissionMetadata,
+  workspaceRoot: string | undefined,
+): ToolApprovalMetadata {
+  const relPath = stringValue(input.path);
+  const patch = stringValue(input.patch) ?? "";
+  const diff = buildEditFileDiffPreview(
+    relPath,
+    patch,
+    stringValue(input.expectedHash),
+    workspaceRoot,
+  );
+  const previewDetails = diff.message ? [diff.message] : [];
+
+  return {
+    title: "Patch workspace file",
+    summary: metadata.summary,
+    riskCategories: metadata.categories,
+    target: relPath,
+    diffPreview: diff.preview,
+    details: [
+      pathDetail(relPath, workspaceRoot),
+      "Applies one single-file unified diff to an existing UTF-8 file.",
+      "The patch is applied with zero fuzz; context must match exactly.",
+      `Expected hash: ${stringValue(input.expectedHash) ?? "(missing)"}.`,
+      ...previewDetails,
     ],
   };
 }
@@ -510,6 +569,148 @@ function fileStatusDetail(
 function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+function buildEditFileDiffPreview(
+  relPath: string | undefined,
+  patch: string,
+  expectedHash: string | undefined,
+  workspaceRoot: string | undefined,
+): {
+  preview?: ToolApprovalMetadata["diffPreview"];
+  message?: string;
+} {
+  if (!relPath) return { message: "Diff preview unavailable: path is missing." };
+  try {
+    const current = readPreviewTextSync(relPath, workspaceRoot);
+    if (!current.ok) return { message: current.message };
+    if (expectedHash && current.sha256 !== expectedHash) {
+      return {
+        message: `Diff preview unavailable because expectedHash does not match current file hash ${current.sha256}.`,
+      };
+    }
+    const next = applySingleFilePatch({
+      source: current.content,
+      patch,
+      relPath,
+    });
+    if (Buffer.byteLength(next, "utf8") > DIFF_PREVIEW_BYTES) {
+      return {
+        message: `Diff preview omitted because patched content is too large and exceeds ${DIFF_PREVIEW_BYTES} bytes.`,
+      };
+    }
+    return {
+      preview: {
+        path: relPath,
+        previous: current.content,
+        next,
+        truncated: false,
+      },
+    };
+  } catch (err) {
+    return { message: `Diff preview unavailable: ${errorMessage(err)}.` };
+  }
+}
+
+function buildWriteFileDiffPreview(
+  relPath: string | undefined,
+  content: string,
+  expectedHash: string | undefined,
+  workspaceRoot: string | undefined,
+): {
+  preview?: ToolApprovalMetadata["diffPreview"];
+  message?: string;
+} {
+  if (!relPath) return { message: "Diff preview unavailable: path is missing." };
+  if (Buffer.byteLength(content, "utf8") > DIFF_PREVIEW_BYTES) {
+    return {
+      message: `Diff preview omitted because proposed content is too large and exceeds ${DIFF_PREVIEW_BYTES} bytes.`,
+    };
+  }
+  try {
+    const current = readPreviewTextSync(relPath, workspaceRoot);
+    if (!current.ok) {
+      if (current.reason === "missing") {
+        return {
+          preview: {
+            path: relPath,
+            previous: "",
+            next: content,
+            truncated: false,
+          },
+        };
+      }
+      return { message: current.message };
+    }
+    if (expectedHash && current.sha256 !== expectedHash) {
+      return {
+        message: `Diff preview unavailable because expectedHash does not match current file hash ${current.sha256}.`,
+      };
+    }
+    return {
+      preview: {
+        path: relPath,
+        previous: current.content,
+        next: content,
+        truncated: false,
+      },
+    };
+  } catch (err) {
+    return { message: `Diff preview unavailable: ${errorMessage(err)}.` };
+  }
+}
+
+function readPreviewTextSync(
+  relPath: string,
+  workspaceRoot: string | undefined,
+):
+  | { ok: true; content: string; sha256: string }
+  | { ok: false; reason: "missing" | "too-large" | "invalid"; message: string } {
+  const root = workspaceRoot
+    ? ensureWorkspaceRootAt(workspaceRoot)
+    : ensureWorkspaceRoot();
+  const abs = resolveInWorkspace(relPath, root);
+  if (!fs.existsSync(abs)) {
+    return {
+      ok: false,
+      reason: "missing",
+      message: "Diff preview treats this as a new file.",
+    };
+  }
+  const stat = fs.statSync(abs);
+  if (!stat.isFile()) {
+    return {
+      ok: false,
+      reason: "invalid",
+      message: "Diff preview unavailable because target is not a regular file.",
+    };
+  }
+  if (stat.size > DIFF_PREVIEW_BYTES) {
+    return {
+      ok: false,
+      reason: "too-large",
+      message: `Diff preview omitted because existing file is too large and exceeds ${DIFF_PREVIEW_BYTES} bytes.`,
+    };
+  }
+  const bytes = fs.readFileSync(abs);
+  let content: string;
+  try {
+    content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return {
+      ok: false,
+      reason: "invalid",
+      message: "Diff preview unavailable because target is not valid UTF-8 text.",
+    };
+  }
+  if (content.includes("\0")) {
+    return {
+      ok: false,
+      reason: "invalid",
+      message: "Diff preview unavailable because target appears to be binary.",
+    };
+  }
+  return { ok: true, content, sha256: sha256(bytes) };
 }
 
 function toolMetadata(

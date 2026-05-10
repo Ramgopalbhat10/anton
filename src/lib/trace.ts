@@ -104,6 +104,12 @@ export type ApprovalMetadata = {
   riskSummary: string;
   details: string[];
   target?: string;
+  diffPreview?: {
+    path: string;
+    previous: string;
+    next: string;
+    truncated: boolean;
+  };
   command?: {
     command: string;
     shell: string;
@@ -245,9 +251,31 @@ function structuredApprovalMetadata(value: unknown): ApprovalMetadata | undefine
     details: details.length > 0 ? details : [summary],
     target:
       typeof record.target === "string" ? record.target : undefined,
+    diffPreview: structuredDiffPreview(record.diffPreview),
     command,
     external: structuredExternalMetadata(record.external),
     bashClassification: command?.classification,
+  };
+}
+
+function structuredDiffPreview(
+  value: unknown,
+): ApprovalMetadata["diffPreview"] | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.path !== "string" ||
+    typeof record.previous !== "string" ||
+    typeof record.next !== "string" ||
+    typeof record.truncated !== "boolean"
+  ) {
+    return undefined;
+  }
+  return {
+    path: record.path,
+    previous: record.previous,
+    next: record.next,
+    truncated: record.truncated,
   };
 }
 
