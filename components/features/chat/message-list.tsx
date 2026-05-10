@@ -15,16 +15,20 @@ import {
 
 import {
   getAssistantTextDisplay,
-  getMessageRunDurationMs,
   getRunData,
-  getRunDataList,
   getToolTraceEntries,
   hasPendingToolApproval,
   type AntonUIMessage,
-  type AntonRunData,
 } from "@/src/lib/trace";
 import { cn } from "@/lib/utils";
 import { Markdown } from "./markdown";
+import {
+  formatMetricCost,
+  formatMetricDuration,
+  formatMetricNumber,
+  messageMetrics,
+  type ResponseMetrics,
+} from "./message-metrics";
 import { RunTraceAccordion } from "@/components/features/run-trace/run-trace";
 import {
   HoverCard,
@@ -215,61 +219,6 @@ function messageDisplayTime(message: AntonUIMessage): string | undefined {
   }).format(new Date(timestamp));
 }
 
-type ResponseMetrics = {
-  model?: string;
-  durationMs?: number;
-  inputTokens?: number;
-  outputTokens?: number;
-  totalTokens?: number;
-  costUsd?: number;
-};
-
-function messageMetrics(message: AntonUIMessage): ResponseMetrics {
-  const metadata = message.metadata;
-  const runs = getRunDataList(message);
-  const run = runs.at(-1);
-  const aggregate = aggregateRunMetrics(runs);
-  return {
-    model: run?.model ?? metadata?.model,
-    durationMs: getMessageRunDurationMs(message) ?? aggregate.durationMs,
-    inputTokens: aggregate.inputTokens ?? metadata?.inputTokens ?? run?.inputTokens,
-    outputTokens: aggregate.outputTokens ?? metadata?.outputTokens ?? run?.outputTokens,
-    totalTokens: aggregate.totalTokens ?? metadata?.totalTokens ?? run?.totalTokens,
-    costUsd:
-      aggregate.costUsd ??
-      readNumber(metadata, "costUsd") ??
-      readNumber(metadata, "cost") ??
-      readNumber(run, "costUsd") ??
-      readNumber(run, "cost"),
-  };
-}
-
-function aggregateRunMetrics(runs: AntonRunData[]): ResponseMetrics {
-  return {
-    inputTokens: sumDefined(runs.map((run) => run.inputTokens)),
-    outputTokens: sumDefined(runs.map((run) => run.outputTokens)),
-    totalTokens: sumDefined(runs.map((run) => run.totalTokens)),
-    costUsd: sumDefined(runs.map((run) => run.costUsd)),
-  };
-}
-
-function sumDefined(values: Array<number | undefined>): number | undefined {
-  let total = 0;
-  let hasValue = false;
-  for (const value of values) {
-    if (typeof value !== "number" || !Number.isFinite(value)) continue;
-    total += value;
-    hasValue = true;
-  }
-  return hasValue ? total : undefined;
-}
-
-function readNumber(value: unknown, key: string): number | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const entry = (value as Record<string, unknown>)[key];
-  return typeof entry === "number" && Number.isFinite(entry) ? entry : undefined;
-}
-
 function MessageActions({
   text,
   responseTime,
@@ -314,61 +263,36 @@ function StatsHoverCard({ metrics }: { metrics: ResponseMetrics }) {
           <div className="flex items-center gap-1.5 text-muted-foreground">
             <Hash className="size-3" />
             <span>Total</span>
-            <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatNumber(metrics.totalTokens)}</span>
+            <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatMetricNumber(metrics.totalTokens)}</span>
           </div>
           <div className="grid grid-cols-2 gap-x-3 gap-y-1">
             <div className="flex items-center gap-1.5">
               <ArrowDownToLine className="size-3 text-muted-foreground" />
               <span className="text-muted-foreground">In</span>
-              <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatNumber(metrics.inputTokens)}</span>
+              <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatMetricNumber(metrics.inputTokens)}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <ArrowUpFromLine className="size-3 text-muted-foreground" />
               <span className="text-muted-foreground">Out</span>
-              <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatNumber(metrics.outputTokens)}</span>
+              <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatMetricNumber(metrics.outputTokens)}</span>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-x-3 gap-y-1">
             <div className="flex items-center gap-1.5">
               <DollarSign className="size-3 text-muted-foreground" />
               <span className="text-muted-foreground">Cost</span>
-              <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatCost(metrics.costUsd)}</span>
+              <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatMetricCost(metrics.costUsd)}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <Clock className="size-3 text-muted-foreground" />
               <span className="text-muted-foreground">Duration</span>
-              <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatDuration(metrics.durationMs)}</span>
+              <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatMetricDuration(metrics.durationMs)}</span>
             </div>
           </div>
         </div>
       </HoverCardContent>
     </HoverCard>
   );
-}
-
-function formatNumber(value: number | undefined): string {
-  return value === undefined ? "—" : new Intl.NumberFormat().format(value);
-}
-
-function formatCost(value: number | undefined): string {
-  if (value === undefined) return "—";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    currencyDisplay: "symbol",
-    maximumFractionDigits: 4,
-  })
-    .format(value)
-    .replace("US$", "$");
-}
-
-function formatDuration(value: number | undefined): string {
-  if (value === undefined) return "—";
-  const seconds = Math.max(0, Math.round(value / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainder = seconds % 60;
-  return remainder === 0 ? `${minutes}m` : `${minutes}m ${remainder}s`;
 }
 
 function formatModelName(value: string | undefined): string {
