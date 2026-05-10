@@ -10,6 +10,7 @@ import {
   Server,
   TerminalSquare,
   Trash2,
+  X,
 } from "lucide-react";
 
 import { EmptyState, ErrorBanner } from "@/components/shared/feedback-states";
@@ -33,6 +34,7 @@ import {
   SelectValue,
   SelectViewport,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type {
@@ -73,6 +75,12 @@ type PendingTrust = {
   afterApprove?: () => Promise<void>;
 };
 
+type DiscoveredTool = {
+  name: string;
+  toolName?: string;
+  description?: string;
+};
+
 const EMPTY_DRAFT: Draft = {
   id: null,
   displayName: "",
@@ -95,6 +103,9 @@ export function McpSettingsPanel() {
   const [testingId, setTestingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [testOutput, setTestOutput] = useState<string | null>(null);
+  const [toolsByServer, setToolsByServer] = useState<
+    Record<string, DiscoveredTool[]>
+  >({});
   const [pendingTrust, setPendingTrust] = useState<PendingTrust | null>(null);
 
   const refresh = useCallback(async () => {
@@ -118,10 +129,17 @@ export function McpSettingsPanel() {
     void refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    if (!testOutput) return;
+    const timeout = window.setTimeout(() => setTestOutput(null), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [testOutput]);
+
   const selected = useMemo(
     () => servers.find((server) => server.id === draft.id) ?? null,
     [draft.id, servers],
   );
+  const selectedTools = draft.id ? toolsByServer[draft.id] ?? [] : [];
 
   const save = async () => {
     setSaving(true);
@@ -143,6 +161,9 @@ export function McpSettingsPanel() {
             body: JSON.stringify(body),
           });
       setDraft(serverToDraft(data.server));
+      if (draft.id) {
+        setToolsByServer((current) => removeKey(current, draft.id as string));
+      }
       await refresh();
     } catch (err) {
       setError(errorMessage(err, "Failed to save MCP server"));
@@ -154,6 +175,7 @@ export function McpSettingsPanel() {
   const remove = async (server: McpServerSummary) => {
     await requestOk(`/api/mcp/servers/${server.id}`, { method: "DELETE" });
     if (draft.id === server.id) setDraft(EMPTY_DRAFT);
+    setToolsByServer((current) => removeKey(current, server.id));
     await refresh();
   };
 
@@ -168,7 +190,7 @@ export function McpSettingsPanel() {
         | {
             error?: string;
             requiresTrust?: McpTrustSummary;
-            tools?: { name: string }[];
+            tools?: DiscoveredTool[];
             warnings?: string[];
           }
         | null;
@@ -181,8 +203,10 @@ export function McpSettingsPanel() {
         return;
       }
       if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
+      const tools = data?.tools ?? [];
+      setToolsByServer((current) => ({ ...current, [server.id]: tools }));
       setTestOutput(
-        `Tools: ${data?.tools?.length ?? 0}${
+        `${server.displayName}: ${tools.length} tools${
           data?.warnings?.length ? ` | Warnings: ${data.warnings.length}` : ""
         }`,
       );
@@ -218,8 +242,18 @@ export function McpSettingsPanel() {
     >
       {error && <ErrorBanner message={error} />}
       {testOutput && (
-        <div className="rounded-md bg-emerald-500/10 px-2.5 py-1.5 text-xs text-emerald-300 ring-1 ring-emerald-500/25">
-          {testOutput}
+        <div className="flex items-center justify-between gap-3 rounded-md bg-emerald-500/10 px-2.5 py-1.5 text-xs text-emerald-300 ring-1 ring-emerald-500/25">
+          <span>{testOutput}</span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            className="text-emerald-300 hover:bg-emerald-500/10 hover:text-emerald-200"
+            aria-label="Dismiss MCP test result"
+            onClick={() => setTestOutput(null)}
+          >
+            <X />
+          </Button>
         </div>
       )}
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
@@ -277,6 +311,11 @@ export function McpSettingsPanel() {
                       <span className="mt-0.5 block truncate font-mono text-[11px] text-muted-foreground">
                         {server.summary}
                       </span>
+                      {toolsByServer[server.id] && (
+                        <span className="mt-1 block text-[10px] text-emerald-300">
+                          {toolsByServer[server.id].length} tools discovered
+                        </span>
+                      )}
                     </span>
                     <span className="flex shrink-0 items-center gap-1 text-[10px] uppercase text-muted-foreground">
                       {server.enabled ? "enabled" : "off"}
@@ -334,14 +373,12 @@ export function McpSettingsPanel() {
                   value={draft.args}
                   onChange={(args) => setDraft((d) => ({ ...d, args }))}
                   placeholder="-y @modelcontextprotocol/server-filesystem <allowed-directory>"
-                  hint="Arguments passed to the command. Filesystem MCP allowed directories go here."
                 />
                 <LabeledInput
                   label="Process cwd"
                   value={draft.cwd}
                   onChange={(cwd) => setDraft((d) => ({ ...d, cwd }))}
                   placeholder="optional process working directory"
-                  hint="This only changes where the process starts; it does not configure filesystem access."
                 />
                 <LabeledTextarea
                   label="Env"
@@ -391,17 +428,21 @@ export function McpSettingsPanel() {
               </>
             )}
 
-            <button
-              type="button"
-              className={cn(
-                "flex h-7 items-center justify-between rounded-md px-2 text-xs ring-1 ring-border",
-                draft.enabled ? "bg-primary/10 text-primary" : "bg-background/45",
-              )}
-              onClick={() => setDraft((d) => ({ ...d, enabled: !d.enabled }))}
-            >
-              Enabled
-              <span>{draft.enabled ? "on" : "off"}</span>
-            </button>
+            <div className="flex h-8 items-center justify-between rounded-md bg-background/45 px-2 ring-1 ring-border">
+              <label
+                htmlFor="mcp-server-enabled"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Enabled
+              </label>
+              <Switch
+                id="mcp-server-enabled"
+                checked={draft.enabled}
+                onCheckedChange={(enabled) =>
+                  setDraft((d) => ({ ...d, enabled }))
+                }
+              />
+            </div>
 
             <div className="flex items-center justify-between gap-2 pt-1">
               {draft.id ? (
@@ -451,6 +492,13 @@ export function McpSettingsPanel() {
                 </Button>
               </div>
             </div>
+
+            {draft.id && (
+              <ToolList
+                tools={selectedTools}
+                hasTested={draft.id in toolsByServer}
+              />
+            )}
           </div>
         </SettingsCard>
       </div>
@@ -469,13 +517,11 @@ function LabeledInput({
   value,
   onChange,
   placeholder,
-  hint,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
-  hint?: string;
 }) {
   return (
     <div className="grid gap-1">
@@ -488,7 +534,6 @@ function LabeledInput({
         placeholder={placeholder}
         className="h-8 font-mono"
       />
-      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
     </div>
   );
 }
@@ -498,13 +543,11 @@ function LabeledTextarea({
   value,
   onChange,
   placeholder,
-  hint,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
-  hint?: string;
 }) {
   return (
     <div className="grid gap-1">
@@ -517,8 +560,53 @@ function LabeledTextarea({
         placeholder={placeholder}
         className="min-h-16 font-mono text-xs"
       />
-      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
     </div>
+  );
+}
+
+function ToolList({
+  tools,
+  hasTested,
+}: {
+  tools: DiscoveredTool[];
+  hasTested: boolean;
+}) {
+  return (
+    <section className="grid gap-2 border-t border-border pt-2">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-xs font-medium">Tools</h3>
+        {hasTested && (
+          <span className="text-[10px] uppercase text-muted-foreground">
+            {tools.length}
+          </span>
+        )}
+      </div>
+      {!hasTested ? (
+        <p className="text-xs text-muted-foreground">
+          Test this server to discover its tools.
+        </p>
+      ) : tools.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No tools discovered.</p>
+      ) : (
+        <ul className="max-h-44 overflow-auto rounded-md bg-background/45 ring-1 ring-border">
+          {tools.map((tool) => (
+            <li
+              key={tool.name}
+              className="grid gap-0.5 border-b border-border/70 px-2 py-1.5 last:border-b-0"
+            >
+              <span className="truncate font-mono text-[11px] text-foreground">
+                {tool.toolName ?? tool.name}
+              </span>
+              {tool.description && (
+                <span className="line-clamp-2 text-[11px] text-muted-foreground">
+                  {tool.description}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -636,4 +724,10 @@ function recordToLines(record: Record<string, string>): string {
   return Object.entries(record)
     .map(([key, value]) => `${key}=${value}`)
     .join("\n");
+}
+
+function removeKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  const next = { ...record };
+  delete next[key];
+  return next;
 }
