@@ -22,6 +22,23 @@ import {
   renameTool,
   statTool,
 } from "./file-ops";
+import { createFormatTool, formatTool } from "./format";
+import {
+  createGitBranchTool,
+  createGitCommitTool,
+  createGitDiffTool,
+  createGitRestoreTool,
+  createGitShowTool,
+  createGitStatusTool,
+  createRevertChangesTool,
+  gitBranchTool,
+  gitCommitTool,
+  gitDiffTool,
+  gitRestoreTool,
+  gitShowTool,
+  gitStatusTool,
+  revertChangesTool,
+} from "./git";
 import { createGrepTool, grepTool } from "./grep";
 import { createGlobTool, globTool } from "./glob";
 import {
@@ -48,6 +65,14 @@ export const nativeAntonTools = applyNativeToolPermissionPolicy({
   delete: deleteTool,
   rename: renameTool,
   copy: copyTool,
+  format: formatTool,
+  git_status: gitStatusTool,
+  git_diff: gitDiffTool,
+  git_show: gitShowTool,
+  git_branch: gitBranchTool,
+  git_commit: gitCommitTool,
+  git_restore: gitRestoreTool,
+  revert_changes: revertChangesTool,
   bash: bashTool,
   grep: grepTool,
   glob: globTool,
@@ -81,6 +106,14 @@ export function createAntonTools({
     delete: createDeleteTool(workspaceRoot),
     rename: createRenameTool(workspaceRoot),
     copy: createCopyTool(workspaceRoot),
+    format: createFormatTool(workspaceRoot),
+    git_status: createGitStatusTool(workspaceRoot),
+    git_diff: createGitDiffTool(workspaceRoot),
+    git_show: createGitShowTool(workspaceRoot),
+    git_branch: createGitBranchTool(workspaceRoot),
+    git_commit: createGitCommitTool(workspaceRoot),
+    git_restore: createGitRestoreTool(workspaceRoot),
+    revert_changes: createRevertChangesTool(workspaceRoot),
     bash: createBashTool(workspaceRoot),
     grep: createGrepTool(workspaceRoot),
     glob: createGlobTool(workspaceRoot),

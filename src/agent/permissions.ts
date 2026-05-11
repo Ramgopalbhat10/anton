@@ -11,6 +11,7 @@ import {
   applySingleFilePatch,
   sha256,
 } from "./tools/edit-utils";
+import { planFormatCommand } from "./tools/format";
 import {
   classifyBashCommand as classifyBashCommandByPolicy,
   type BashCommandClassification,
@@ -121,6 +122,46 @@ export const NATIVE_TOOL_PERMISSION_METADATA = {
     ["write"],
     true,
     "Copies a workspace file or directory.",
+  ),
+  format: toolMetadata(
+    ["write"],
+    true,
+    "Runs the workspace formatter through the detected package manager.",
+  ),
+  git_status: toolMetadata(
+    ["read-only", "git"],
+    false,
+    "Reads git working tree status.",
+  ),
+  git_diff: toolMetadata(
+    ["read-only", "git"],
+    false,
+    "Reads a scoped git diff and diff hash.",
+  ),
+  git_show: toolMetadata(
+    ["read-only", "git"],
+    false,
+    "Reads one git revision or commit.",
+  ),
+  git_branch: toolMetadata(
+    ["git"],
+    true,
+    "Inspects, creates, or switches git branches.",
+  ),
+  git_commit: toolMetadata(
+    ["write", "git"],
+    true,
+    "Stages explicit paths and creates a git commit.",
+  ),
+  git_restore: toolMetadata(
+    ["write", "delete", "git"],
+    true,
+    "Restores explicit tracked paths with git restore.",
+  ),
+  revert_changes: toolMetadata(
+    ["write", "delete", "git"],
+    true,
+    "Reverts scoped workspace changes after diff-hash confirmation.",
   ),
   bash: toolMetadata(
     [
@@ -337,6 +378,85 @@ function buildNativeToolApprovalMetadata(
           guardedDetail(record.allowGuarded),
         ],
       };
+    case "format":
+      return buildFormatApproval(record, metadata, workspaceRoot);
+    case "git_status":
+      return buildGitApproval({
+        title: "Inspect git status",
+        input: record,
+        metadata,
+        details: ["Runs git status using porcelain output."],
+      });
+    case "git_diff":
+      return buildGitApproval({
+        title: "Inspect git diff",
+        input: record,
+        metadata,
+        details: [
+          pathsDetail(record.paths, workspaceRoot),
+          `Staged: ${booleanValue(record.staged) ? "yes" : "no"}.`,
+          "Returns a patch and SHA-256 diff hash for scoped revert confirmation.",
+        ],
+      });
+    case "git_show":
+      return buildGitApproval({
+        title: "Inspect git revision",
+        input: record,
+        metadata,
+        target: stringValue(record.ref) ?? "HEAD",
+        details: [
+          `Ref: ${stringValue(record.ref) ?? "HEAD"}.`,
+          `Stat only: ${booleanValue(record.stat) ? "yes" : "no"}.`,
+        ],
+      });
+    case "git_branch":
+      return buildGitApproval({
+        title: "Manage git branch",
+        input: record,
+        metadata,
+        target: stringValue(record.name),
+        details: [
+          `Action: ${stringValue(record.action) ?? "(missing)"}.`,
+          `Branch: ${stringValue(record.name) ?? "(current/list)"}.`,
+          "New branch names get a codex/ prefix when no prefix is supplied.",
+        ],
+      });
+    case "git_commit":
+      return buildGitApproval({
+        title: "Create git commit",
+        input: record,
+        metadata,
+        target: stringValue(record.message),
+        details: [
+          `Message: ${stringValue(record.message) ?? "(missing)"}.`,
+          pathsDetail(record.paths, workspaceRoot),
+          guardedDetail(record.allowGuarded),
+        ],
+      });
+    case "git_restore":
+      return buildGitApproval({
+        title: "Restore git paths",
+        input: record,
+        metadata,
+        details: [
+          pathsDetail(record.paths, workspaceRoot),
+          `Restore staged: ${booleanValue(record.staged) ? "yes" : "no"}.`,
+          `Restore worktree: ${record.worktree === false ? "no" : "yes"}.`,
+          guardedDetail(record.allowGuarded),
+        ],
+      });
+    case "revert_changes":
+      return buildGitApproval({
+        title: "Revert workspace changes",
+        input: record,
+        metadata,
+        details: [
+          pathsDetail(record.paths, workspaceRoot),
+          `Expected diff hash: ${stringValue(record.expectedDiffHash) ?? "(missing)"}.`,
+          "The tool recomputes git_diff for the same scope before restoring files.",
+          guardedDetail(record.allowGuarded),
+        ],
+      });
     case "read_file":
       return {
         title: "Read workspace file",
@@ -531,6 +651,53 @@ function buildWriteFileApproval(
   };
 }
 
+function buildFormatApproval(
+  input: Record<string, unknown>,
+  metadata: ToolPermissionMetadata,
+  workspaceRoot: string | undefined,
+): ToolApprovalMetadata {
+  const paths = stringArrayValue(input.paths);
+  const plan = planFormatCommand(
+    workspaceRoot ? workspaceRootLabel(workspaceRoot) : workspaceRoot,
+    { paths },
+  );
+  const command = plan.ok ? plan.command.join(" ") : "(formatter unavailable)";
+  return {
+    title: "Format workspace files",
+    summary: metadata.summary,
+    riskCategories: metadata.categories,
+    target: paths.length > 0 ? paths.join(", ") : "formatter default target",
+    details: [
+      pathsDetail(input.paths, workspaceRoot),
+      `Command: ${command}.`,
+      plan.ok ? `Detected package manager: ${plan.packageManager}.` : plan.error,
+      guardedDetail(input.allowGuarded),
+    ],
+  };
+}
+
+function buildGitApproval({
+  title,
+  input,
+  metadata,
+  target,
+  details,
+}: {
+  title: string;
+  input: Record<string, unknown>;
+  metadata: ToolPermissionMetadata;
+  target?: string;
+  details: readonly string[];
+}): ToolApprovalMetadata {
+  return {
+    title,
+    summary: metadata.summary,
+    riskCategories: metadata.categories,
+    target: target ?? stringValue(input.path),
+    details,
+  };
+}
+
 function buildEditFileApproval(
   input: Record<string, unknown>,
   metadata: ToolPermissionMetadata,
@@ -695,6 +862,19 @@ function fileStatusDetail(
 function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+function pathsDetail(value: unknown, workspaceRoot: string | undefined): string {
+  const paths = stringArrayValue(value);
+  if (paths.length === 0) return "Paths: repository scope.";
+  return `Paths: ${paths
+    .map((relPath) => pathDetailText(relPath, workspaceRoot))
+    .join(", ")}`;
+}
+
+function stringArrayValue(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string");
 }
 
 function buildEditFileDiffPreview(
