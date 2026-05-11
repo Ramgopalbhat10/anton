@@ -9,7 +9,7 @@ import {
   type ToolTraceEntry,
 } from "@/src/lib/trace";
 
-import { previewToolInput } from "./tool-display";
+import { isFailedToolOutput, previewToolInput } from "./tool-display";
 
 export type StepGroup = {
   stepNumber: number;
@@ -271,6 +271,9 @@ export function toolTitle(entry: ToolTraceEntry, runStatus?: AntonRunStatus): {
   target?: string;
 } {
   const target = previewToolInput(entry.input);
+  if (entry.state === "output-available" && isFailedToolOutput(entry.output)) {
+    return { verb: failedToolVerb(entry.name), target };
+  }
   switch (entry.name) {
     case "bash":
       return { verb: bashVerb(entry, runStatus), target };
@@ -317,6 +320,29 @@ export function toolTitle(entry: ToolTraceEntry, runStatus?: AntonRunStatus): {
         verb: entry.activity?.label ?? entry.name,
         target: target.length > 0 ? target : undefined,
       };
+  }
+}
+
+function failedToolVerb(name: string): string {
+  switch (name) {
+    case "format":
+      return "Format failed";
+    case "git_status":
+      return "Git status failed";
+    case "git_diff":
+      return "Git diff failed";
+    case "git_show":
+      return "Git show failed";
+    case "git_branch":
+      return "Git branch failed";
+    case "git_commit":
+      return "Commit failed";
+    case "git_restore":
+      return "Restore failed";
+    case "revert_changes":
+      return "Revert failed";
+    default:
+      return "Tool failed";
   }
 }
 

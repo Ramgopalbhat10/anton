@@ -23,6 +23,7 @@ import {
   previewToolInput,
   riskCategoryBadge,
   safeStringify,
+  effectiveToolState,
   traceToolStateMeta,
 } from "./tool-display";
 import { TerminalOutput } from "./terminal-output";
@@ -166,14 +167,15 @@ function displayToolState(
   entry: ToolTraceEntry,
   runStatus: AntonRunStatus,
 ): ToolState {
+  const effectiveState = effectiveToolState(entry);
   if (
     runStatus !== "running" &&
     entry.activity?.status === "running" &&
-    (entry.state === "input-streaming" || entry.state === "input-available")
+    (effectiveState === "input-streaming" || effectiveState === "input-available")
   ) {
     return "output-error";
   }
-  return entry.state;
+  return effectiveState;
 }
 
 function ToolTitle({

@@ -68,6 +68,7 @@ export function previewToolInput(input: unknown): string {
     return (
       pickString(input, "command") ??
       pickString(input, "path") ??
+      pickStringArray(input, "paths") ??
       pickString(input, "sourcePath") ??
       pickString(input, "destinationPath") ??
       pickString(input, "message") ??
@@ -80,6 +81,19 @@ export function previewToolInput(input: unknown): string {
     );
   }
   return safeStringify(input);
+}
+
+function pickStringArray(
+  value: unknown,
+  key: string,
+): string | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const record = value as Record<string, unknown>;
+  const item = record[key];
+  if (!Array.isArray(item)) return undefined;
+  const strings = item.filter((entry): entry is string => typeof entry === "string");
+  if (strings.length === 0) return undefined;
+  return strings.join(", ");
 }
 
 export function safeStringify(value: unknown): string {
@@ -144,6 +158,22 @@ export function toolStateMeta(state: ToolState) {
         textClass: "text-destructive",
       };
   }
+}
+
+export function effectiveToolState(entry: ToolTraceEntry): ToolState {
+  if (entry.state === "output-available" && isFailedToolOutput(entry.output)) {
+    return "output-error";
+  }
+  return entry.state;
+}
+
+export function isFailedToolOutput(output: unknown): boolean {
+  return (
+    typeof output === "object" &&
+    output !== null &&
+    "ok" in output &&
+    (output as { ok: unknown }).ok === false
+  );
 }
 
 export function toolStateBadge(state: ToolState): {
