@@ -70,6 +70,9 @@ export function previewToolInput(input: unknown): string {
       pickString(input, "path") ??
       pickString(input, "sourcePath") ??
       pickString(input, "destinationPath") ??
+      pickString(input, "message") ??
+      pickString(input, "name") ??
+      pickString(input, "ref") ??
       pickString(input, "pattern") ??
       pickString(input, "slug") ??
       pickString(input, "task") ??
