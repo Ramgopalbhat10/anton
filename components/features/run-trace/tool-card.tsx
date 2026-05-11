@@ -10,6 +10,7 @@ import type { ToolState } from "@/src/lib/trace";
 
 import { DiffView } from "./diff-view";
 import {
+  isOkEditFileOutput,
   isOkWriteFileOutput,
   pickString,
   safeStringify,
@@ -72,6 +73,8 @@ export function ToolCard({
         <div className="space-y-2 px-3 pb-3 pt-1">
           {name === "write_file" ? (
             <WriteFileBody input={input} output={output} state={state} />
+          ) : name === "edit_file" ? (
+            <EditFileBody input={input} output={output} state={state} />
           ) : (
             input !== undefined && (
               <Section title="input">
@@ -128,6 +131,56 @@ export function ToolCard({
         </div>
       </div>
     </Disclosure>
+  );
+}
+
+function EditFileBody({
+  input,
+  output,
+  state,
+}: {
+  input: unknown;
+  output: unknown;
+  state: ToolState;
+}) {
+  const relPath = pickString(input, "path");
+  const showDiff =
+    state === "output-available" &&
+    isOkEditFileOutput(output) &&
+    typeof output.previousContent === "string" &&
+    typeof output.nextContent === "string";
+
+  if (showDiff) {
+    return (
+      <div className="space-y-2">
+        <Section title="file">
+          <span className="font-mono text-[11px]">
+            {output.path ?? relPath ?? "?"}
+          </span>
+        </Section>
+        <DiffView
+          previous={output.previousContent ?? ""}
+          next={output.nextContent ?? ""}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {relPath && (
+        <Section title="file">
+          <span className="font-mono text-[11px]">{relPath}</span>
+        </Section>
+      )}
+      {pickString(input, "patch") !== undefined && (
+        <Section title="patch">
+          <pre className="overflow-x-auto whitespace-pre-wrap wrap-break-word">
+            {pickString(input, "patch")}
+          </pre>
+        </Section>
+      )}
+    </div>
   );
 }
 

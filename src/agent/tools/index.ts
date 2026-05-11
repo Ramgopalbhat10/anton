@@ -5,6 +5,7 @@ import {
   type PermissionMode,
 } from "../permissions";
 import { createReadFileTool, readFileTool } from "./read-file";
+import { createEditFileTool, editFileTool } from "./edit-file";
 import { createWriteFileTool, writeFileTool } from "./write-file";
 import { bashTool, createBashTool } from "./bash";
 import { createGrepTool, grepTool } from "./grep";
@@ -25,6 +26,7 @@ import { createDelegateTaskTool } from "./delegate";
 
 export const nativeAntonTools = applyNativeToolPermissionPolicy({
   read_file: readFileTool,
+  edit_file: editFileTool,
   write_file: writeFileTool,
   bash: bashTool,
   grep: grepTool,
@@ -51,6 +53,7 @@ export function createAntonTools({
   const nativeTools = applyNativeToolPermissionPolicy({
     ...nativeAntonTools,
     read_file: createReadFileTool(workspaceRoot),
+    edit_file: createEditFileTool(workspaceRoot),
     write_file: createWriteFileTool(workspaceRoot),
     bash: createBashTool(workspaceRoot),
     grep: createGrepTool(workspaceRoot),

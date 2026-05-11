@@ -1,41 +1,70 @@
 import { z } from "zod";
-import fs from "node:fs/promises";
-import path from "node:path";
 import { tool } from "ai";
 import { resolveInWorkspace, SandboxError } from "../sandbox";
-
-const MAX_BYTES = 1024 * 1024;
-// Cap previous content captured for diffing so the tool result stays compact.
-const PREVIEW_BYTES = 128 * 1024;
+import {
+  TEXT_FILE_MAX_BYTES,
+  atomicWriteTextFile,
+  fileExists,
+  readExistingTextPreview,
+  readTextFileSnapshot,
+  sha256,
+} from "./edit-utils";
 
 export function createWriteFileTool(workspaceRoot?: string) {
   return tool({
   description:
-    "Write a UTF-8 text file inside the workspace, creating parent directories as needed. Overwrites existing files. Requires user approval.",
+    "Write a new UTF-8 text file, or explicitly replace a file when expectedHash matches. Requires user approval.",
   inputSchema: z.object({
     path: z.string().describe("File path relative to the workspace root."),
     content: z.string().describe("Full file contents to write."),
+    expectedHash: z
+      .string()
+      .optional()
+      .describe(
+        "Required when replacing an existing file. SHA-256 from the most recent read_file result.",
+      ),
   }),
-  execute: async ({ path: relPath, content }) => {
+  execute: async ({ path: relPath, content, expectedHash }) => {
     try {
-      if (Buffer.byteLength(content, "utf8") > MAX_BYTES) {
+      if (Buffer.byteLength(content, "utf8") > TEXT_FILE_MAX_BYTES) {
         return {
           ok: false as const,
-          error: `content exceeds ${MAX_BYTES} byte cap`,
+          error: `content exceeds ${TEXT_FILE_MAX_BYTES} byte cap`,
         };
       }
       const abs = resolveInWorkspace(relPath, workspaceRoot);
-      const { existed, previousContent, previousTruncated } =
-        await readPreviousContent(abs);
-      await fs.mkdir(path.dirname(abs), { recursive: true });
-      await fs.writeFile(abs, content, "utf8");
+      const previous = await readExistingTextPreview(abs);
+      if (previous.existed && !expectedHash) {
+        return {
+          ok: false as const,
+          error: "expectedHash is required to replace an existing file",
+        };
+      }
+      if (previous.existed) {
+        const current = await readTextFileSnapshot(abs, TEXT_FILE_MAX_BYTES);
+        if (current.sha256 !== expectedHash) {
+          return {
+            ok: false as const,
+            error: `hash mismatch for ${relPath}: expected ${expectedHash}, found ${current.sha256}`,
+          };
+        }
+      }
+      if (!previous.existed && (await fileExists(abs))) {
+        return {
+          ok: false as const,
+          error: `target already exists: ${relPath}`,
+        };
+      }
+      await atomicWriteTextFile(abs, content);
       return {
         ok: true as const,
         path: relPath,
         bytesWritten: Buffer.byteLength(content, "utf8"),
-        existed,
-        previousContent,
-        previousTruncated,
+        existed: previous.existed,
+        previousContent: previous.previousContent,
+        previousHash: previous.previousHash,
+        previousTruncated: previous.previousTruncated,
+        nextHash: sha256(content),
       };
     } catch (err) {
       return { ok: false as const, error: errorMessage(err) };
@@ -45,44 +74,6 @@ export function createWriteFileTool(workspaceRoot?: string) {
 }
 
 export const writeFileTool = createWriteFileTool();
-
-async function readPreviousContent(abs: string): Promise<{
-  existed: boolean;
-  previousContent: string;
-  previousTruncated: boolean;
-}> {
-  try {
-    const stat = await fs.stat(abs);
-    if (!stat.isFile()) {
-      return { existed: false, previousContent: "", previousTruncated: false };
-    }
-    if (stat.size > PREVIEW_BYTES) {
-      // File exists but is too large to capture inline — still record the
-      // write, but omit the diff base to keep tool results small.
-      return { existed: true, previousContent: "", previousTruncated: true };
-    }
-    const previous = await fs.readFile(abs, "utf8");
-    return {
-      existed: true,
-      previousContent: previous,
-      previousTruncated: false,
-    };
-  } catch (err) {
-    if (isNotFound(err)) {
-      return { existed: false, previousContent: "", previousTruncated: false };
-    }
-    throw err;
-  }
-}
-
-function isNotFound(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "code" in err &&
-    (err as { code: string }).code === "ENOENT"
-  );
-}
 
 function errorMessage(err: unknown): string {
   if (err instanceof SandboxError) return err.message;

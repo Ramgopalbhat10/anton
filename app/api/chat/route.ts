@@ -388,6 +388,7 @@ function createTraceWriter({
     if (name === "grep" && summary) return `Searched for ${summary}`;
     if (name === "glob" && summary) return `Listed ${summary}`;
     if (name === "write_file" && summary) return `Edited ${summary}`;
+    if (name === "edit_file" && summary) return `Patched ${summary}`;
     return name;
   };
 

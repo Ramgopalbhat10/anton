@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { DiffView } from "./diff-view";
 import {
   isOkWriteFileOutput,
+  isOkEditFileOutput,
   pickString,
   previewToolInput,
   riskCategoryBadge,
@@ -168,6 +169,12 @@ function WorklogDetail({
     entry.state === "output-available" &&
     isOkWriteFileOutput(entry.output) &&
     pickString(entry.input, "content") !== undefined;
+  const editOutput = isOkEditFileOutput(entry.output) ? entry.output : undefined;
+  const showEditDiff =
+    entry.name === "edit_file" &&
+    entry.state === "output-available" &&
+    typeof editOutput?.previousContent === "string" &&
+    typeof editOutput.nextContent === "string";
   const streamToken = pickString(entry.activity?.details, "streamToken");
   const approvalMeta =
     entry.state === "approval-requested"
@@ -234,6 +241,14 @@ function WorklogDetail({
         <ApprovalDetails approval={approvalMeta} />
       )}
 
+      {approvalMeta?.diffPreview && (
+        <DiffView
+          previous={approvalMeta.diffPreview.previous}
+          next={approvalMeta.diffPreview.next}
+          newFile={approvalMeta.diffPreview.previous.length === 0}
+        />
+      )}
+
       {entry.name !== "bash" && (
         <LogBlock title="Input">{safeStringify(entry.input)}</LogBlock>
       )}
@@ -243,6 +258,11 @@ function WorklogDetail({
           previous={(entry.output as WriteFileOkOutput).previousContent ?? ""}
           next={pickString(entry.input, "content") ?? ""}
           newFile={(entry.output as WriteFileOkOutput).existed === false}
+        />
+      ) : showEditDiff ? (
+        <DiffView
+          previous={editOutput?.previousContent ?? ""}
+          next={editOutput?.nextContent ?? ""}
         />
       ) : entry.name === "bash" && entry.activity?.status === "running" && entry.activity?.toolCallId ? (
         <LiveTerminalOutput

@@ -1,9 +1,11 @@
 import { z } from "zod";
-import fs from "node:fs/promises";
 import { tool } from "ai";
 import { resolveInWorkspace, SandboxError } from "../sandbox";
+import {
+  READ_FILE_MAX_BYTES,
+  readTextFileSnapshot,
+} from "./edit-utils";
 
-const MAX_BYTES = 256 * 1024;
 const MAX_LINES_DEFAULT = 2000;
 
 export function createReadFileTool(workspaceRoot?: string) {
@@ -30,17 +32,8 @@ export function createReadFileTool(workspaceRoot?: string) {
   execute: async ({ path: relPath, startLine, endLine }) => {
     try {
       const abs = resolveInWorkspace(relPath, workspaceRoot);
-      const stat = await fs.stat(abs);
-      if (!stat.isFile()) {
-        return { ok: false as const, error: `not a file: ${relPath}` };
-      }
-      if (stat.size > MAX_BYTES) {
-        return {
-          ok: false as const,
-          error: `file too large (${stat.size} bytes, cap ${MAX_BYTES}). Use grep or narrow with startLine/endLine.`,
-        };
-      }
-      const raw = await fs.readFile(abs, "utf8");
+      const snapshot = await readTextFileSnapshot(abs, READ_FILE_MAX_BYTES);
+      const raw = snapshot.content;
       const lines = raw.split("\n");
       const from = startLine ?? 1;
       const to = endLine ?? Math.min(lines.length, from + MAX_LINES_DEFAULT - 1);
@@ -51,6 +44,8 @@ export function createReadFileTool(workspaceRoot?: string) {
         startLine: from,
         endLine: Math.min(to, lines.length),
         totalLines: lines.length,
+        sizeBytes: snapshot.sizeBytes,
+        sha256: snapshot.sha256,
         content: slice.join("\n"),
       };
     } catch (err) {

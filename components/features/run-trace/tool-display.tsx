@@ -18,11 +18,34 @@ export type WriteFileOkOutput = {
   existed?: boolean;
   previousContent?: string;
   previousTruncated?: boolean;
+  previousHash?: string;
+  nextHash?: string;
 };
 
 export function isOkWriteFileOutput(
   value: unknown,
 ): value is WriteFileOkOutput {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "ok" in value &&
+    (value as { ok: unknown }).ok === true
+  );
+}
+
+export type EditFileOkOutput = {
+  ok: true;
+  path?: string;
+  bytesWritten?: number;
+  previousContent?: string;
+  nextContent?: string;
+  previousHash?: string;
+  nextHash?: string;
+};
+
+export function isOkEditFileOutput(
+  value: unknown,
+): value is EditFileOkOutput {
   return (
     typeof value === "object" &&
     value !== null &&
