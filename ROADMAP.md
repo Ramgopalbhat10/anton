@@ -68,8 +68,8 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Keep `write_file` only for new small files or explicit full-file replacement.
 - [✔️] Add atomic writes with conflict detection based on previous file hash or version.
 - [✔️] Show proposed diffs before approval, not only after `write_file` completes.
-- [] Add file operation tools: `read_dir`, `stat`, `mkdir`, `delete`, `rename`, and `copy`.
-- [] Add guardrails for binary files, generated files, lockfiles, migrations, and large files.
+- [✔️] Add file operation tools: `read_dir`, `stat`, `mkdir`, `delete`, `rename`, and `copy`.
+- [✔️] Add guardrails for binary files, generated files, lockfiles, migrations, and large files.
 - [] Add formatting integration that follows the target repo package manager and scripts.
 - [] Add a revert-last-agent-change workflow based on git diff or tool-call history.
 - [] Add first-class git tools for `status`, `diff`, `show`, `branch`, `commit`, and `restore` with scoped approvals.

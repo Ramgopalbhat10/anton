@@ -178,14 +178,21 @@ function buildStepSummary(toolRows: TraceRow[]): string {
       counts["command"] = (counts["command"] ?? 0) + 1;
     } else if (name === "read_file") {
       counts["file"] = (counts["file"] ?? 0) + 1;
+    } else if (name === "read_dir" || name === "stat" || name === "glob") {
+      counts["list"] = (counts["list"] ?? 0) + 1;
     } else if (name === "write_file") {
       counts["edit"] = (counts["edit"] ?? 0) + 1;
     } else if (name === "edit_file") {
       counts["edit"] = (counts["edit"] ?? 0) + 1;
+    } else if (
+      name === "mkdir" ||
+      name === "delete" ||
+      name === "rename" ||
+      name === "copy"
+    ) {
+      counts["edit"] = (counts["edit"] ?? 0) + 1;
     } else if (name === "grep") {
       counts["search"] = (counts["search"] ?? 0) + 1;
-    } else if (name === "glob") {
-      counts["list"] = (counts["list"] ?? 0) + 1;
     } else {
       counts["action"] = (counts["action"] ?? 0) + 1;
     }
@@ -258,6 +265,10 @@ export function toolTitle(entry: ToolTraceEntry, runStatus?: AntonRunStatus): {
       return { verb: bashVerb(entry, runStatus), target };
     case "read_file":
       return { verb: "Read", target };
+    case "read_dir":
+      return { verb: "Listed", target };
+    case "stat":
+      return { verb: "Inspected", target };
     case "glob":
       return { verb: "Listed", target };
     case "grep":
@@ -266,6 +277,14 @@ export function toolTitle(entry: ToolTraceEntry, runStatus?: AntonRunStatus): {
       return { verb: "Edited", target };
     case "edit_file":
       return { verb: "Patched", target };
+    case "mkdir":
+      return { verb: "Created", target };
+    case "delete":
+      return { verb: "Deleted", target };
+    case "rename":
+      return { verb: "Renamed", target };
+    case "copy":
+      return { verb: "Copied", target };
     default:
       return {
         verb: entry.activity?.label ?? entry.name,

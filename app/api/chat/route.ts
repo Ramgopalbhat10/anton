@@ -375,7 +375,7 @@ function createTraceWriter({
   const summarizeInput = (input: unknown): string | undefined => {
     if (typeof input !== "object" || input === null) return undefined;
     const record = input as Record<string, unknown>;
-    for (const key of ["command", "path", "pattern", "slug", "task"]) {
+    for (const key of ["command", "path", "sourcePath", "pattern", "slug", "task"]) {
       if (typeof record[key] === "string") return redactText(record[key]);
     }
     return undefined;
@@ -385,10 +385,16 @@ function createTraceWriter({
     const summary = summarizeInput(input);
     if (name === "bash" && summary) return `Ran ${summary}`;
     if (name === "read_file" && summary) return `Read ${summary}`;
+    if (name === "read_dir" && summary) return `Listed ${summary}`;
+    if (name === "stat" && summary) return `Inspected ${summary}`;
     if (name === "grep" && summary) return `Searched for ${summary}`;
     if (name === "glob" && summary) return `Listed ${summary}`;
     if (name === "write_file" && summary) return `Edited ${summary}`;
     if (name === "edit_file" && summary) return `Patched ${summary}`;
+    if (name === "mkdir" && summary) return `Created directory ${summary}`;
+    if (name === "delete" && summary) return `Deleted ${summary}`;
+    if (name === "rename" && summary) return `Renamed ${summary}`;
+    if (name === "copy" && summary) return `Copied ${summary}`;
     return name;
   };
 

@@ -100,6 +100,28 @@ export const NATIVE_TOOL_PERMISSION_METADATA = {
     true,
     "Applies a patch to an existing workspace file.",
   ),
+  read_dir: READ_ONLY,
+  stat: READ_ONLY,
+  mkdir: toolMetadata(
+    ["write"],
+    true,
+    "Creates a workspace directory.",
+  ),
+  delete: toolMetadata(
+    ["delete"],
+    true,
+    "Deletes a workspace file or directory.",
+  ),
+  rename: toolMetadata(
+    ["write", "delete"],
+    true,
+    "Renames or moves a workspace file or directory.",
+  ),
+  copy: toolMetadata(
+    ["write"],
+    true,
+    "Copies a workspace file or directory.",
+  ),
   bash: toolMetadata(
     [
       "write",
@@ -241,6 +263,80 @@ function buildNativeToolApprovalMetadata(
       return buildEditFileApproval(record, metadata, workspaceRoot);
     case "write_file":
       return buildWriteFileApproval(record, metadata, workspaceRoot);
+    case "read_dir":
+      return {
+        title: "Read workspace directory",
+        summary: metadata.summary,
+        riskCategories: metadata.categories,
+        target: stringValue(record.path) ?? "workspace root",
+        details: [
+          pathDetail(record.path ?? ".", workspaceRoot),
+          "Lists immediate directory children with file metadata only.",
+        ],
+      };
+    case "stat":
+      return {
+        title: "Inspect workspace path",
+        summary: metadata.summary,
+        riskCategories: metadata.categories,
+        target: stringValue(record.path),
+        details: [
+          pathDetail(record.path, workspaceRoot),
+          "Returns file type, size, timestamps, hash when available, and guardrail reasons.",
+        ],
+      };
+    case "mkdir":
+      return buildFileOperationApproval({
+        title: "Create workspace directory",
+        input: record,
+        metadata,
+        details: [
+          pathDetail(record.path, workspaceRoot),
+          `Recursive: ${booleanValue(record.recursive) || record.recursive === undefined ? "yes" : "no"}.`,
+          guardedDetail(record.allowGuarded),
+        ],
+      });
+    case "delete":
+      return buildFileOperationApproval({
+        title: "Delete workspace path",
+        input: record,
+        metadata,
+        details: [
+          pathDetail(record.path, workspaceRoot),
+          `Recursive: ${booleanValue(record.recursive) ? "yes" : "no"}.`,
+          `Expected hash: ${stringValue(record.expectedHash) ?? "(missing for regular files)"}.`,
+          guardedDetail(record.allowGuarded),
+        ],
+      });
+    case "rename":
+      return {
+        title: "Rename workspace path",
+        summary: metadata.summary,
+        riskCategories: metadata.categories,
+        target: stringValue(record.sourcePath),
+        details: [
+          `Source: ${pathDetailText(record.sourcePath, workspaceRoot)}`,
+          `Destination: ${pathDetailText(record.destinationPath, workspaceRoot)}`,
+          `Expected source hash: ${stringValue(record.expectedSourceHash) ?? "(missing for regular files)"}.`,
+          "The destination must not already exist.",
+          guardedDetail(record.allowGuarded),
+        ],
+      };
+    case "copy":
+      return {
+        title: "Copy workspace path",
+        summary: metadata.summary,
+        riskCategories: metadata.categories,
+        target: stringValue(record.sourcePath),
+        details: [
+          `Source: ${pathDetailText(record.sourcePath, workspaceRoot)}`,
+          `Destination: ${pathDetailText(record.destinationPath, workspaceRoot)}`,
+          `Recursive: ${booleanValue(record.recursive) ? "yes" : "no"}.`,
+          `Expected source hash: ${stringValue(record.expectedSourceHash) ?? "(missing for regular files)"}.`,
+          "The destination must not already exist.",
+          guardedDetail(record.allowGuarded),
+        ],
+      };
     case "read_file":
       return {
         title: "Read workspace file",
@@ -530,6 +626,36 @@ function pathDetail(value: unknown, workspaceRoot: string | undefined): string {
   } catch (err) {
     return `Path: ${relPath} (${errorMessage(err)})`;
   }
+}
+
+function pathDetailText(value: unknown, workspaceRoot: string | undefined): string {
+  return pathDetail(value, workspaceRoot).replace(/^Path: /, "");
+}
+
+function guardedDetail(value: unknown): string {
+  return booleanValue(value)
+    ? "Guarded targets are explicitly allowed for this call."
+    : "Guarded targets such as lockfiles, migrations, generated files, binary files, and large files are refused by default.";
+}
+
+function buildFileOperationApproval({
+  title,
+  input,
+  metadata,
+  details,
+}: {
+  title: string;
+  input: Record<string, unknown>;
+  metadata: ToolPermissionMetadata;
+  details: readonly string[];
+}): ToolApprovalMetadata {
+  return {
+    title,
+    summary: metadata.summary,
+    riskCategories: metadata.categories,
+    target: stringValue(input.path),
+    details,
+  };
 }
 
 function lineRangeDetail(startLine: unknown, endLine: unknown): string {

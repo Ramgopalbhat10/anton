@@ -9,6 +9,10 @@ import {
   readTextFileSnapshot,
   sha256,
 } from "./edit-utils";
+import {
+  assertGuardAllowed,
+  assertPathGuardAllowed,
+} from "./file-guardrails";
 
 export function createWriteFileTool(workspaceRoot?: string) {
   return tool({
@@ -23,8 +27,14 @@ export function createWriteFileTool(workspaceRoot?: string) {
       .describe(
         "Required when replacing an existing file. SHA-256 from the most recent read_file result.",
       ),
+    allowGuarded: z
+      .boolean()
+      .optional()
+      .describe(
+        "Set true only when intentionally writing a guarded target such as a lockfile, migration, generated file, binary file, or large file.",
+      ),
   }),
-  execute: async ({ path: relPath, content, expectedHash }) => {
+  execute: async ({ path: relPath, content, expectedHash, allowGuarded = false }) => {
     try {
       if (Buffer.byteLength(content, "utf8") > TEXT_FILE_MAX_BYTES) {
         return {
@@ -33,6 +43,7 @@ export function createWriteFileTool(workspaceRoot?: string) {
         };
       }
       const abs = resolveInWorkspace(relPath, workspaceRoot);
+      assertPathGuardAllowed({ relPath, allowGuarded });
       const previous = await readExistingTextPreview(abs);
       if (previous.existed && !expectedHash) {
         return {
@@ -41,6 +52,7 @@ export function createWriteFileTool(workspaceRoot?: string) {
         };
       }
       if (previous.existed) {
+        await assertGuardAllowed({ absPath: abs, relPath, allowGuarded });
         const current = await readTextFileSnapshot(abs, TEXT_FILE_MAX_BYTES);
         if (current.sha256 !== expectedHash) {
           return {

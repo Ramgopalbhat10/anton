@@ -10,6 +10,7 @@ import {
   workspaceRelative,
 } from "../sandbox";
 import { createReadFileTool } from "./read-file";
+import { createReadDirTool, createStatTool } from "./file-ops";
 import { createGrepTool } from "./grep";
 import { createGlobTool } from "./glob";
 import { listMemoryTool } from "./memory";
@@ -27,6 +28,8 @@ export function createDelegateTaskTool({
 }) {
   const readOnlyTools = {
     read_file: createReadFileTool(workspaceRoot),
+    read_dir: createReadDirTool(workspaceRoot),
+    stat: createStatTool(workspaceRoot),
     grep: createGrepTool(workspaceRoot),
     glob: createGlobTool(workspaceRoot),
     list_memory: listMemoryTool,
@@ -90,6 +93,8 @@ function childSystemPrompt(workspaceRoot?: string): string {
     "",
     "Available read-only tools:",
     "- `read_file(path, startLine?, endLine?)`",
+    "- `read_dir(path?)`",
+    "- `stat(path)`",
     "- `grep(pattern, path?, glob?, caseInsensitive?)`",
     "- `glob(pattern, path?)`",
     "- `list_memory(limit?)`",

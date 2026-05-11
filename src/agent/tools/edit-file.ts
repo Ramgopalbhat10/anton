@@ -8,6 +8,7 @@ import {
   readTextFileSnapshot,
   sha256,
 } from "./edit-utils";
+import { assertGuardAllowed } from "./file-guardrails";
 
 export function createEditFileTool(workspaceRoot?: string) {
   return tool({
@@ -20,10 +21,17 @@ export function createEditFileTool(workspaceRoot?: string) {
       .string()
       .min(1)
       .describe("SHA-256 from the most recent read_file result."),
+    allowGuarded: z
+      .boolean()
+      .optional()
+      .describe(
+        "Set true only when intentionally editing a guarded target such as a lockfile, migration, generated file, binary file, or large file.",
+      ),
   }),
-  execute: async ({ path: relPath, patch, expectedHash }) => {
+  execute: async ({ path: relPath, patch, expectedHash, allowGuarded = false }) => {
     try {
       const abs = resolveInWorkspace(relPath, workspaceRoot);
+      await assertGuardAllowed({ absPath: abs, relPath, allowGuarded });
       const previous = await readTextFileSnapshot(abs, TEXT_FILE_MAX_BYTES);
       if (previous.sha256 !== expectedHash) {
         return {
