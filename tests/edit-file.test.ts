@@ -9,6 +9,10 @@ import { buildToolApprovalMetadata } from "../src/agent/permissions";
 import { createEditFileTool } from "../src/agent/tools/edit-file";
 import { createReadFileTool } from "../src/agent/tools/read-file";
 import { createWriteFileTool } from "../src/agent/tools/write-file";
+import {
+  getApprovalMetadata,
+  type ToolTraceEntry,
+} from "../src/lib/trace";
 
 type ToolLike<TInput, TOutput> = {
   execute: (input: TInput, options?: unknown) => Promise<TOutput> | TOutput;
@@ -306,6 +310,39 @@ test("approval metadata includes capped diff previews for edits and replacements
 
   assert.equal(largeApproval?.diffPreview, undefined);
   assert.ok(largeApproval?.details.some((detail) => /too large/i.test(detail)));
+});
+
+test("pending edit approvals derive diff previews without activity metadata", () => {
+  const entry: ToolTraceEntry = {
+    id: "tool-call-1",
+    sourceMessageId: "message-1",
+    name: "edit_file",
+    state: "approval-requested",
+    input: {
+      path: "package.json",
+      patch: [
+        "--- package.json",
+        "+++ package.json",
+        "@@ -1,4 +1,4 @@",
+        " {",
+        "   \"name\": \"anton\",",
+        "-  \"version\": \"0.1.0\",",
+        "+  \"version\": \"0.1.1\",",
+        "",
+      ].join("\n"),
+      expectedHash: "abc123",
+    },
+    output: undefined,
+    errorText: undefined,
+    approvalId: "approval-1",
+  };
+
+  const approval = getApprovalMetadata(entry);
+
+  assert.equal(approval?.title, "Patch workspace file");
+  assert.equal(approval?.diffPreview?.path, "package.json");
+  assert.match(approval?.diffPreview?.previous ?? "", /"version": "0\.1\.0"/);
+  assert.match(approval?.diffPreview?.next ?? "", /"version": "0\.1\.1"/);
 });
 
 async function runTool<TInput, TOutput>(

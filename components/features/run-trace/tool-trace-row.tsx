@@ -54,112 +54,111 @@ export function ToolTraceRow({
   const preview = previewToolInput(entry.input);
   const showPreview = preview.length > 0 && preview !== title.target;
   return (
-    <Disclosure
-      className="py-0.5"
-      disabled={!showDetails}
-      trigger={({ open }) => (
-        <span className="grid grid-cols-[0.875rem_minmax(0,1fr)] gap-2 rounded px-0 py-0">
-          <meta.Icon className={cn("mt-0.5 size-3.5", meta.iconClass)} />
-          <span className="min-w-0">
-            <span className="flex min-w-0 items-center gap-1.5">
-              <ToolTitle title={title} />
-              {showDetails &&
-                !needsApproval &&
-                (open ? (
-                  <ChevronDown className="size-3 shrink-0" />
-                ) : (
-                  <ChevronRight className="size-3 shrink-0" />
-                ))}
-              {entry.name !== "bash" && meta.label.length > 0 && (
-                <span className={cn("shrink-0 text-[10px]", meta.textClass)}>
-                  {meta.label}
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-1 py-0.5">
+      <Disclosure
+        className="min-w-0 py-0"
+        disabled={!showDetails}
+        trigger={({ open }) => (
+          <span className="grid grid-cols-[0.875rem_minmax(0,1fr)] gap-2 rounded px-0 py-0">
+            <meta.Icon className={cn("mt-0.5 size-3.5", meta.iconClass)} />
+            <span className="min-w-0">
+              <span className="flex min-w-0 items-center gap-1.5">
+                <ToolTitle title={title} />
+                {showDetails &&
+                  (open ? (
+                    <ChevronDown className="size-3 shrink-0" />
+                  ) : (
+                    <ChevronRight className="size-3 shrink-0" />
+                  ))}
+                {entry.name !== "bash" && meta.label.length > 0 && (
+                  <span className={cn("shrink-0 text-[10px]", meta.textClass)}>
+                    {meta.label}
+                  </span>
+                )}
+                {approvalMeta && (
+                  <span className="inline-flex items-center gap-0.5">
+                    {approvalMeta.riskCategories.map((cat) => {
+                      const badge = riskCategoryBadge(cat);
+                      return (
+                        <span
+                          key={cat}
+                          className={cn(
+                            "rounded px-1 py-px text-[9px] uppercase tracking-wide",
+                            badge.baseClass,
+                          )}
+                        >
+                          {badge.label}
+                        </span>
+                      );
+                    })}
+                  </span>
+                )}
+                {entry.activity?.durationMs !== undefined && (
+                  <span className="shrink-0 text-[10px]">
+                    {formatDuration(entry.activity.durationMs)}
+                  </span>
+                )}
+              </span>
+              {showPreview && (
+                <span className="block truncate font-mono text-[10px]">
+                  {preview}
                 </span>
-              )}
-              {approvalId && (
-                <>
-                  <ApprovalControls approvalId={approvalId} onApproval={onApproval} />
-                </>
               )}
               {approvalMeta && (
-                <span className="inline-flex items-center gap-0.5">
-                  {approvalMeta.riskCategories.map((cat) => {
-                    const badge = riskCategoryBadge(cat);
-                    return (
-                      <span
-                        key={cat}
-                        className={cn(
-                          "rounded px-1 py-px text-[9px] uppercase tracking-wide",
-                          badge.baseClass,
-                        )}
-                      >
-                        {badge.label}
-                      </span>
-                    );
-                  })}
-                </span>
-              )}
-              {entry.activity?.durationMs !== undefined && (
-                <span className="shrink-0 text-[10px]">
-                  {formatDuration(entry.activity.durationMs)}
-                </span>
+                <ApprovalDetails approval={approvalMeta} compact />
               )}
             </span>
-            {showPreview && (
-              <span className="block truncate font-mono text-[10px]">
-                {preview}
-              </span>
-            )}
-            {approvalMeta && (
-              <ApprovalDetails approval={approvalMeta} compact />
-            )}
           </span>
-        </span>
-      )}
-    >
-      {showDetails && (
-        <div className="min-h-0 overflow-hidden">
-          <div className="ml-5 mt-1">
-            {approvalMeta?.diffPreview ? (
-              <DiffView
-                previous={approvalMeta.diffPreview.previous}
-                next={approvalMeta.diffPreview.next}
-                newFile={approvalMeta.diffPreview.previous.length === 0}
-              />
-            ) : entry.name === "bash" &&
-            runStatus === "running" &&
-            entry.activity?.status === "running" &&
-            entry.activity?.toolCallId ? (
-              <LiveTerminalOutput
-                command={pickString(entry.input, "command")}
-                streamId={entry.activity.toolCallId}
-                streamToken={streamToken}
-                initialOutput={
-                  typeof entry.output === "object" && entry.output !== null
-                    ? (entry.output as {
-                        stdout?: string;
-                        stderr?: string;
-                        exitCode?: number | null;
-                        timedOut?: boolean;
-                        killed?: boolean;
-                        failedReason?: "timeout" | "killed" | "max_buffer" | "error";
-                      })
-                    : undefined
-                }
-              />
-            ) : (
-              <TerminalOutput
-                command={pickString(entry.input, "command") ?? safeStringify(entry.input)}
-                output={
-                  entry.state === "output-error" && entry.errorText
-                    ? { stderr: entry.errorText, exitCode: 1 }
-                    : entry.output
-                }
-              />
-            )}
+        )}
+      >
+        {showDetails && (
+          <div className="min-h-0 overflow-hidden">
+            <div className="ml-5 mt-1">
+              {approvalMeta?.diffPreview ? (
+                <DiffView
+                  previous={approvalMeta.diffPreview.previous}
+                  next={approvalMeta.diffPreview.next}
+                  newFile={approvalMeta.diffPreview.previous.length === 0}
+                />
+              ) : entry.name === "bash" &&
+              runStatus === "running" &&
+              entry.activity?.status === "running" &&
+              entry.activity?.toolCallId ? (
+                <LiveTerminalOutput
+                  command={pickString(entry.input, "command")}
+                  streamId={entry.activity.toolCallId}
+                  streamToken={streamToken}
+                  initialOutput={
+                    typeof entry.output === "object" && entry.output !== null
+                      ? (entry.output as {
+                          stdout?: string;
+                          stderr?: string;
+                          exitCode?: number | null;
+                          timedOut?: boolean;
+                          killed?: boolean;
+                          failedReason?: "timeout" | "killed" | "max_buffer" | "error";
+                        })
+                      : undefined
+                  }
+                />
+              ) : (
+                <TerminalOutput
+                  command={pickString(entry.input, "command") ?? safeStringify(entry.input)}
+                  output={
+                    entry.state === "output-error" && entry.errorText
+                      ? { stderr: entry.errorText, exitCode: 1 }
+                      : entry.output
+                  }
+                />
+              )}
+            </div>
           </div>
-        </div>
+        )}
+      </Disclosure>
+      {approvalId && (
+        <ApprovalControls approvalId={approvalId} onApproval={onApproval} />
       )}
-    </Disclosure>
+    </div>
   );
 }
 

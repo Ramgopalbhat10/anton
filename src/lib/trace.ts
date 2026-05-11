@@ -138,7 +138,7 @@ export function getApprovalMetadata(
   entry: ToolTraceEntry,
 ): ApprovalMetadata | undefined {
   const details = entry.activity?.details;
-  if (!details) return undefined;
+  if (!details) return approvalMetadataFromToolInput(entry);
   const structured = structuredApprovalMetadata(details.approval);
   if (structured) return structured;
 
@@ -223,6 +223,10 @@ function stringArray(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === "string");
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function structuredApprovalMetadata(value: unknown): ApprovalMetadata | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   const record = value as Record<string, unknown>;
@@ -276,6 +280,75 @@ function structuredDiffPreview(
     previous: record.previous,
     next: record.next,
     truncated: record.truncated,
+  };
+}
+
+function approvalMetadataFromToolInput(
+  entry: ToolTraceEntry,
+): ApprovalMetadata | undefined {
+  if (entry.name === "edit_file") {
+    const input = isRecord(entry.input) ? entry.input : {};
+    const path = typeof input.path === "string" ? input.path : undefined;
+    const patch = typeof input.patch === "string" ? input.patch : undefined;
+    const expectedHash =
+      typeof input.expectedHash === "string" ? input.expectedHash : undefined;
+    const diffPreview =
+      path && patch ? diffPreviewFromUnifiedPatch(path, patch) : undefined;
+
+    return {
+      title: "Patch workspace file",
+      summary: "Applies a patch to an existing workspace file.",
+      riskCategories: ["write"],
+      riskSummary: "Applies a patch to an existing workspace file.",
+      target: path,
+      details: [
+        path ? `Path: ${path}` : "Path: (missing)",
+        "Applies one single-file unified diff to an existing UTF-8 file.",
+        "The patch is applied with zero fuzz; context must match exactly.",
+        `Expected hash: ${expectedHash ?? "(missing)"}.`,
+      ],
+      diffPreview,
+    };
+  }
+
+  return undefined;
+}
+
+function diffPreviewFromUnifiedPatch(
+  path: string,
+  patch: string,
+): ApprovalMetadata["diffPreview"] | undefined {
+  const previous: string[] = [];
+  const next: string[] = [];
+  let inHunk = false;
+
+  for (const line of patch.split("\n")) {
+    if (line.startsWith("@@ ")) {
+      inHunk = true;
+      continue;
+    }
+    if (!inHunk) continue;
+    if (line.startsWith("\\ No newline")) continue;
+    if (line.startsWith("+")) {
+      next.push(line.slice(1));
+    } else if (line.startsWith("-")) {
+      previous.push(line.slice(1));
+    } else if (line.startsWith(" ")) {
+      const content = line.slice(1);
+      previous.push(content);
+      next.push(content);
+    } else if (line === "") {
+      previous.push("");
+      next.push("");
+    }
+  }
+
+  if (previous.length === 0 && next.length === 0) return undefined;
+  return {
+    path,
+    previous: previous.join("\n"),
+    next: next.join("\n"),
+    truncated: false,
   };
 }
 
