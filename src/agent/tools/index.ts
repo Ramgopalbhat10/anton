@@ -8,6 +8,20 @@ import { createReadFileTool, readFileTool } from "./read-file";
 import { createEditFileTool, editFileTool } from "./edit-file";
 import { createWriteFileTool, writeFileTool } from "./write-file";
 import { bashTool, createBashTool } from "./bash";
+import {
+  copyTool,
+  createCopyTool,
+  createDeleteTool,
+  createMkdirTool,
+  createReadDirTool,
+  createRenameTool,
+  createStatTool,
+  deleteTool,
+  mkdirTool,
+  readDirTool,
+  renameTool,
+  statTool,
+} from "./file-ops";
 import { createGrepTool, grepTool } from "./grep";
 import { createGlobTool, globTool } from "./glob";
 import {
@@ -28,6 +42,12 @@ export const nativeAntonTools = applyNativeToolPermissionPolicy({
   read_file: readFileTool,
   edit_file: editFileTool,
   write_file: writeFileTool,
+  read_dir: readDirTool,
+  stat: statTool,
+  mkdir: mkdirTool,
+  delete: deleteTool,
+  rename: renameTool,
+  copy: copyTool,
   bash: bashTool,
   grep: grepTool,
   glob: globTool,
@@ -55,6 +75,12 @@ export function createAntonTools({
     read_file: createReadFileTool(workspaceRoot),
     edit_file: createEditFileTool(workspaceRoot),
     write_file: createWriteFileTool(workspaceRoot),
+    read_dir: createReadDirTool(workspaceRoot),
+    stat: createStatTool(workspaceRoot),
+    mkdir: createMkdirTool(workspaceRoot),
+    delete: createDeleteTool(workspaceRoot),
+    rename: createRenameTool(workspaceRoot),
+    copy: createCopyTool(workspaceRoot),
     bash: createBashTool(workspaceRoot),
     grep: createGrepTool(workspaceRoot),
     glob: createGlobTool(workspaceRoot),
