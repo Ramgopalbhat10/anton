@@ -22,8 +22,28 @@ import {
 import type { PermissionMode } from "./permissions";
 
 const MAX_STEPS = 20;
+export type AgentRunMode = "chat" | "plan";
 
-function systemPrompt(mcpTools: LoadedMcpTools, workspaceRoot?: string): string {
+const PLAN_MODE_TOOLS = [
+  "read_file",
+  "read_dir",
+  "stat",
+  "git_status",
+  "git_diff",
+  "git_show",
+  "grep",
+  "glob",
+  "list_memory",
+  "list_skills",
+  "read_skill",
+  "delegate_task",
+] as const;
+
+function systemPrompt(
+  mcpTools: LoadedMcpTools,
+  workspaceRoot?: string,
+  mode: AgentRunMode = "chat",
+): string {
   const root = workspaceRoot
     ? ensureWorkspaceRootAt(workspaceRoot)
     : ensureWorkspaceRoot();
@@ -66,6 +86,7 @@ function systemPrompt(mcpTools: LoadedMcpTools, workspaceRoot?: string): string 
     "- `list_skills()` - list project-local skills under `skills/<slug>/SKILL.md`.",
     "- `read_skill(slug)` - read one project-local skill before applying it.",
     "- `delegate_task(task, maxSteps?)` - run a bounded read-only sub-agent and return its summary.",
+    "- `update_todos(items)` - publish the full current implementation checklist. Use during normal implementation turns for multi-step coding tasks.",
     ...mcpToolPromptLines(mcpTools),
     "",
     ...projectMemoryPromptLines(),
@@ -74,6 +95,16 @@ function systemPrompt(mcpTools: LoadedMcpTools, workspaceRoot?: string): string 
     "",
     "Conventions:",
     "- Answer concisely. Prefer short, correct answers over long hedged ones.",
+    ...(mode === "plan"
+      ? [
+          "- You are in explicit Plan mode. Analyze the request and repository context, then produce a markdown implementation plan only.",
+          "- In Plan mode, do not edit files, run mutating commands, format files, commit, branch, or call workspace mutation tools.",
+          "- Use read-only inspection tools as needed. Do not call `update_todos` in Plan mode.",
+          "- The final response should be the plan itself with clear sections and enough implementation detail to execute in a later turn.",
+        ]
+      : [
+          "- For multi-step coding tasks, call `update_todos` with a full checklist snapshot before the first edit and update it as work progresses.",
+        ]),
     "- Plan first for multi-step tasks: explore read-only tools (`glob`, `grep`, `read_dir`, `stat`, `read_file`) before editing (`edit_file`, `write_file`) or running shell commands.",
     "- For existing-file edits, read the file first, then use `edit_file` with the returned `sha256` as `expectedHash`.",
     "- Use memory only for durable project preferences or facts that should carry across sessions.",
@@ -150,6 +181,7 @@ export async function runAgent({
   model,
   workspaceRoot,
   permissionMode,
+  mode = "chat",
   enabledMcpServerIds,
   onStepStart,
   onStepFinish,
@@ -164,6 +196,7 @@ export async function runAgent({
   model?: string;
   workspaceRoot?: string;
   permissionMode?: PermissionMode;
+  mode?: AgentRunMode;
   enabledMcpServerIds?: string[];
   onStepStart?: (event: { stepNumber: number }) => void;
   onStepFinish?: (event: { stepNumber: number }) => void;
@@ -210,9 +243,10 @@ export async function runAgent({
 
   return streamText({
     model: openrouter(selectedModel),
-    system: systemPrompt(mcpTools, workspaceRoot),
+    system: systemPrompt(mcpTools, workspaceRoot, mode),
     messages,
     tools,
+    activeTools: mode === "plan" ? [...PLAN_MODE_TOOLS] : undefined,
     stopWhen: stepCountIs(MAX_STEPS),
     providerOptions: {
       openrouter: {

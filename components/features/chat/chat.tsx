@@ -91,6 +91,7 @@ function ChatSession({
   const [selectedMcpServerIds, setSelectedMcpServerIds] = useState<string[]>([]);
   const [pendingMcpSend, setPendingMcpSend] = useState<{
     text: string;
+    mode: "chat" | "plan";
     untrusted: McpPreflightServer[];
   } | null>(null);
   const effectiveProjectId = initialProjectId ?? activeProjectId;
@@ -206,7 +207,10 @@ function ChatSession({
     };
   }, []);
 
-  const sendWithMcp = async (text: string): Promise<boolean> => {
+  const sendWithMcp = async (
+    text: string,
+    mode: "chat" | "plan" = "chat",
+  ): Promise<boolean> => {
     if (!effectiveProjectId) return false;
     const selectedIds = selectedMcpServerIds.filter((id) =>
       mcpServers.some((server) => server.id === id && server.enabled),
@@ -220,7 +224,7 @@ function ChatSession({
       body: JSON.stringify({ serverIds: selectedIds }),
     });
     if (!preflight.ok) {
-      setPendingMcpSend({ text, untrusted: preflight.untrusted });
+      setPendingMcpSend({ text, mode, untrusted: preflight.untrusted });
       return false;
     }
     void sendMessage(
@@ -229,6 +233,7 @@ function ChatSession({
         body: {
           projectId: effectiveProjectId,
           model,
+          mode,
           permissionMode,
           enabledMcpServerIds: selectedIds,
         },
@@ -252,7 +257,7 @@ function ChatSession({
       });
     }
     setPendingMcpSend(null);
-    await sendWithMcp(pending.text);
+    await sendWithMcp(pending.text, pending.mode);
   };
 
   const streaming = status === "streaming" || status === "submitted";
@@ -329,6 +334,10 @@ function ChatSession({
             status={status}
             recovering={recoveringMessages}
             onApproval={addToolApprovalResponse}
+            onAcceptPlan={(plan) => {
+              void sendWithMcp(`Implement this accepted plan:\n\n${plan}`, "chat");
+            }}
+            acceptPlanDisabled={streaming || !effectiveProjectId}
           />
 
           {displayMessages.length === 0 && !effectiveProjectId && (
@@ -343,6 +352,7 @@ function ChatSession({
 
           <Composer
             onSend={sendWithMcp}
+            onPlan={(text) => sendWithMcp(text, "plan")}
             onStop={stop}
             disabled={streaming || !effectiveProjectId}
             streaming={streaming}
@@ -406,7 +416,7 @@ function McpTrustDialog({
   onClose,
   onApprove,
 }: {
-  pending: { text: string; untrusted: McpPreflightServer[] } | null;
+  pending: { text: string; mode: "chat" | "plan"; untrusted: McpPreflightServer[] } | null;
   onClose: () => void;
   onApprove: () => void;
 }) {

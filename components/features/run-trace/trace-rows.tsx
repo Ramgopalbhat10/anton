@@ -20,6 +20,7 @@ import {
 
 import { formatDuration, type TraceRow, type StepGroup } from "./trace-data";
 import { ToolTraceRow } from "./tool-trace-row";
+import { TodoCard } from "./todo-card";
 
 export function TraceRowView({
   row,
@@ -46,6 +47,9 @@ export function TraceRowView({
   }
   if (row.kind === "progress") {
     return <ProgressRow text={row.text} />;
+  }
+  if (row.kind === "todos") {
+    return <TodoCard snapshot={row.snapshot} compact />;
   }
   return <ActivityRow event={row.event} runStatus={runStatus} />;
 }

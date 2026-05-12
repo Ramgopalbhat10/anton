@@ -8,6 +8,7 @@ import {
   GitBranch,
   Monitor,
   Plus,
+  ScrollText,
   ShieldCheck,
   ShieldOff,
   ShieldQuestion,
@@ -32,6 +33,7 @@ import { ModelPicker } from "./model-picker";
 
 interface ComposerProps {
   onSend: (text: string) => boolean | Promise<boolean>;
+  onPlan: (text: string) => boolean | Promise<boolean>;
   onStop: () => void;
   disabled: boolean;
   streaming: boolean;
@@ -51,6 +53,7 @@ const MAX_HEIGHT = 44;
 
 export function Composer({
   onSend,
+  onPlan,
   onStop,
   disabled,
   streaming,
@@ -77,10 +80,11 @@ export function Composer({
     el.style.overflowY = el.scrollHeight > MAX_HEIGHT ? "auto" : "hidden";
   }, [input]);
 
-  const submit = () => {
+  const submit = (mode: "chat" | "plan" = "chat") => {
     const trimmed = input.trim();
     if (!trimmed || disabled) return;
-    void Promise.resolve(onSend(trimmed)).then((sent) => {
+    const handler = mode === "plan" ? onPlan : onSend;
+    void Promise.resolve(handler(trimmed)).then((sent) => {
       if (sent) setInput("");
     });
   };
@@ -88,7 +92,7 @@ export function Composer({
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      submit();
+      submit("chat");
     }
   };
 
@@ -96,7 +100,7 @@ export function Composer({
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        submit();
+        submit("chat");
       }}
       className="relative z-40 w-full max-w-full shrink-0 overflow-visible bg-background/95 px-3 pb-2 pt-1 sm:px-4"
     >
@@ -115,6 +119,18 @@ export function Composer({
           />
           <div className="mt-1 flex items-center justify-between gap-2">
             <div className="flex min-w-0 items-center gap-1.5">
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                className="h-5 px-1.5 text-[11px]"
+                disabled={disabled}
+                onClick={() => submit("plan")}
+                aria-label="Create implementation plan"
+              >
+                <ScrollText />
+                Plan
+              </Button>
               <Button
                 type="button"
                 variant="ghost"

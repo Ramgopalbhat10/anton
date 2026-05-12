@@ -54,6 +54,7 @@ import {
   readSkillTool,
 } from "./skills";
 import { createDelegateTaskTool } from "./delegate";
+import { createUpdateTodosTool, updateTodosTool } from "./todos";
 
 export const nativeAntonTools = applyNativeToolPermissionPolicy({
   read_file: readFileTool,
@@ -82,6 +83,7 @@ export const nativeAntonTools = applyNativeToolPermissionPolicy({
   forget_memory: forgetMemoryTool,
   list_skills: listSkillsTool,
   read_skill: readSkillTool,
+  update_todos: updateTodosTool,
 } as const);
 
 export function createAntonTools({
@@ -120,6 +122,7 @@ export function createAntonTools({
     list_skills: createListSkillsTool(workspaceRoot),
     read_skill: createReadSkillTool(workspaceRoot),
     delegate_task: createDelegateTaskTool({ model, workspaceRoot }),
+    update_todos: createUpdateTodosTool(),
   }, permissionMode);
 
   return {
