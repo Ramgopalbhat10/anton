@@ -9,7 +9,7 @@ import {
   type ToolTraceEntry,
 } from "@/src/lib/trace";
 
-import { previewToolInput } from "./tool-display";
+import { isFailedToolOutput, previewToolInput } from "./tool-display";
 
 export type StepGroup = {
   stepNumber: number;
@@ -188,9 +188,20 @@ function buildStepSummary(toolRows: TraceRow[]): string {
       name === "mkdir" ||
       name === "delete" ||
       name === "rename" ||
-      name === "copy"
+      name === "copy" ||
+      name === "format" ||
+      name === "git_commit" ||
+      name === "git_restore" ||
+      name === "revert_changes"
     ) {
       counts["edit"] = (counts["edit"] ?? 0) + 1;
+    } else if (
+      name === "git_status" ||
+      name === "git_diff" ||
+      name === "git_show" ||
+      name === "git_branch"
+    ) {
+      counts["list"] = (counts["list"] ?? 0) + 1;
     } else if (name === "grep") {
       counts["search"] = (counts["search"] ?? 0) + 1;
     } else {
@@ -260,6 +271,9 @@ export function toolTitle(entry: ToolTraceEntry, runStatus?: AntonRunStatus): {
   target?: string;
 } {
   const target = previewToolInput(entry.input);
+  if (entry.state === "output-available" && isFailedToolOutput(entry.output)) {
+    return { verb: failedToolVerb(entry.name), target };
+  }
   switch (entry.name) {
     case "bash":
       return { verb: bashVerb(entry, runStatus), target };
@@ -285,11 +299,50 @@ export function toolTitle(entry: ToolTraceEntry, runStatus?: AntonRunStatus): {
       return { verb: "Renamed", target };
     case "copy":
       return { verb: "Copied", target };
+    case "format":
+      return { verb: "Formatted", target };
+    case "git_status":
+      return { verb: "Checked git status", target };
+    case "git_diff":
+      return { verb: "Inspected git diff", target };
+    case "git_show":
+      return { verb: "Inspected git revision", target };
+    case "git_branch":
+      return { verb: "Managed git branch", target };
+    case "git_commit":
+      return { verb: "Committed", target };
+    case "git_restore":
+      return { verb: "Restored", target };
+    case "revert_changes":
+      return { verb: "Reverted", target };
     default:
       return {
         verb: entry.activity?.label ?? entry.name,
         target: target.length > 0 ? target : undefined,
       };
+  }
+}
+
+function failedToolVerb(name: string): string {
+  switch (name) {
+    case "format":
+      return "Format failed";
+    case "git_status":
+      return "Git status failed";
+    case "git_diff":
+      return "Git diff failed";
+    case "git_show":
+      return "Git show failed";
+    case "git_branch":
+      return "Git branch failed";
+    case "git_commit":
+      return "Commit failed";
+    case "git_restore":
+      return "Restore failed";
+    case "revert_changes":
+      return "Revert failed";
+    default:
+      return "Tool failed";
   }
 }
 

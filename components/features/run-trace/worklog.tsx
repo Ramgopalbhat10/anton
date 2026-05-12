@@ -21,6 +21,7 @@ import { DiffView } from "./diff-view";
 import {
   isOkWriteFileOutput,
   isOkEditFileOutput,
+  effectiveToolState,
   pickString,
   previewToolInput,
   riskCategoryBadge,
@@ -123,7 +124,7 @@ function WorklogRow({
   active: boolean;
   onSelect: () => void;
 }) {
-  const state = toolStateMeta(entry.state);
+  const state = toolStateMeta(effectiveToolState(entry));
   return (
     <button
       type="button"
@@ -163,7 +164,7 @@ function WorklogDetail({
   entry: WorklogEntry;
   onApproval: ChatAddToolApproveResponseFunction;
 }) {
-  const state = toolStateMeta(entry.state);
+  const state = toolStateMeta(effectiveToolState(entry));
   const showWriteDiff =
     entry.name === "write_file" &&
     entry.state === "output-available" &&
