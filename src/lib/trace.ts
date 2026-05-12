@@ -56,10 +56,32 @@ export type AntonRunData = {
 
 export type AntonRunMetricSnapshot = {
   id: string;
+  model?: string | null;
+  status?: AntonRunStatus | null;
+  startedAt?: Date | number | null;
+  finishedAt?: Date | number | null;
+  durationMs?: number | null;
   inputTokens?: number | null;
   outputTokens?: number | null;
   totalTokens?: number | null;
   costUsd?: number | null;
+  costMetadata?: unknown;
+  stepCount?: number | null;
+};
+
+export type AntonActivitySnapshot = {
+  id: string;
+  runId: string;
+  sequence: number;
+  kind: AntonActivityKind;
+  status: AntonActivityStatus;
+  label: string;
+  summary?: string | null;
+  startedAt: Date | number;
+  finishedAt?: Date | number | null;
+  durationMs?: number | null;
+  toolCallId?: string | null;
+  details?: unknown;
 };
 
 export type AntonActivityEvent = {
@@ -465,6 +487,63 @@ export function hydrateMessagesWithRunMetrics<UI extends AntonUIMessage>(
   });
 }
 
+export function hydrateMessagesWithRunState<UI extends AntonUIMessage>(
+  messages: UI[],
+  runs: AntonRunMetricSnapshot[],
+  events: AntonActivitySnapshot[],
+): UI[] {
+  const metricsHydrated = hydrateMessagesWithRunMetrics(messages, runs);
+  const runsById = new Map(runs.map((run) => [run.id, run]));
+  if (runsById.size === 0) return metricsHydrated;
+
+  const eventsByRunId = new Map<string, AntonActivitySnapshot[]>();
+  for (const event of events) {
+    const runEvents = eventsByRunId.get(event.runId) ?? [];
+    runEvents.push(event);
+    eventsByRunId.set(event.runId, runEvents);
+  }
+  for (const runEvents of eventsByRunId.values()) {
+    runEvents.sort((a, b) => a.sequence - b.sequence);
+  }
+
+  return metricsHydrated.map((message) => {
+    const runIds = messageRunIds(message);
+    if (runIds.length === 0) return message;
+
+    const durableRunParts = runIds
+      .map((runId) => runsById.get(runId))
+      .filter((run): run is AntonRunMetricSnapshot => run !== undefined)
+      .map((run) => ({
+        type: "data-run",
+        id: run.id,
+        data: runDataFromSnapshot(run),
+      }));
+
+    const durableActivityParts = runIds.flatMap((runId) =>
+      (eventsByRunId.get(runId) ?? []).map((event) => ({
+        type: "data-activity",
+        id: event.id,
+        data: activityDataFromSnapshot(event),
+      })),
+    );
+
+    if (durableRunParts.length === 0 && durableActivityParts.length === 0) {
+      return message;
+    }
+
+    return {
+      ...message,
+      parts: [
+        ...message.parts.filter(
+          (part) => !isRunDataPart(part) && !isActivityDataPart(part),
+        ),
+        ...durableRunParts,
+        ...durableActivityParts,
+      ] as UI["parts"],
+    };
+  });
+}
+
 function hydrateMetricRecord<T>(
   value: T,
   runsById: Map<string, AntonRunMetricSnapshot>,
@@ -486,6 +565,60 @@ function hydrateMetricRecord<T>(
   }
 
   return (next ?? value) as T;
+}
+
+function messageRunIds(message: AntonUIMessage): string[] {
+  const ids = new Set<string>();
+  const metadataRunId = message.metadata?.runId;
+  if (typeof metadataRunId === "string") ids.add(metadataRunId);
+  for (const part of message.parts) {
+    if (isRunDataPart(part)) ids.add(part.data.runId);
+  }
+  return Array.from(ids);
+}
+
+function runDataFromSnapshot(run: AntonRunMetricSnapshot): AntonRunData {
+  return {
+    runId: run.id,
+    model: run.model ?? "unknown",
+    status: run.status ?? "completed",
+    startedAt: toMillis(run.startedAt) ?? 0,
+    ...(toMillis(run.finishedAt) !== undefined
+      ? { finishedAt: toMillis(run.finishedAt) }
+      : {}),
+    ...(typeof run.durationMs === "number" ? { durationMs: run.durationMs } : {}),
+    ...(typeof run.inputTokens === "number" ? { inputTokens: run.inputTokens } : {}),
+    ...(typeof run.outputTokens === "number" ? { outputTokens: run.outputTokens } : {}),
+    ...(typeof run.totalTokens === "number" ? { totalTokens: run.totalTokens } : {}),
+    ...(typeof run.costUsd === "number" ? { costUsd: run.costUsd } : {}),
+    ...(isRecord(run.costMetadata) ? { costMetadata: run.costMetadata } : {}),
+    ...(typeof run.stepCount === "number" ? { stepCount: run.stepCount } : {}),
+  };
+}
+
+function activityDataFromSnapshot(event: AntonActivitySnapshot): AntonActivityEvent {
+  return {
+    id: event.id,
+    runId: event.runId,
+    sequence: event.sequence,
+    kind: event.kind,
+    status: event.status,
+    label: event.label,
+    ...(event.summary ? { summary: event.summary } : {}),
+    startedAt: toMillis(event.startedAt) ?? 0,
+    ...(toMillis(event.finishedAt) !== undefined
+      ? { finishedAt: toMillis(event.finishedAt) }
+      : {}),
+    ...(typeof event.durationMs === "number" ? { durationMs: event.durationMs } : {}),
+    ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}),
+    ...(isRecord(event.details) ? { details: event.details } : {}),
+  };
+}
+
+function toMillis(value: Date | number | null | undefined): number | undefined {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  return undefined;
 }
 
 export function getMessageRunDurationMs(

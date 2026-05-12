@@ -28,10 +28,13 @@ import {
   createRun,
   createSession,
   deriveTitleFromMessages,
+  getActiveRunForSession,
+  getMessagePersistenceConflict,
   getProject,
   getSession,
   getToolCall,
-  replaceMessages,
+  MessagePersistenceConflictError,
+  saveMessagesIncrementally,
   setSessionProject,
   touchSession,
   updateRun,
@@ -42,7 +45,11 @@ import {
 } from "@/src/db/queries";
 import { DEFAULT_MODEL } from "@/src/lib/providers";
 import { redactText, redactValue } from "@/src/lib/redaction";
-import { getApprovalMetadata, getToolTraceEntries } from "@/src/lib/trace";
+import {
+  getApprovalMetadata,
+  getToolTraceEntries,
+  isRunDataPart,
+} from "@/src/lib/trace";
 import type {
   AntonActivityEvent,
   AntonActivityKind,
@@ -55,6 +62,7 @@ import type {
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
+const ACTIVE_RUN_STALE_AFTER_MS = 5 * 60 * 1000;
 
 const bodySchema = z.object({
   sessionId: z.string().min(1),
@@ -104,6 +112,33 @@ export async function POST(req: Request) {
       projectId,
     });
   } else {
+    const incomingHistory = uiMessages.filter(hasSubstantiveHistoryParts);
+    const conflict = getMessagePersistenceConflict(sessionId, incomingHistory);
+    if (conflict) {
+      return Response.json(
+        {
+          error: "session message history changed; refresh before sending again",
+          storedCount: conflict.storedCount,
+          incomingCount: conflict.incomingCount,
+        },
+        { status: 409 },
+      );
+    }
+
+    const activeRun = getActiveRunForSession(
+      sessionId,
+      ACTIVE_RUN_STALE_AFTER_MS,
+    );
+    if (activeRun) {
+      return Response.json(
+        {
+          error: "session already has a running agent turn",
+          runId: activeRun.id,
+        },
+        { status: 409 },
+      );
+    }
+
     if (!existing.projectId && projectId) {
       setSessionProject(sessionId, projectId);
     }
@@ -111,13 +146,6 @@ export async function POST(req: Request) {
       touchSession(sessionId, model);
     }
   }
-
-  const modelMessages = await convertToModelMessages(
-    prepareMessagesForModel(uiMessages),
-    {
-      convertDataPart: () => undefined,
-    },
-  );
 
   const runId = randomUUID();
   const startedAt = Date.now();
@@ -130,6 +158,12 @@ export async function POST(req: Request) {
     startedAt: new Date(startedAt),
     stepCount: 0,
   });
+
+  const modelMessages = await convertMessagesForRun(
+    uiMessages,
+    runId,
+    startedAt,
+  );
 
   const stream = createUIMessageStream<AntonUIMessage>({
     originalMessages: uiMessages,
@@ -181,13 +215,26 @@ export async function POST(req: Request) {
       }
     },
     onFinish: ({ messages }) => {
-      const persistedMessages = messages.filter(hasSubstantiveHistoryParts);
+      const persistedMessages = messages
+        .map(stripDurableTraceParts)
+        .filter(hasSubstantiveHistoryParts);
       if (persistedMessages.length === 0) return;
-      persistFinalToolApprovalStates(runId, persistedMessages);
-      replaceMessages<AntonUIMessage>(
-        sessionId,
-        redactValue(persistedMessages) as AntonUIMessage[],
-      );
+      persistFinalToolApprovalStates(runId, messages);
+      try {
+        saveMessagesIncrementally<AntonUIMessage>(
+          sessionId,
+          redactValue(persistedMessages) as AntonUIMessage[],
+        );
+      } catch (err) {
+        if (err instanceof MessagePersistenceConflictError) {
+          updateRun(runId, {
+            status: "error",
+            finishReason: "message_persistence_conflict",
+          });
+          return;
+        }
+        throw err;
+      }
     },
   });
 
@@ -202,6 +249,26 @@ function prepareMessagesForModel(messages: AntonUIMessage[]): AntonUIMessage[] {
     if (!parts.some(isSubstantiveModelContextPart)) return [];
     return [{ ...message, parts }];
   });
+}
+
+async function convertMessagesForRun(
+  messages: AntonUIMessage[],
+  runId: string,
+  startedAt: number,
+) {
+  try {
+    return await convertToModelMessages(prepareMessagesForModel(messages), {
+      convertDataPart: () => undefined,
+    });
+  } catch (err) {
+    updateRun(runId, {
+      status: "error",
+      finishedAt: new Date(),
+      durationMs: Math.max(0, Date.now() - startedAt),
+      finishReason: "message_conversion_error",
+    });
+    throw err;
+  }
 }
 
 function isModelContextPart(
@@ -672,6 +739,22 @@ function createTraceWriter({
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+function stripDurableTraceParts(message: AntonUIMessage): AntonUIMessage {
+  const runPart = message.parts.find(isRunDataPart);
+  const metadata =
+    runPart && !message.metadata?.runId
+      ? { ...message.metadata, runId: runPart.data.runId }
+      : message.metadata;
+
+  return {
+    ...message,
+    metadata,
+    parts: message.parts.filter(
+      (part) => part.type !== "data-run" && part.type !== "data-activity",
+    ),
+  };
 }
 
 function errorMessageOrUndefined(error: unknown): string | undefined {

@@ -2,7 +2,7 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { UIMessage } from "ai";
 import { randomUUID } from "node:crypto";
 
-import { hydrateMessagesWithRunMetrics, type AntonUIMessage } from "@/src/lib/trace";
+import { hydrateMessagesWithRunState, type AntonUIMessage } from "@/src/lib/trace";
 import { db } from "./client";
 import {
   githubInstallations,
@@ -50,6 +50,13 @@ export type StoredMessage<UI extends UIMessage = UIMessage> = {
   metadata: UI["metadata"] | null;
   createdAt: Date;
 };
+
+export class MessagePersistenceConflictError extends Error {
+  constructor(message = "session message history changed before persistence") {
+    super(message);
+    this.name = "MessagePersistenceConflictError";
+  }
+}
 
 export function listSessions(): Session[] {
   return db.select().from(sessions).orderBy(desc(sessions.updatedAt)).all();
@@ -368,44 +375,126 @@ export function loadMessages<UI extends UIMessage>(
   });
 
   const sessionRuns = db
-    .select({
-      id: runs.id,
-      inputTokens: runs.inputTokens,
-      outputTokens: runs.outputTokens,
-      totalTokens: runs.totalTokens,
-      costUsd: runs.costUsd,
-    })
+    .select()
     .from(runs)
     .where(eq(runs.sessionId, sessionId))
+    .orderBy(asc(runs.startedAt))
     .all();
 
-  return hydrateMessagesWithRunMetrics(
+  const sessionRunEvents =
+    sessionRuns.length === 0
+      ? []
+      : db
+          .select()
+          .from(runEvents)
+          .where(
+            inArray(
+              runEvents.runId,
+              sessionRuns.map((run) => run.id),
+            ),
+          )
+          .orderBy(asc(runEvents.runId), asc(runEvents.sequence))
+          .all();
+
+  return hydrateMessagesWithRunState(
     loaded as unknown as AntonUIMessage[],
     sessionRuns,
+    sessionRunEvents,
   ) as unknown as UI[];
 }
 
-export function replaceMessages<UI extends UIMessage>(
+export function getActiveRunForSession(
+  sessionId: string,
+  staleAfterMs: number,
+): Run | undefined {
+  const cutoff = Date.now() - staleAfterMs;
+  return db
+    .select()
+    .from(runs)
+    .where(and(eq(runs.sessionId, sessionId), eq(runs.status, "running")))
+    .orderBy(desc(runs.startedAt))
+    .all()
+    .find((run) => run.startedAt.getTime() >= cutoff);
+}
+
+export function getMessagePersistenceConflict<UI extends UIMessage>(
+  sessionId: string,
+  incoming: UI[],
+): { storedCount: number; incomingCount: number } | undefined {
+  const stored = storedMessageIds(sessionId);
+  if (stored.length > incoming.length) {
+    return { storedCount: stored.length, incomingCount: incoming.length };
+  }
+
+  for (const [idx, storedId] of stored.entries()) {
+    if (storedId !== messageId(incoming[idx], sessionId, idx)) {
+      return { storedCount: stored.length, incomingCount: incoming.length };
+    }
+  }
+
+  return undefined;
+}
+
+export function saveMessagesIncrementally<UI extends UIMessage>(
   sessionId: string,
   incoming: UI[],
 ): void {
   db.transaction((tx) => {
-    tx.delete(messages).where(eq(messages.sessionId, sessionId)).run();
-    if (incoming.length === 0) return;
-    tx
-      .insert(messages)
-      .values(
-        incoming.map((m, idx) => ({
-          id: messageId(m, sessionId, idx),
-          sessionId,
-          role: m.role,
-          parts: m.parts as unknown,
-          metadata: (m.metadata ?? null) as unknown,
-          // Preserve ordering even when created_at ticks collide.
-          createdAt: new Date(Date.now() + idx),
-        })),
-      )
-      .run();
+    const existing = tx
+      .select()
+      .from(messages)
+      .where(eq(messages.sessionId, sessionId))
+      .orderBy(asc(messages.createdAt))
+      .all();
+
+    if (existing.length > incoming.length) {
+      throw new MessagePersistenceConflictError();
+    }
+
+    const now = Date.now();
+    for (const [idx, message] of incoming.entries()) {
+      const id = messageId(message, sessionId, idx);
+      const row = {
+        id,
+        sessionId,
+        role: message.role,
+        parts: message.parts as unknown,
+        metadata: (message.metadata ?? null) as unknown,
+      };
+
+      const current = existing[idx];
+      if (!current) {
+        tx.insert(messages)
+          .values({
+            ...row,
+            createdAt: new Date(now + idx),
+          })
+          .run();
+        continue;
+      }
+
+      if (current.id !== id) {
+        throw new MessagePersistenceConflictError();
+      }
+
+      if (
+        current.role === row.role &&
+        stableJson(current.parts) === stableJson(row.parts) &&
+        stableJson(current.metadata) === stableJson(row.metadata)
+      ) {
+        continue;
+      }
+
+      tx.update(messages)
+        .set({
+          role: row.role,
+          parts: row.parts,
+          metadata: row.metadata,
+        })
+        .where(eq(messages.id, id))
+        .run();
+    }
+
     tx
       .update(sessions)
       .set({ updatedAt: new Date() })
@@ -699,6 +788,20 @@ function messageId<UI extends UIMessage>(
   const id = message.id.trim();
   if (id.length > 0) return id;
   return `${sessionId}:message:${index}`;
+}
+
+function storedMessageIds(sessionId: string): string[] {
+  return db
+    .select({ id: messages.id })
+    .from(messages)
+    .where(eq(messages.sessionId, sessionId))
+    .orderBy(asc(messages.createdAt))
+    .all()
+    .map((row) => row.id);
+}
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(value ?? null);
 }
 
 function uniqueMcpNamespace(base: string, currentId?: string): string {
