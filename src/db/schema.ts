@@ -62,34 +62,45 @@ export const projects = sqliteTable(
   ],
 );
 
-export const sessions = sqliteTable("sessions", {
-  id: text("id").primaryKey(),
-  title: text("title").notNull(),
-  model: text("model").notNull(),
-  projectId: text("project_id").references(() => projects.id, {
-    onDelete: "set null",
-  }),
-  tokensTotal: integer("tokens_total").notNull().default(0),
-  createdAt: integer("created_at", { mode: "timestamp_ms" })
-    .notNull()
-    .default(sql`(unixepoch('now') * 1000)`),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
-    .notNull()
-    .default(sql`(unixepoch('now') * 1000)`),
-});
+export const sessions = sqliteTable(
+  "sessions",
+  {
+    id: text("id").primaryKey(),
+    title: text("title").notNull(),
+    model: text("model").notNull(),
+    projectId: text("project_id").references(() => projects.id, {
+      onDelete: "set null",
+    }),
+    tokensTotal: integer("tokens_total").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch('now') * 1000)`),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch('now') * 1000)`),
+  },
+  (table) => [
+    index("sessions_updated_at_idx").on(table.updatedAt),
+    index("sessions_project_id_idx").on(table.projectId),
+  ],
+);
 
-export const messages = sqliteTable("messages", {
-  id: text("id").primaryKey(),
-  sessionId: text("session_id")
-    .notNull()
-    .references(() => sessions.id, { onDelete: "cascade" }),
-  role: text("role", { enum: ["user", "assistant", "system"] }).notNull(),
-  parts: text("parts", { mode: "json" }).notNull(),
-  metadata: text("metadata", { mode: "json" }),
-  createdAt: integer("created_at", { mode: "timestamp_ms" })
-    .notNull()
-    .default(sql`(unixepoch('now') * 1000)`),
-});
+export const messages = sqliteTable(
+  "messages",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    role: text("role", { enum: ["user", "assistant", "system"] }).notNull(),
+    parts: text("parts", { mode: "json" }).notNull(),
+    metadata: text("metadata", { mode: "json" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch('now') * 1000)`),
+  },
+  (table) => [index("messages_session_id_idx").on(table.sessionId)],
+);
 
 export const runs = sqliteTable(
   "runs",
@@ -99,6 +110,7 @@ export const runs = sqliteTable(
       .notNull()
       .references(() => sessions.id, { onDelete: "cascade" }),
     model: text("model").notNull(),
+    provider: text("provider"),
     status: text("status", {
       enum: ["running", "completed", "error", "aborted"],
     }).notNull(),
@@ -109,11 +121,72 @@ export const runs = sqliteTable(
     outputTokens: integer("output_tokens"),
     totalTokens: integer("total_tokens"),
     costUsd: real("cost_usd"),
+    costMetadata: text("cost_metadata", { mode: "json" }),
+    stepCount: integer("step_count"),
     finishReason: text("finish_reason"),
   },
   (table) => [
     index("runs_session_id_idx").on(table.sessionId),
     index("runs_started_at_idx").on(table.startedAt),
+  ],
+);
+
+export const toolCalls = sqliteTable(
+  "tool_calls",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => runs.id, { onDelete: "cascade" }),
+    toolCallId: text("tool_call_id").notNull(),
+    toolName: text("tool_name").notNull(),
+    stepNumber: integer("step_number"),
+    status: text("status", {
+      enum: ["running", "completed", "error", "denied"],
+    }).notNull(),
+    inputSummary: text("input_summary"),
+    approvalDecision: text("approval_decision", {
+      enum: ["pending", "approved", "denied"],
+    }),
+    outputSummary: text("output_summary"),
+    exitCode: integer("exit_code"),
+    error: text("error"),
+    startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
+    finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
+    durationMs: integer("duration_ms"),
+  },
+  (table) => [
+    index("tool_calls_run_id_idx").on(table.runId),
+    uniqueIndex("tool_calls_run_tool_call_id_unique").on(
+      table.runId,
+      table.toolCallId,
+    ),
+    index("tool_calls_started_at_idx").on(table.startedAt),
+  ],
+);
+
+export const toolApprovals = sqliteTable(
+  "tool_approvals",
+  {
+    id: text("id").primaryKey(),
+    toolCallId: text("tool_call_id")
+      .notNull()
+      .references(() => toolCalls.id, { onDelete: "cascade" }),
+    approvalId: text("approval_id"),
+    decision: text("decision", {
+      enum: ["pending", "approved", "denied"],
+    }).notNull(),
+    title: text("title").notNull(),
+    summary: text("summary").notNull(),
+    riskCategories: text("risk_categories", { mode: "json" }).notNull(),
+    metadata: text("metadata", { mode: "json" }),
+    requestedAt: integer("requested_at", { mode: "timestamp_ms" }).notNull(),
+    respondedAt: integer("responded_at", { mode: "timestamp_ms" }),
+    reason: text("reason"),
+  },
+  (table) => [
+    index("tool_approvals_tool_call_id_idx").on(table.toolCallId),
+    index("tool_approvals_approval_id_idx").on(table.approvalId),
   ],
 );
 
@@ -194,16 +267,20 @@ export const mcpTrustDecisions = sqliteTable(
   ],
 );
 
-export const memories = sqliteTable("memories", {
-  id: text("id").primaryKey(),
-  content: text("content").notNull(),
-  createdAt: integer("created_at", { mode: "timestamp_ms" })
-    .notNull()
-    .default(sql`(unixepoch('now') * 1000)`),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
-    .notNull()
-    .default(sql`(unixepoch('now') * 1000)`),
-});
+export const memories = sqliteTable(
+  "memories",
+  {
+    id: text("id").primaryKey(),
+    content: text("content").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch('now') * 1000)`),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch('now') * 1000)`),
+  },
+  (table) => [index("memories_updated_at_idx").on(table.updatedAt)],
+);
 
 export type WorkspaceSettings = typeof workspaceSettings.$inferSelect;
 export type NewWorkspaceSettings = typeof workspaceSettings.$inferInsert;
@@ -219,6 +296,10 @@ export type Run = typeof runs.$inferSelect;
 export type NewRun = typeof runs.$inferInsert;
 export type RunEvent = typeof runEvents.$inferSelect;
 export type NewRunEvent = typeof runEvents.$inferInsert;
+export type ToolCall = typeof toolCalls.$inferSelect;
+export type NewToolCall = typeof toolCalls.$inferInsert;
+export type ToolApproval = typeof toolApprovals.$inferSelect;
+export type NewToolApproval = typeof toolApprovals.$inferInsert;
 export type McpServer = typeof mcpServers.$inferSelect;
 export type NewMcpServer = typeof mcpServers.$inferInsert;
 export type McpTrustDecision = typeof mcpTrustDecisions.$inferSelect;

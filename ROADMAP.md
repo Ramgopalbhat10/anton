@@ -1,6 +1,6 @@
 # Anton Roadmap
 
-Last reviewed: 2026-05-03
+Last reviewed: 2026-05-12
 
 This roadmap is the working backlog for turning Anton from a learning harness into a reliable local AI coding agent. Use each checklist item as the source for future GitHub issues. Mark finished items as `[✔️]` after the related GitHub issue or PR is resolved.
 
@@ -47,6 +47,8 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Added Devin/Codex-style inline reasoning and activity traces above assistant responses.
 - [✔️] Added provider reasoning streaming support while filtering trace data out of model replay.
 - [✔️] Updated Worklog and inline traces to share normalized trace helpers for consistent tool, approval, and timing UI.
+- [✔️] Added durable tool-call and approval audit rows tied to chat runs.
+- [✔️] Added provider, step-count, and cost metadata tracking for runs.
 
 ## Phase 1: Trust Boundaries And Safety
 
@@ -78,15 +80,15 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 
 - [✔️] Add `runs` table for each `/api/chat` execution.
 - [✔️] Add durable `run_events` for ordered reasoning, tool, approval, progress, and error trace rows.
-- [] Add `tool_calls` table with tool name, input summary, approval decision, output summary, timestamps, exit code, and error state.
-- [] Add `approvals` table or structured approval fields tied to tool calls.
+- [✔️] Add `tool_calls` table with tool name, input summary, approval decision, output summary, timestamps, exit code, and error state.
+- [✔️] Add `approvals` table or structured approval fields tied to tool calls.
 - [] Persist Worklog from database state instead of reconstructing from message parts and trace data.
 - [] Stop replacing entire message transcripts on every finish; append messages or use optimistic concurrency.
 - [] Add concurrency protection for two browser tabs writing the same session.
-- [] Add indexes for `messages.session_id`, `sessions.updated_at`, `sessions.project_id`, `projects.github_repo_id`, and `memories.updated_at`.
+- [✔️] Add indexes for `messages.session_id`, `sessions.updated_at`, `sessions.project_id`, `projects.github_repo_id`, and `memories.updated_at`.
 - [✔️] Track model, usage, finish reason, and abort/error status for each run.
 - [✔️] Add database migrations for run and run-event persistence changes.
-- [] Track provider, step count, and cost metadata for each run.
+- [✔️] Track provider, step count, and cost metadata for each run.
 
 ## Phase 4: Agent Loop Quality
 
