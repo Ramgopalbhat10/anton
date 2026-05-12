@@ -2,6 +2,8 @@ import {
   convertToModelMessages,
   createUIMessageStream,
   createUIMessageStreamResponse,
+  getToolName,
+  isToolUIPart,
   type FinishReason,
   type LanguageModelUsage,
   type ProviderMetadata,
@@ -28,14 +30,19 @@ import {
   deriveTitleFromMessages,
   getProject,
   getSession,
+  getToolCall,
   replaceMessages,
   setSessionProject,
   touchSession,
   updateRun,
+  updateToolCall,
+  upsertToolApproval,
+  upsertToolCall,
   upsertRunEvent,
 } from "@/src/db/queries";
 import { DEFAULT_MODEL } from "@/src/lib/providers";
 import { redactText, redactValue } from "@/src/lib/redaction";
+import { getApprovalMetadata, getToolTraceEntries } from "@/src/lib/trace";
 import type {
   AntonActivityEvent,
   AntonActivityKind,
@@ -118,8 +125,10 @@ export async function POST(req: Request) {
     id: runId,
     sessionId,
     model,
+    provider: "openrouter",
     status: "running",
     startedAt: new Date(startedAt),
+    stepCount: 0,
   });
 
   const stream = createUIMessageStream<AntonUIMessage>({
@@ -174,6 +183,7 @@ export async function POST(req: Request) {
     onFinish: ({ messages }) => {
       const persistedMessages = messages.filter(hasSubstantiveHistoryParts);
       if (persistedMessages.length === 0) return;
+      persistFinalToolApprovalStates(runId, persistedMessages);
       replaceMessages<AntonUIMessage>(
         sessionId,
         redactValue(persistedMessages) as AntonUIMessage[],
@@ -249,6 +259,7 @@ function createTraceWriter({
   workspaceRoot: string;
 }) {
   let sequence = 0;
+  let stepCount = 0;
   let finalized = false;
   const events = new Map<string, AntonActivityEvent>();
 
@@ -376,9 +387,44 @@ function createTraceWriter({
     if (typeof input !== "object" || input === null) return undefined;
     const record = input as Record<string, unknown>;
     for (const key of ["command", "path", "sourcePath", "pattern", "slug", "task"]) {
-      if (typeof record[key] === "string") return redactText(record[key]);
+      if (typeof record[key] === "string") return auditSummary(record[key]);
     }
     return undefined;
+  };
+
+  const summarizeOutput = (output: unknown, error: unknown): string | undefined => {
+    const message = errorMessageOrUndefined(error);
+    if (message) return auditSummary(message);
+    if (typeof output !== "object" || output === null) return undefined;
+    const record = output as Record<string, unknown>;
+    for (const key of ["error", "failedReason", "path", "summary", "stdout"]) {
+      if (typeof record[key] === "string") return auditSummary(record[key]);
+    }
+    if (typeof record.exitCode === "number") return `exit ${record.exitCode}`;
+    return undefined;
+  };
+
+  const outputExitCode = (output: unknown): number | null => {
+    if (typeof output !== "object" || output === null) return null;
+    const exitCode = (output as Record<string, unknown>).exitCode;
+    return typeof exitCode === "number" && Number.isInteger(exitCode)
+      ? exitCode
+      : null;
+  };
+
+  const toolError = (success: boolean, output: unknown, error: unknown): string | null => {
+    const thrown = errorMessageOrUndefined(error);
+    if (thrown) return auditSummary(thrown);
+    if (!success) return "Tool execution failed";
+    if (typeof output !== "object" || output === null) return null;
+    const record = output as Record<string, unknown>;
+    if (record.ok === false && typeof record.error === "string") {
+      return auditSummary(record.error);
+    }
+    if (typeof record.failedReason === "string") {
+      return auditSummary(record.failedReason);
+    }
+    return null;
   };
 
   const toolLabel = (name: string, input: unknown): string => {
@@ -413,6 +459,7 @@ function createTraceWriter({
     const outputTokens = usage?.outputTokens;
     const totalTokens = usage?.totalTokens;
     const costUsd = openRouterCost(providerMetadata);
+    const costMetadata = openRouterCostMetadata(providerMetadata);
     writeRun(status, {
       finishedAt,
       durationMs,
@@ -420,6 +467,7 @@ function createTraceWriter({
       outputTokens,
       totalTokens,
       costUsd,
+      stepCount,
     });
     updateRun(runId, {
       status,
@@ -429,6 +477,8 @@ function createTraceWriter({
       outputTokens: outputTokens ?? null,
       totalTokens: totalTokens ?? null,
       costUsd: costUsd ?? null,
+      costMetadata,
+      stepCount,
       finishReason: finishReason ?? null,
     });
   };
@@ -436,6 +486,7 @@ function createTraceWriter({
   return {
     writeRun,
     startStep(stepNumber: number) {
+      stepCount = Math.max(stepCount, stepNumber + 1);
       startEvent({
         id: `${runId}:step:${stepNumber}`,
         kind: "step",
@@ -494,7 +545,7 @@ function createTraceWriter({
         }
       }
 
-      startEvent({
+      const started = startEvent({
         id: `${runId}:tool:${event.toolCallId}`,
         kind: "tool",
         label: toolLabel(event.toolName, event.input),
@@ -502,6 +553,31 @@ function createTraceWriter({
         toolCallId: event.toolCallId,
         details,
       });
+      const approvalDetails = structuredApprovalDetails(details.approval);
+      upsertToolCall({
+        id: started.id,
+        runId,
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        stepNumber: event.stepNumber ?? null,
+        status: "running",
+        inputSummary: started.summary ?? null,
+        approvalDecision: approvalDetails ? "pending" : null,
+        startedAt: new Date(started.startedAt),
+      });
+      if (approvalDetails) {
+        upsertToolApproval({
+          id: `${started.id}:approval`,
+          toolCallId: started.id,
+          approvalId: null,
+          decision: "pending",
+          title: approvalDetails.title,
+          summary: approvalDetails.summary,
+          riskCategories: approvalDetails.riskCategories,
+          metadata: approvalDetails,
+          requestedAt: new Date(started.startedAt),
+        });
+      }
     },
     finishTool(event: {
       stepNumber: number | undefined;
@@ -514,8 +590,10 @@ function createTraceWriter({
       error?: unknown;
     }) {
       const current = events.get(`${runId}:tool:${event.toolCallId}`);
+      const error = toolError(event.success, event.output, event.error);
+      const status = error ? "error" : "completed";
       finishEvent(`${runId}:tool:${event.toolCallId}`, {
-        status: event.success ? "completed" : "error",
+        status,
         label: toolLabel(event.toolName, event.input),
         summary: summarizeInput(event.input),
         details: {
@@ -525,6 +603,33 @@ function createTraceWriter({
           success: event.success,
         },
       });
+      const currentApproval = structuredApprovalDetails(current?.details?.approval);
+      const toolCallUpdate: Parameters<typeof updateToolCall>[1] = {
+        status,
+        outputSummary: summarizeOutput(event.output, event.error) ?? null,
+        exitCode: outputExitCode(event.output),
+        error,
+        finishedAt: new Date(),
+        durationMs: event.durationMs,
+      };
+      if (currentApproval) toolCallUpdate.approvalDecision = "approved";
+      updateToolCall(`${runId}:tool:${event.toolCallId}`, toolCallUpdate);
+      if (currentApproval) {
+        upsertToolApproval({
+          id: `${runId}:tool:${event.toolCallId}:approval`,
+          toolCallId: `${runId}:tool:${event.toolCallId}`,
+          approvalId: null,
+          decision: "approved",
+          title: currentApproval.title,
+          summary: currentApproval.summary,
+          riskCategories: currentApproval.riskCategories,
+          metadata: currentApproval,
+          requestedAt: current
+            ? new Date(current.startedAt)
+            : new Date(Date.now() - event.durationMs),
+          respondedAt: new Date(),
+        });
+      }
     },
     handleStreamPart(part: TextStreamPart<ToolSet>) {
       if (part.type === "reasoning-start") {
@@ -569,6 +674,11 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
+function errorMessageOrUndefined(error: unknown): string | undefined {
+  if (error === undefined || error === null) return undefined;
+  return errorMessage(error);
+}
+
 function openRouterCost(providerMetadata: ProviderMetadata | undefined): number | undefined {
   const openrouter = providerMetadata?.openrouter;
   if (!isRecord(openrouter)) return undefined;
@@ -578,8 +688,149 @@ function openRouterCost(providerMetadata: ProviderMetadata | undefined): number 
   return typeof cost === "number" && Number.isFinite(cost) ? cost : undefined;
 }
 
+function openRouterCostMetadata(
+  providerMetadata: ProviderMetadata | undefined,
+): Record<string, unknown> | null {
+  const openrouter = providerMetadata?.openrouter;
+  if (!isRecord(openrouter)) return null;
+  const usage = openrouter.usage;
+  if (!isRecord(usage)) return null;
+  return redactValue({
+    provider: "openrouter",
+    source: "providerMetadata.openrouter.usage",
+    usage,
+  }) as Record<string, unknown>;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function structuredApprovalDetails(value: unknown):
+  | {
+      title: string;
+      summary: string;
+      riskCategories: string[];
+      [key: string]: unknown;
+    }
+  | undefined {
+  if (!isRecord(value)) return undefined;
+  const title = value.title;
+  const summary = value.summary;
+  const riskCategories = value.riskCategories;
+  if (
+    typeof title !== "string" ||
+    typeof summary !== "string" ||
+    !Array.isArray(riskCategories)
+  ) {
+    return undefined;
+  }
+  return {
+    ...value,
+    title,
+    summary,
+    riskCategories: riskCategories.filter(
+      (category): category is string => typeof category === "string",
+    ),
+  };
+}
+
+function persistFinalToolApprovalStates(
+  runId: string,
+  messages: AntonUIMessage[],
+): void {
+  const entries = getToolTraceEntries(messages);
+  const entriesById = new Map(entries.map((entry) => [entry.id, entry]));
+
+  for (const message of messages) {
+    for (const part of message.parts) {
+      if (!isToolUIPart(part)) continue;
+      if (!("toolCallId" in part) || typeof part.toolCallId !== "string") {
+        continue;
+      }
+      if (!("approval" in part) || !isRecord(part.approval)) continue;
+
+      const approvalId =
+        typeof part.approval.id === "string" ? part.approval.id : null;
+      const approved =
+        typeof part.approval.approved === "boolean"
+          ? part.approval.approved
+          : undefined;
+      const reason =
+        typeof part.approval.reason === "string"
+          ? auditSummary(part.approval.reason)
+          : null;
+      const decision =
+        part.state === "output-denied" || approved === false
+          ? "denied"
+          : approved === true || part.state === "output-available" || part.state === "output-error"
+            ? "approved"
+            : "pending";
+      const toolCallRowId = `${runId}:tool:${part.toolCallId}`;
+      const entry = entriesById.get(part.toolCallId);
+      const approval = entry ? getApprovalMetadata(entry) : undefined;
+      const now = new Date();
+      const existingToolCall = getToolCall(toolCallRowId);
+      if (existingToolCall) {
+        updateToolCall(toolCallRowId, {
+          approvalDecision: decision,
+          ...(decision === "denied"
+            ? {
+                status: "denied",
+                finishedAt: now,
+                durationMs: Math.max(
+                  0,
+                  now.getTime() - existingToolCall.startedAt.getTime(),
+                ),
+              }
+            : {}),
+        });
+      } else {
+        upsertToolCall({
+          id: toolCallRowId,
+          runId,
+          toolCallId: part.toolCallId,
+          toolName: getToolName(part),
+          status: decision === "denied" ? "denied" : "running",
+          inputSummary:
+            entry?.activity?.summary ??
+            ("input" in part ? summarizeToolInputForPersistence(part.input) : null),
+          approvalDecision: decision,
+          startedAt: now,
+          finishedAt: decision === "denied" ? now : null,
+        });
+      }
+
+      upsertToolApproval({
+        id: `${toolCallRowId}:approval`,
+        toolCallId: toolCallRowId,
+        approvalId,
+        decision,
+        title: approval?.title ?? getToolName(part),
+        summary: approval?.summary ?? "Tool approval requested.",
+        riskCategories: approval?.riskCategories ?? [],
+        metadata: approval ?? null,
+        requestedAt: now,
+        respondedAt: decision === "pending" ? null : now,
+        reason,
+      });
+    }
+  }
+}
+
+function summarizeToolInputForPersistence(input: unknown): string | null {
+  if (typeof input !== "object" || input === null) return null;
+  const record = input as Record<string, unknown>;
+  for (const key of ["command", "path", "sourcePath", "pattern", "slug", "task"]) {
+    if (typeof record[key] === "string") return auditSummary(record[key]);
+  }
+  return null;
+}
+
+function auditSummary(value: string, maxLength = 500): string {
+  const redacted = redactText(value).replace(/\s+/g, " ").trim();
+  if (redacted.length <= maxLength) return redacted;
+  return `${redacted.slice(0, maxLength - 3).trimEnd()}...`;
 }
 
 function persistableEventDetails(

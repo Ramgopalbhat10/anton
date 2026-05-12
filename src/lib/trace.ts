@@ -35,6 +35,8 @@ export type AntonMessageMetadata = {
   outputTokens?: number;
   totalTokens?: number;
   costUsd?: number;
+  costMetadata?: Record<string, unknown> | null;
+  stepCount?: number;
 };
 
 export type AntonRunData = {
@@ -48,6 +50,8 @@ export type AntonRunData = {
   outputTokens?: number;
   totalTokens?: number;
   costUsd?: number;
+  costMetadata?: Record<string, unknown> | null;
+  stepCount?: number;
 };
 
 export type AntonRunMetricSnapshot = {
@@ -580,7 +584,9 @@ export function getToolTraceEntries(
         output: "output" in part ? part.output : undefined,
         errorText: "errorText" in part ? part.errorText : undefined,
         approvalId:
-          state === "approval-requested" && "approval" in part && part.approval
+          "approval" in part &&
+          part.approval &&
+          typeof part.approval.id === "string"
             ? part.approval.id
             : undefined,
         activity: toolCallId

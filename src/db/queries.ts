@@ -14,6 +14,8 @@ import {
   runEvents,
   runs,
   sessions,
+  toolApprovals,
+  toolCalls,
   workspaceSettings,
   type GithubInstallation,
   type Memory,
@@ -22,10 +24,14 @@ import {
   type NewMcpServer,
   type NewRun,
   type NewRunEvent,
+  type NewToolApproval,
+  type NewToolCall,
   type Project,
   type Run,
   type RunEvent,
   type Session,
+  type ToolApproval,
+  type ToolCall,
   type WorkspaceSettings,
 } from "./schema";
 import {
@@ -443,6 +449,75 @@ export function upsertRunEvent(input: NewRunEvent): RunEvent {
     .from(runEvents)
     .where(eq(runEvents.id, input.id))
     .get() as RunEvent;
+}
+
+export function getToolCall(id: string): ToolCall | undefined {
+  return db.select().from(toolCalls).where(eq(toolCalls.id, id)).get();
+}
+
+export function listToolCallsForRun(runId: string): ToolCall[] {
+  return db
+    .select()
+    .from(toolCalls)
+    .where(eq(toolCalls.runId, runId))
+    .orderBy(asc(toolCalls.startedAt))
+    .all();
+}
+
+export function upsertToolCall(input: NewToolCall): ToolCall {
+  db
+    .insert(toolCalls)
+    .values(input)
+    .onConflictDoUpdate({
+      target: toolCalls.id,
+      set: {
+        toolName: input.toolName,
+        stepNumber: input.stepNumber ?? null,
+        status: input.status,
+        inputSummary: input.inputSummary ?? null,
+        approvalDecision: input.approvalDecision ?? null,
+        outputSummary: input.outputSummary ?? null,
+        exitCode: input.exitCode ?? null,
+        error: input.error ?? null,
+        finishedAt: input.finishedAt ?? null,
+        durationMs: input.durationMs ?? null,
+      },
+    })
+    .run();
+  return getToolCall(input.id) as ToolCall;
+}
+
+export function updateToolCall(
+  id: string,
+  input: Partial<Omit<NewToolCall, "id" | "runId" | "toolCallId" | "startedAt">>,
+): ToolCall | undefined {
+  db.update(toolCalls).set(input).where(eq(toolCalls.id, id)).run();
+  return getToolCall(id);
+}
+
+export function getToolApproval(id: string): ToolApproval | undefined {
+  return db.select().from(toolApprovals).where(eq(toolApprovals.id, id)).get();
+}
+
+export function upsertToolApproval(input: NewToolApproval): ToolApproval {
+  db
+    .insert(toolApprovals)
+    .values(input)
+    .onConflictDoUpdate({
+      target: toolApprovals.id,
+      set: {
+        approvalId: input.approvalId ?? null,
+        decision: input.decision,
+        title: input.title,
+        summary: input.summary,
+        riskCategories: input.riskCategories,
+        metadata: input.metadata ?? null,
+        respondedAt: input.respondedAt ?? null,
+        reason: input.reason ?? null,
+      },
+    })
+    .run();
+  return getToolApproval(input.id) as ToolApproval;
 }
 
 export function listMcpServers(): McpServer[] {

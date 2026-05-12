@@ -79,6 +79,10 @@ function ChatSession({
   const [messageDisplayOverride, setMessageDisplayOverride] = useState<
     AntonUIMessage[] | null
   >(null);
+  const [restoringPersistedMessages, setRestoringPersistedMessages] = useState(
+    sessionIdProp !== undefined &&
+      (initialMessages?.filter(hasVisibleMessageParts).length ?? 0) === 0,
+  );
   const [model, setModel] = useState<ModelId>(
     (initialModel ?? DEFAULT_MODEL_ID) as ModelId,
   );
@@ -153,6 +157,7 @@ function ChatSession({
 
     let cancelled = false;
     const restorePersistedMessages = async () => {
+      setRestoringPersistedMessages(true);
       try {
         const res = await fetch(`/api/sessions/${sessionIdProp}`, {
           cache: "no-store",
@@ -165,6 +170,8 @@ function ChatSession({
         }
       } catch {
         // Keep the current local state; the route refresh still has server truth.
+      } finally {
+        if (!cancelled) setRestoringPersistedMessages(false);
       }
     };
 
@@ -251,6 +258,8 @@ function ChatSession({
   const streaming = status === "streaming" || status === "submitted";
   const displayMessages =
     messages.length > 0 ? messages : messageDisplayOverride ?? messages;
+  const recoveringMessages =
+    restoringPersistedMessages && displayMessages.length === 0;
   const headerTitle = initialTitle ?? (sessionIdProp ? "Session" : "New chat");
   const persistedTokensTotal =
     sessions.find((s) => s.id === sessionId)?.tokensTotal ?? initialTokensTotal;
@@ -318,7 +327,7 @@ function ChatSession({
           <MessageList
             messages={displayMessages}
             status={status}
-            recovering={sessionIdProp !== undefined}
+            recovering={recoveringMessages}
             onApproval={addToolApprovalResponse}
           />
 

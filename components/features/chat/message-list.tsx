@@ -61,9 +61,7 @@ export function MessageList({
   if (messages.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">
-        {recovering
-          ? "Loading session..."
-          : "Start a session by asking Anton to inspect or change the selected workspace."}
+        {emptyMessageListText(recovering)}
       </div>
     );
   }
@@ -89,6 +87,12 @@ export function MessageList({
       </div>
     </div>
   );
+}
+
+export function emptyMessageListText(recovering: boolean): string {
+  return recovering
+    ? "Loading session..."
+    : "Start a session by asking Anton to inspect or change the selected workspace.";
 }
 
 function MessageEvent({
