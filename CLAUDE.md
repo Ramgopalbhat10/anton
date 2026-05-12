@@ -8,7 +8,7 @@ Follow the shared agent rules in `AGENTS.md`:
 
 - Use the `TodoWrite` tool to track any task that takes more than ~3 steps. Mark items `completed` as soon as they are done; do not batch.
 - When a task spans many files, prefer a single `Agent` delegation with `subagent_type: "Explore"` over many serial reads.
-- Run `pnpm typecheck` and `pnpm lint` before reporting a coding task as done. A green build is the acceptance criterion.
+- Run `pnpm typecheck` and `pnpm lint` before reporting a coding task as done. Do not add test cases, test files, or test scripts; use focused manual verification when needed.
 - Before writing Next.js code, consult `node_modules/next/dist/docs/`; this project pins Next 16, which has breaking changes from older training data.
 - Before implementation, read `ROADMAP.md`, choose the relevant checklist item, create or identify the GitHub issue for the work, and keep the branch/PR tied to that issue.
 - If the GitHub app connector cannot create the required issue, use the GitHub CLI instead: `gh issue create --repo <owner>/<repo> --title "<title>" --body-file -`.

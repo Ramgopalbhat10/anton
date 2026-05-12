@@ -11,7 +11,6 @@ const GENERATED_SEGMENTS = new Set([
   ".git",
   ".next",
   "build",
-  "coverage",
   "dist",
   "node_modules",
   "out",

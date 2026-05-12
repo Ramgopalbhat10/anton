@@ -79,7 +79,7 @@ export async function validateAndPrepareLocalWorkspacesRoot(
     throw new WorkspaceRootError("Workspace root must be a directory.");
   }
 
-  const probe = path.join(resolved, `.anton-write-test-${randomUUID()}`);
+  const probe = path.join(resolved, `.anton-write-probe-${randomUUID()}`);
   await fs.writeFile(probe, "ok", "utf8");
   await fs.unlink(probe);
   return fsSync.realpathSync(resolved);
