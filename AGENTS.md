@@ -78,7 +78,7 @@ Path aliases: `@/*` → project root, so `@/components/...`, `@/lib/utils`, `@/s
 | `pnpm db:migrate` | Apply pending migrations |
 | `pnpm db:studio` | Drizzle Studio |
 
-Run `pnpm typecheck` and `pnpm lint` before committing. If you change the schema, also run `pnpm db:generate` and commit the resulting migration.
+Run `pnpm typecheck` and `pnpm lint` before committing. Do not write test cases, add test files, or introduce test scripts for this project. If you change the schema, also run `pnpm db:generate` and commit the resulting migration.
 
 ## GitHub workflow
 
@@ -110,6 +110,7 @@ Never log the API key. Never commit `.env.local`, `anton.db`, or anything under 
 ## Conventions
 
 - Prefer editing existing files over creating new ones; do not scaffold files "for later".
+- Do not create test files or write test cases. Use typechecking, linting, builds, and focused manual verification instead.
 - No default exports for components — named exports only.
 - Server-only code never imports from `components/` or `app/` client code; client components never import from `src/db/` or `src/agent/`.
 - Tool definitions are `tool({ description, inputSchema: z.object({...}), execute })`. Keep them pure; side-effects live in `execute`. Native tool approval metadata is applied centrally in `src/agent/permissions.ts`; MCP tool wrappers still carry `needsApproval: true`.

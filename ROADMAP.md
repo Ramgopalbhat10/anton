@@ -62,7 +62,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Replace the current `sudo`/`su` denylist with a parser-backed or policy-backed command classifier.
 - [✔️] Add secret redaction for tool inputs, tool outputs, logs, and UI rendering.
 - [✔️] Add workspace-root validation that prevents using Anton source, `.git`, dependency folders, build output, system directories, and user home as agent workspaces.
-- [✔️] Add tests for sandbox traversal, symlink escapes, workspace root validation, and command policy behavior.
+- [✔️] Harden sandbox traversal, symlink escape, workspace root validation, and command policy behavior.
 
 ## Phase 2: Real Coding-Agent Editing
 
@@ -94,7 +94,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 
 - [] Add structured todo/planning state for multi-step coding tasks.
 - [] Add explicit handling when the model reaches the max-step limit.
-- [] Add automatic verification policy after edits: detect package manager, run relevant tests, typecheck, lint, and build when appropriate.
+- [] Add automatic verification policy after edits: detect package manager, run typecheck, lint, and build when appropriate.
 - [] Add stack/repo inspection summary before the first coding action in a project.
 - [] Add context budgeting with repo map, recent diff summary, selected file summaries, and transcript pruning.
 - [] Add model selection validation on the server; reject unsupported or disabled model IDs.
@@ -133,16 +133,11 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Replace duplicate workspace/settings UI paths with one canonical Settings implementation.
 - [] Clean up layout formatting and UI polish issues that are not core behavior.
 
-## Phase 7: Testing And Evaluation
+## Phase 7: Evaluation
 
-- [] Add unit test framework and `pnpm test` script.
-- [] Add unit tests for sandbox, permissions, workspace local root logic, GitHub helpers, DB queries, and tool factories.
-- [] Add integration tests for `/api/chat`, approvals, sessions, projects, memories, and workspace settings.
-- [] Add Playwright tests for chat, settings, GitHub repository listing states, project selection, approvals, worklog, and diff rendering.
-- [] Add mocked GitHub API tests for installation, repository listing, token creation, clone failure, and clone success.
-- [] Add agent eval tasks: fix failing test, add small feature, refactor safely, deny dangerous command, and summarize existing code.
-- [] Add CI workflow running typecheck, lint, build, tests, and Playwright smoke tests.
-- [] Add regression tests for every bug fixed after this roadmap lands.
+- [] Add agent eval tasks: add a small feature, refactor safely, deny dangerous command, and summarize existing code.
+- [] Add CI workflow running typecheck, lint, and build.
+- [] Add manual verification checklists for chat, settings, GitHub repository listing states, project selection, approvals, worklog, and diff rendering.
 
 ## Phase 8: Documentation And Operating Model
 
@@ -153,7 +148,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [] Add ADR for permission policy and tool-risk classification.
 - [] Add ADR for GitHub App authentication and local clone strategy.
 - [] Add setup guide for GitHub App environment variables.
-- [] Add local development guide for migrations, workspaces, and test data.
+- [] Add local development guide for migrations, workspaces, and sample data.
 - [] Add contributor guide for turning roadmap items into GitHub issues.
 - [] Add security notes covering tool execution, workspace trust, MCP trust, and secrets handling.
 
@@ -165,7 +160,6 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [] Full-file `write_file` remains the main write primitive.
 - [] Message persistence still deletes and reinserts the full session transcript.
 - [] There is no durable tool-call audit table yet.
-- [] There is no automated test suite yet.
 - [] GitHub clone/fetch runs synchronously inside request handling and may exceed request duration for large repositories.
-- [] Installation tokens are injected into git through extra headers; keep redaction coverage current as clone/fetch behavior evolves.
+- [] Installation tokens are injected into git through extra headers; keep redaction behavior current as clone/fetch behavior evolves.
 - [] Active project selection is client-local and not yet a durable user/workspace preference.
