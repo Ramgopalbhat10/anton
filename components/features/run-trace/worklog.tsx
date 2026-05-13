@@ -58,12 +58,23 @@ export function Worklog({
   onClose,
 }: WorklogProps) {
   const [tabs, setTabs] = useState<SidebarTab[]>(["worklog"]);
-  const [activeTab, setActiveTab] = useState<SidebarTab>("worklog");
+  const [activeTab, setActiveTab] = useState<SidebarTab | null>("worklog");
   const [menuOpen, setMenuOpen] = useState(false);
 
   const addTab = (tab: SidebarTab) => {
     setTabs((current) => (current.includes(tab) ? current : [...current, tab]));
     setActiveTab(tab);
+    setMenuOpen(false);
+  };
+
+  const closeTab = (tab: SidebarTab) => {
+    setTabs((current) => {
+      const nextTabs = current.filter((item) => item !== tab);
+      setActiveTab((currentActive) =>
+        currentActive === tab ? (nextTabs.at(-1) ?? null) : currentActive,
+      );
+      return nextTabs;
+    });
     setMenuOpen(false);
   };
 
@@ -82,21 +93,36 @@ export function Worklog({
           {tabs.map((tab) => {
             const meta = tabMeta(tab);
             return (
-              <button
+              <div
                 key={tab}
-                type="button"
-                onClick={() => setActiveTab(tab)}
                 className={cn(
-                  "inline-flex h-7 min-w-0 items-center gap-1.5 rounded px-2 text-xs font-semibold transition-colors",
+                  "inline-flex h-7 min-w-0 items-center rounded text-xs font-semibold transition-colors",
                   activeTab === tab
                     ? "bg-secondary text-foreground"
                     : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
                 )}
-                aria-pressed={activeTab === tab}
+                role="group"
+                aria-label={`${meta.label} tab`}
               >
-                <meta.Icon className="size-3.5" />
-                <span className="truncate">{meta.label}</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => closeTab(tab)}
+                  className="group/close relative ml-1 inline-flex size-5 shrink-0 items-center justify-center rounded transition-colors hover:bg-background/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  aria-label={`Close ${meta.label} tab`}
+                  title={`Close ${meta.label}`}
+                >
+                  <meta.Icon className="size-3.5 transition-opacity group-hover/close:opacity-0 group-focus-visible/close:opacity-0" />
+                  <X className="absolute size-3.5 opacity-0 transition-opacity group-hover/close:opacity-100 group-focus-visible/close:opacity-100" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab(tab)}
+                  className="min-w-0 rounded py-1 pl-0.5 pr-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  aria-pressed={activeTab === tab}
+                >
+                  <span className="block truncate">{meta.label}</span>
+                </button>
+              </div>
             );
           })}
           <div className="relative">
@@ -148,8 +174,10 @@ export function Worklog({
         <WorklogPanel messages={messages} onApproval={onApproval} />
       ) : activeTab === "plans" ? (
         <PlansPanel messages={messages} />
-      ) : (
+      ) : activeTab === "todos" ? (
         <TodosPanel messages={messages} />
+      ) : (
+        <EmptyTabsPanel />
       )}
     </aside>
   );
@@ -167,6 +195,14 @@ const SIDEBAR_TABS = [
 
 function tabMeta(tab: SidebarTab) {
   return SIDEBAR_TABS.find((item) => item.id === tab) ?? SIDEBAR_TABS[0];
+}
+
+function EmptyTabsPanel() {
+  return (
+    <div className="flex flex-1 items-center justify-center px-4 text-center text-xs text-muted-foreground">
+      Add a sidebar tab to view worklog activity, generated plans, or todos.
+    </div>
+  );
 }
 
 function WorklogPanel({
