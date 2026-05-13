@@ -154,6 +154,12 @@ export type ToolTraceEntry = {
   activity?: AntonActivityEvent;
 };
 
+export type AntonToolCallStateSnapshot = {
+  toolCallId: string;
+  status: "running" | "completed" | "error" | "denied";
+  approvalDecision?: "pending" | "approved" | "denied" | null;
+};
+
 export type ApprovalMetadata = {
   title: string;
   summary: string;
@@ -273,6 +279,27 @@ export function hasPendingToolApproval(message: AntonUIMessage): boolean {
   return getToolTraceEntries([message]).some(
     (entry) => entry.state === "approval-requested",
   );
+}
+
+export function hasFailedToolOutput(message: AntonUIMessage): boolean {
+  return getToolTraceEntries([message]).some((entry) => {
+    return entry.state === "output-error" || isFailedToolOutput(entry.output);
+  });
+}
+
+export function failedToolOutputMessage(output: unknown): string | undefined {
+  if (!isRecord(output)) return undefined;
+  const error = output.error;
+  if (typeof error === "string" && error.trim().length > 0) return error.trim();
+  const failedReason = output.failedReason;
+  if (typeof failedReason === "string" && failedReason.trim().length > 0) {
+    return failedReason.trim();
+  }
+  return undefined;
+}
+
+function isFailedToolOutput(output: unknown): boolean {
+  return isRecord(output) && output.ok === false;
 }
 
 function stringArray(value: unknown): string[] {
@@ -518,6 +545,13 @@ export function hydrateMessagesWithRunState<UI extends AntonUIMessage>(
   const metricsHydrated = hydrateMessagesWithRunMetrics(messages, runs);
   const runsById = new Map(runs.map((run) => [run.id, run]));
   if (runsById.size === 0) return metricsHydrated;
+  const referencedRunIds = new Set(messages.flatMap(messageRunIds));
+  const orphanRunIds = Array.from(runsById.keys()).filter(
+    (runId) => !referencedRunIds.has(runId),
+  );
+  const orphanTargetMessageId = messages.findLast(
+    (candidate) => candidate.role === "assistant",
+  )?.id;
 
   const eventsByRunId = new Map<string, AntonActivitySnapshot[]>();
   for (const event of events) {
@@ -530,7 +564,10 @@ export function hydrateMessagesWithRunState<UI extends AntonUIMessage>(
   }
 
   return metricsHydrated.map((message) => {
-    const runIds = messageRunIds(message);
+    const runIds = [
+      ...messageRunIds(message),
+      ...(message.id === orphanTargetMessageId ? orphanRunIds : []),
+    ];
     if (runIds.length === 0) return message;
 
     const durableRunParts = runIds
@@ -567,6 +604,112 @@ export function hydrateMessagesWithRunState<UI extends AntonUIMessage>(
   });
 }
 
+export function collapseAssistantContinuationMessages<UI extends AntonUIMessage>(
+  messages: UI[],
+): UI[] {
+  const collapsed: UI[] = [];
+
+  for (const message of messages) {
+    const previous = collapsed.at(-1);
+    if (
+      previous?.role === "assistant" &&
+      message.role === "assistant" &&
+      assistantMessageContainsPrefix(previous, message)
+    ) {
+      collapsed[collapsed.length - 1] = message;
+      continue;
+    }
+    collapsed.push(message);
+  }
+
+  return collapsed.length === messages.length ? messages : collapsed;
+}
+
+export function assistantMessageContainsPrefix(
+  previous: AntonUIMessage,
+  next: AntonUIMessage,
+): boolean {
+  const previousParts = nonDurablePartSignatures(previous);
+  const nextParts = nonDurablePartSignatures(next);
+  if (previousParts.length === 0 || previousParts.length >= nextParts.length) {
+    return false;
+  }
+
+  return previousParts.every((signature, index) => {
+    return signature === nextParts[index];
+  });
+}
+
+export function hydrateMessagesWithToolCallState<UI extends AntonUIMessage>(
+  messages: UI[],
+  toolCallStates: AntonToolCallStateSnapshot[],
+): UI[] {
+  const effectiveStates = effectiveStatesByToolCallId(toolCallStates);
+  if (effectiveStates.size === 0) return messages;
+
+  return messages.map((message) => {
+    let changed = false;
+    const parts = message.parts.map((part) => {
+      if (!isToolUIPart(part)) return part;
+      const toolCallId =
+        "toolCallId" in part && typeof part.toolCallId === "string"
+          ? part.toolCallId
+          : undefined;
+      if (!toolCallId) return part;
+      const state = effectiveStates.get(toolCallId);
+      if (!state || !("state" in part) || part.state === state) return part;
+      changed = true;
+      return { ...part, state };
+    }) as UI["parts"];
+
+    return changed ? { ...message, parts } : message;
+  });
+}
+
+function effectiveStatesByToolCallId(
+  toolCallStates: AntonToolCallStateSnapshot[],
+): Map<string, ToolState> {
+  const byToolCallId = new Map<
+    string,
+    {
+      completed: boolean;
+      error: boolean;
+      denied: boolean;
+      approved: boolean;
+    }
+  >();
+
+  for (const toolCall of toolCallStates) {
+    const current = byToolCallId.get(toolCall.toolCallId) ?? {
+      completed: false,
+      error: false,
+      denied: false,
+      approved: false,
+    };
+    current.completed ||= toolCall.status === "completed";
+    current.error ||= toolCall.status === "error";
+    current.denied ||=
+      toolCall.status === "denied" || toolCall.approvalDecision === "denied";
+    current.approved ||=
+      toolCall.approvalDecision === "approved" || toolCall.status === "completed";
+    byToolCallId.set(toolCall.toolCallId, current);
+  }
+
+  const effectiveStates = new Map<string, ToolState>();
+  for (const [toolCallId, state] of byToolCallId.entries()) {
+    if (state.completed) {
+      effectiveStates.set(toolCallId, "output-available");
+    } else if (state.error) {
+      effectiveStates.set(toolCallId, "output-error");
+    } else if (state.denied) {
+      effectiveStates.set(toolCallId, "output-denied");
+    } else if (state.approved) {
+      effectiveStates.set(toolCallId, "approval-responded");
+    }
+  }
+  return effectiveStates;
+}
+
 function hydrateMetricRecord<T>(
   value: T,
   runsById: Map<string, AntonRunMetricSnapshot>,
@@ -586,9 +729,38 @@ function hydrateMetricRecord<T>(
     next ??= { ...record };
     next[key] = metric;
   }
+  for (const key of ["durationMs", "stepCount"] as const) {
+    const metric = run[key];
+    if (typeof metric !== "number" || !Number.isFinite(metric)) continue;
+    if (record[key] === metric) continue;
+    next ??= { ...record };
+    next[key] = metric;
+  }
+  if (typeof run.model === "string" && record.model !== run.model) {
+    next ??= { ...record };
+    next.model = run.model;
+  }
+  if (run.status && record.status !== run.status) {
+    next ??= { ...record };
+    next.status = run.status;
+  }
+  const startedAt = toMillis(run.startedAt);
+  if (startedAt !== undefined && record.startedAt !== startedAt) {
+    next ??= { ...record };
+    next.startedAt = startedAt;
+  }
+  const finishedAt = toMillis(run.finishedAt);
+  if (finishedAt !== undefined && record.finishedAt !== finishedAt) {
+    next ??= { ...record };
+    next.finishedAt = finishedAt;
+  }
   if (typeof run.finishReason === "string" && record.finishReason !== run.finishReason) {
     next ??= { ...record };
     next.finishReason = run.finishReason;
+  }
+  if (run.finishReason === "max_step_limit" && record.maxStepLimitReached !== true) {
+    next ??= { ...record };
+    next.maxStepLimitReached = true;
   }
 
   return (next ?? value) as T;
@@ -602,6 +774,41 @@ function messageRunIds(message: AntonUIMessage): string[] {
     if (isRunDataPart(part)) ids.add(part.data.runId);
   }
   return Array.from(ids);
+}
+
+function nonDurablePartSignatures(message: AntonUIMessage): string[] {
+  return message.parts
+    .filter((part) => !isRunDataPart(part) && !isActivityDataPart(part))
+    .map(stablePartSignature);
+}
+
+function stablePartSignature(part: AntonUIMessage["parts"][number]): string {
+  const record = part as Record<string, unknown>;
+  const signature: Record<string, unknown> = { type: part.type };
+
+  if (part.type === "text" || part.type === "reasoning") {
+    signature.text = part.text;
+  }
+  if ("toolCallId" in part && typeof part.toolCallId === "string") {
+    signature.toolCallId = part.toolCallId;
+  } else if ("state" in part && typeof part.state === "string") {
+    signature.state = part.state;
+  }
+  if (isTodosDataPart(part)) {
+    signature.id = part.id;
+    signature.runId = part.data.runId;
+    signature.updatedAt = part.data.updatedAt;
+    signature.items = part.data.items.map((item) => [
+      item.id,
+      item.text,
+      item.status,
+    ]);
+  }
+  if (part.type !== "text" && part.type !== "reasoning" && !isTodosDataPart(part)) {
+    signature.id = typeof record.id === "string" ? record.id : undefined;
+  }
+
+  return JSON.stringify(signature);
 }
 
 function runDataFromSnapshot(run: AntonRunMetricSnapshot): AntonRunData {
@@ -723,7 +930,7 @@ export function getActivityEvents(
 export function getToolTraceEntries(
   messages: AntonUIMessage[],
 ): ToolTraceEntry[] {
-  const entries: ToolTraceEntry[] = [];
+  const entriesById = new Map<string, ToolTraceEntry>();
   for (const message of messages) {
     const activityByToolCallId = new Map<string, AntonActivityEvent>();
     for (const activity of getActivityEvents(message)) {
@@ -739,8 +946,9 @@ export function getToolTraceEntries(
         "toolCallId" in part && typeof part.toolCallId === "string"
           ? part.toolCallId
           : undefined;
-      entries.push({
-        id: toolCallId ?? `${message.id}:${index}`,
+      const id = toolCallId ?? `${message.id}:${index}`;
+      const entry = {
+        id,
         sourceMessageId: message.id,
         name: String(getToolName(part)),
         state,
@@ -756,10 +964,12 @@ export function getToolTraceEntries(
         activity: toolCallId
           ? activityByToolCallId.get(toolCallId)
           : undefined,
-      });
+      };
+      if (entriesById.has(id)) entriesById.delete(id);
+      entriesById.set(id, entry);
     });
   }
-  return entries;
+  return Array.from(entriesById.values());
 }
 
 export function getReasoningTexts(message: AntonUIMessage): string[] {
@@ -795,10 +1005,75 @@ export function isTodosDataPart(
 
 export function getTodoSnapshots(message: AntonUIMessage): AntonTodoSnapshot[] {
   const snapshots: AntonTodoSnapshot[] = [];
-  for (const part of message.parts) {
-    if (isTodosDataPart(part)) snapshots.push(part.data);
+  const firstFailedToolIndex = message.parts.findIndex(isFailedToolPart);
+  const firstFailedToolSequence = firstFailedToolActivitySequence(message);
+  for (const [index, part] of message.parts.entries()) {
+    if (isTodosDataPart(part)) {
+      if (firstFailedToolSequence !== undefined) continue;
+      if (firstFailedToolIndex !== -1 && index > firstFailedToolIndex) continue;
+      snapshots.push(part.data);
+    }
+    if (isActivityDataPart(part)) {
+      if (
+        firstFailedToolSequence !== undefined &&
+        part.data.sequence > firstFailedToolSequence
+      ) {
+        continue;
+      }
+      const todos = todoSnapshotFromUnknown(part.data.details?.todos);
+      if (todos) snapshots.push(todos);
+    }
   }
   return snapshots.sort((a, b) => a.updatedAt - b.updatedAt);
+}
+
+function isFailedToolPart(part: AntonUIMessage["parts"][number]): boolean {
+  if (!isToolUIPart(part)) return false;
+  return (
+    ("state" in part && part.state === "output-error") ||
+    ("output" in part && isFailedToolOutput(part.output))
+  );
+}
+
+function firstFailedToolActivitySequence(
+  message: AntonUIMessage,
+): number | undefined {
+  return getActivityEvents(message)
+    .filter((event) => event.kind === "tool" && event.status === "error")
+    .sort((a, b) => a.sequence - b.sequence)
+    .at(0)?.sequence;
+}
+
+function todoSnapshotFromUnknown(value: unknown): AntonTodoSnapshot | undefined {
+  if (!isRecord(value)) return undefined;
+  const runId = value.runId;
+  const updatedAt = value.updatedAt;
+  const items = value.items;
+  if (
+    typeof runId !== "string" ||
+    typeof updatedAt !== "number" ||
+    !Array.isArray(items)
+  ) {
+    return undefined;
+  }
+  const parsedItems = items.flatMap((item): AntonTodoItem[] => {
+    if (!isRecord(item)) return [];
+    const id = item.id;
+    const text = item.text;
+    const status = item.status;
+    if (
+      typeof id !== "string" ||
+      typeof text !== "string" ||
+      (status !== "pending" &&
+        status !== "in_progress" &&
+        status !== "completed")
+    ) {
+      return [];
+    }
+    return [{ id, text, status }];
+  });
+  if (parsedItems.length === 0) return undefined;
+  return { runId, updatedAt, items: parsedItems };
 }
 
 export function getLatestTodoSnapshot(

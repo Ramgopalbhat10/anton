@@ -2,7 +2,12 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { UIMessage } from "ai";
 import { randomUUID } from "node:crypto";
 
-import { hydrateMessagesWithRunState, type AntonUIMessage } from "@/src/lib/trace";
+import {
+  collapseAssistantContinuationMessages,
+  hydrateMessagesWithRunState,
+  hydrateMessagesWithToolCallState,
+  type AntonUIMessage,
+} from "@/src/lib/trace";
 import { db } from "./client";
 import {
   githubInstallations,
@@ -373,6 +378,9 @@ export function loadMessages<UI extends UIMessage>(
       metadata: (row.metadata ?? undefined) as UI["metadata"],
     } as UI;
   });
+  const collapsed = collapseAssistantContinuationMessages(
+    loaded as unknown as AntonUIMessage[],
+  );
 
   const sessionRuns = db
     .select()
@@ -396,10 +404,34 @@ export function loadMessages<UI extends UIMessage>(
           .orderBy(asc(runEvents.runId), asc(runEvents.sequence))
           .all();
 
-  return hydrateMessagesWithRunState(
-    loaded as unknown as AntonUIMessage[],
+  const sessionToolCalls =
+    sessionRuns.length === 0
+      ? []
+      : db
+          .select({
+            toolCallId: toolCalls.toolCallId,
+            status: toolCalls.status,
+            approvalDecision: toolCalls.approvalDecision,
+          })
+          .from(toolCalls)
+          .where(
+            inArray(
+              toolCalls.runId,
+              sessionRuns.map((run) => run.id),
+            ),
+          )
+          .orderBy(asc(toolCalls.startedAt))
+          .all();
+
+  const withRunState = hydrateMessagesWithRunState(
+    collapsed,
     sessionRuns,
     sessionRunEvents,
+  );
+
+  return hydrateMessagesWithToolCallState(
+    withRunState,
+    sessionToolCalls,
   ) as unknown as UI[];
 }
 
@@ -420,21 +452,59 @@ export function getActiveRunForSession(
 export function getMessagePersistenceConflict<UI extends UIMessage>(
   sessionId: string,
   incoming: UI[],
-  options: { mutableTailCount?: number } = {},
+  options: {
+    mutableTailCount?: number;
+    allowExtraAssistantTail?: boolean;
+  } = {},
 ): { storedCount: number; incomingCount: number } | undefined {
-  const stored = storedMessageIds(sessionId);
+  const stored = storedMessagesForConflict(sessionId);
   if (stored.length > incoming.length) {
+    if (
+      incoming.length === 0 ||
+      !options.allowExtraAssistantTail ||
+      stored
+        .slice(incoming.length)
+        .some((message) => message.role !== "assistant")
+    ) {
+      return { storedCount: stored.length, incomingCount: incoming.length };
+    }
+    const stableIncomingCount = Math.max(0, incoming.length - 1);
+    for (const [idx, storedMessage] of stored
+      .slice(0, stableIncomingCount)
+      .entries()) {
+      if (storedMessage.id !== messageId(incoming[idx], sessionId, idx)) {
+        return { storedCount: stored.length, incomingCount: incoming.length };
+      }
+    }
+    const incomingTailId = messageId(
+      incoming[incoming.length - 1],
+      sessionId,
+      incoming.length - 1,
+    );
+    const storedTail = stored[incoming.length - 1];
+    const extraTail = stored.slice(incoming.length);
+    if (
+      storedTail?.id !== incomingTailId &&
+      extraTail.every((message) => message.id !== incomingTailId)
+    ) {
+      return { storedCount: stored.length, incomingCount: incoming.length };
+    }
+    return undefined;
+  }
+
+  const storedIds = stored.map((message) => message.id);
+  if (storedIds.length > incoming.length) {
     return { storedCount: stored.length, incomingCount: incoming.length };
   }
 
   const mutableTailCount = Math.min(
     options.mutableTailCount ?? 0,
-    stored.length,
+    storedIds.length,
     incoming.length,
   );
-  const stableCount = stored.length - mutableTailCount;
+  const stableCount = storedIds.length - mutableTailCount;
 
-  for (const [idx, storedId] of stored.slice(0, stableCount).entries()) {
+  for (const [idx, storedId] of storedIds.slice(0, stableCount).entries()) {
     if (storedId !== messageId(incoming[idx], sessionId, idx)) {
       return { storedCount: stored.length, incomingCount: incoming.length };
     }
@@ -446,6 +516,7 @@ export function getMessagePersistenceConflict<UI extends UIMessage>(
 export function saveMessagesIncrementally<UI extends UIMessage>(
   sessionId: string,
   incoming: UI[],
+  options: { pruneExtraAssistantTail?: boolean } = {},
 ): void {
   db.transaction((tx) => {
     const existing = tx
@@ -455,11 +526,8 @@ export function saveMessagesIncrementally<UI extends UIMessage>(
       .orderBy(asc(messages.createdAt))
       .all();
 
-    if (existing.length > incoming.length) {
-      throw new MessagePersistenceConflictError();
-    }
-
     const now = Date.now();
+    const existingById = new Map(existing.map((row) => [row.id, row]));
     for (const [idx, message] of incoming.entries()) {
       const id = messageId(message, sessionId, idx);
       const row = {
@@ -470,7 +538,9 @@ export function saveMessagesIncrementally<UI extends UIMessage>(
         metadata: (message.metadata ?? null) as unknown,
       };
 
-      const current = existing[idx];
+      const current = existing[idx]?.id === id
+        ? existing[idx]
+        : existingById.get(id);
       if (!current) {
         tx.insert(messages)
           .values({
@@ -479,10 +549,6 @@ export function saveMessagesIncrementally<UI extends UIMessage>(
           })
           .run();
         continue;
-      }
-
-      if (current.id !== id) {
-        throw new MessagePersistenceConflictError();
       }
 
       if (
@@ -501,6 +567,16 @@ export function saveMessagesIncrementally<UI extends UIMessage>(
         })
         .where(eq(messages.id, id))
         .run();
+    }
+
+    if (options.pruneExtraAssistantTail) {
+      const incomingIds = new Set(
+        incoming.map((message, index) => messageId(message, sessionId, index)),
+      );
+      for (const current of existing) {
+        if (incomingIds.has(current.id) || current.role !== "assistant") continue;
+        tx.delete(messages).where(eq(messages.id, current.id)).run();
+      }
     }
 
     tx
@@ -798,14 +874,29 @@ function messageId<UI extends UIMessage>(
   return `${sessionId}:message:${index}`;
 }
 
-function storedMessageIds(sessionId: string): string[] {
-  return db
-    .select({ id: messages.id })
+function storedMessagesForConflict(
+  sessionId: string,
+): { id: string; role: string }[] {
+  const stored = db
+    .select({
+      id: messages.id,
+      role: messages.role,
+      parts: messages.parts,
+      metadata: messages.metadata,
+    })
     .from(messages)
     .where(eq(messages.sessionId, sessionId))
     .orderBy(asc(messages.createdAt))
-    .all()
-    .map((row) => row.id);
+    .all();
+
+  return collapseAssistantContinuationMessages(
+    stored.map((message) => ({
+      id: message.id,
+      role: message.role as AntonUIMessage["role"],
+      parts: message.parts as AntonUIMessage["parts"],
+      metadata: (message.metadata ?? undefined) as AntonUIMessage["metadata"],
+    })),
+  ).map((message) => ({ id: message.id, role: message.role }));
 }
 
 function stableJson(value: unknown): string {

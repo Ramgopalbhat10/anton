@@ -94,6 +94,9 @@ function ChatSession({
     mode: "chat" | "plan";
     untrusted: McpPreflightServer[];
   } | null>(null);
+  const [streamingResponseMode, setStreamingResponseMode] = useState<
+    "chat" | "plan" | null
+  >(null);
   const effectiveProjectId = initialProjectId ?? activeProjectId;
   const project = useProjectSummary(effectiveProjectId);
 
@@ -121,6 +124,7 @@ function ChatSession({
     messages: initialMessages,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
     onFinish: ({ messages: finishedMessages, isAbort }) => {
+      setStreamingResponseMode(null);
       const visibleMessages = finishedMessages.filter(hasVisibleMessageParts);
       if (visibleMessages.length > 0) {
         lastNonEmptyMessagesRef.current = visibleMessages;
@@ -227,6 +231,10 @@ function ChatSession({
       setPendingMcpSend({ text, mode, untrusted: preflight.untrusted });
       return false;
     }
+    if (lastNonEmptyMessagesRef.current.length > 0) {
+      setMessageDisplayOverride(lastNonEmptyMessagesRef.current);
+    }
+    setStreamingResponseMode(mode);
     void sendMessage(
       { text },
       {
@@ -261,8 +269,11 @@ function ChatSession({
   };
 
   const streaming = status === "streaming" || status === "submitted";
-  const displayMessages =
-    messages.length > 0 ? messages : messageDisplayOverride ?? messages;
+  const displayMessages = displayMessagesForRender({
+    current: messages,
+    fallback: messageDisplayOverride,
+    streaming,
+  });
   const recoveringMessages =
     restoringPersistedMessages && displayMessages.length === 0;
   const headerTitle = initialTitle ?? (sessionIdProp ? "Session" : "New chat");
@@ -333,9 +344,10 @@ function ChatSession({
             messages={displayMessages}
             status={status}
             recovering={recoveringMessages}
+            streamingResponseMode={streaming ? streamingResponseMode : null}
             onApproval={addToolApprovalResponse}
-            onAcceptPlan={(plan) => {
-              void sendWithMcp(`Implement this accepted plan:\n\n${plan}`, "chat");
+            onAcceptPlan={() => {
+              void sendWithMcp("Implement plan", "chat");
             }}
             acceptPlanDisabled={streaming || !effectiveProjectId}
           />
@@ -466,4 +478,27 @@ function hasVisibleMessageParts(message: AntonUIMessage): boolean {
     }
     return part.type !== "step-start";
   });
+}
+
+function displayMessagesForRender({
+  current,
+  fallback,
+  streaming,
+}: {
+  current: AntonUIMessage[];
+  fallback: AntonUIMessage[] | null;
+  streaming: boolean;
+}): AntonUIMessage[] {
+  if (current.length === 0) return fallback ?? current;
+  if (!streaming || !fallback || fallback.length === 0) return current;
+
+  const currentIds = new Set(current.map((message) => message.id));
+  const fallbackIds = new Set(fallback.map((message) => message.id));
+  const retainedHistory = fallback.every((message) => currentIds.has(message.id));
+  if (retainedHistory) return current;
+
+  return [
+    ...fallback,
+    ...current.filter((message) => !fallbackIds.has(message.id)),
+  ];
 }

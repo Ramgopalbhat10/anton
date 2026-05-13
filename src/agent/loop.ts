@@ -109,6 +109,7 @@ function systemPrompt(
         ]
       : [
           "- For multi-step coding tasks, call `update_todos` with a full checklist snapshot before the first edit and update it as work progresses.",
+          "- If the user says to implement an accepted plan, use the immediately preceding plan response as the source of truth. Do not rediscover files already named in the plan; read only the target files needed to get fresh hashes before editing.",
           "- Before the first coding action in a project, call `inspect_project`, then summarize the relevant stack, scripts, git state, and local instructions in your progress text.",
           "- After editing files, run `verify` before the final answer when the project exposes typecheck, lint, or build scripts. If verification is skipped or fails, say exactly why.",
         ]),

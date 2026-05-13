@@ -26,12 +26,71 @@ export function applySingleFilePatch({
   patch: string;
   relPath: string;
 }): string {
-  const parsed = parseSingleFilePatch(patch, relPath);
-  const next = applyPatch(source, parsed, { fuzzFactor: 0 });
-  if (next === false) {
-    throw new Error("could not apply patch to current file content");
+  try {
+    const parsed = parseSingleFilePatch(patch, relPath);
+    const next = applyPatch(source, parsed, { fuzzFactor: 0 });
+    if (next === false) {
+      throw new Error("could not apply patch to current file content");
+    }
+    return next;
+  } catch (err) {
+    const fallback = applyExactHunkPatch(source, patch);
+    if (fallback !== undefined) return fallback;
+    throw err;
   }
-  return next;
+}
+
+function applyExactHunkPatch(
+  source: string,
+  patch: string,
+): string | undefined {
+  const rawLines = patch.replace(/\r\n/g, "\n").split("\n");
+  const hunkStart = rawLines.findIndex((line) => line.startsWith("@@"));
+  if (hunkStart === -1) return undefined;
+
+  const hunkLines = rawLines
+    .slice(hunkStart + 1)
+    .filter((line) => line.length > 0 && !line.startsWith("\\ No newline"));
+  if (hunkLines.length === 0) return undefined;
+  if (hunkLines.some((line) => !/^[-+ ]/.test(line))) return undefined;
+
+  const oldLines: string[] = [];
+  const newLines: string[] = [];
+  let removed = 0;
+  let added = 0;
+  for (const line of hunkLines) {
+    const prefix = line[0];
+    const content = line.slice(1);
+    if (prefix === " ") {
+      oldLines.push(content);
+      newLines.push(content);
+    } else if (prefix === "-") {
+      oldLines.push(content);
+      removed += 1;
+    } else if (prefix === "+") {
+      newLines.push(content);
+      added += 1;
+    }
+  }
+
+  if (removed === 0 && added === 0) return undefined;
+  const newline = source.includes("\r\n") ? "\r\n" : "\n";
+  const normalizedSource = source.replace(/\r\n/g, "\n");
+  const oldBlock = oldLines.join("\n");
+  const newBlock = newLines.join("\n");
+  if (!oldBlock) return undefined;
+
+  const first = normalizedSource.indexOf(oldBlock);
+  if (first === -1) return undefined;
+  if (normalizedSource.indexOf(oldBlock, first + oldBlock.length) !== -1) {
+    return undefined;
+  }
+
+  return (
+    normalizedSource.slice(0, first) +
+    newBlock +
+    normalizedSource.slice(first + oldBlock.length)
+  ).replace(/\n/g, newline);
 }
 
 function parseSingleFilePatch(

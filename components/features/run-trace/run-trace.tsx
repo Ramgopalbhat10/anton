@@ -14,6 +14,7 @@ import {
   getAssistantTextDisplay,
   getMessageRunDurationMs,
   getRunData,
+  hasFailedToolOutput,
   hasPendingToolApproval,
   type AntonUIMessage,
   type AntonRunStatus,
@@ -26,6 +27,7 @@ import {
   getTraceDurationMs,
   getTraceRows,
   groupTraceRowsByStep,
+  type TodoTraceDisplay,
 } from "./trace-data";
 import { StepGroupView, TraceRowView } from "./trace-rows";
 
@@ -48,20 +50,24 @@ function buildInterleaved(
 interface RunTraceAccordionProps {
   message: AntonUIMessage;
   status: "submitted" | "streaming" | "ready" | "error";
+  todoDisplay?: TodoTraceDisplay;
   onApproval: ChatAddToolApproveResponseFunction;
 }
 
 export function RunTraceAccordion({
   message,
   status,
+  todoDisplay,
   onApproval,
 }: RunTraceAccordionProps) {
   const run = getRunData(message);
   const metadata = message.metadata;
   const transportRunning = status === "submitted" || status === "streaming";
+  const hasToolFailure = hasFailedToolOutput(message);
   const runStatus = effectiveRunStatus(
     run?.status ?? metadata?.status,
     transportRunning,
+    hasToolFailure,
   );
   const isRunning = runStatus === "running";
 
@@ -77,7 +83,10 @@ export function RunTraceAccordion({
   const forceOpen = pendingApproval;
 
   const now = useTick(isRunning);
-  const rows = useMemo(() => getTraceRows(message), [message]);
+  const rows = useMemo(
+    () => getTraceRows(message, todoDisplay),
+    [message, todoDisplay],
+  );
   const stepGroups = useMemo(() => groupTraceRowsByStep(message, rows), [message, rows]);
   const modelTurnSummary = useMemo(() => getModelTurnSummary(message), [message]);
 
@@ -153,8 +162,10 @@ export function RunTraceAccordion({
 function effectiveRunStatus(
   status: AntonRunStatus | undefined,
   transportRunning: boolean,
+  hasToolFailure: boolean,
 ): AntonRunStatus {
   if (status === "running" && !transportRunning) return "aborted";
+  if (hasToolFailure) return "error";
   return status ?? "completed";
 }
 

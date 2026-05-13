@@ -47,6 +47,7 @@ import { DEFAULT_MODEL } from "@/src/lib/providers";
 import { isSupportedModelId } from "@/src/lib/models";
 import { redactText, redactValue } from "@/src/lib/redaction";
 import {
+  collapseAssistantContinuationMessages,
   getApprovalMetadata,
   getToolTraceEntries,
   isRunDataPart,
@@ -124,8 +125,10 @@ export async function POST(req: Request) {
     });
   } else {
     const incomingHistory = uiMessages.filter(hasSubstantiveHistoryParts);
+    const approvalContinuation = isToolApprovalContinuation(incomingHistory);
     const conflict = getMessagePersistenceConflict(sessionId, incomingHistory, {
-      mutableTailCount: isToolApprovalContinuation(incomingHistory) ? 1 : 0,
+      mutableTailCount: approvalContinuation ? 1 : 0,
+      allowExtraAssistantTail: approvalContinuation,
     });
     if (conflict) {
       return Response.json(
@@ -242,15 +245,24 @@ export async function POST(req: Request) {
       }
     },
     onFinish: ({ messages }) => {
-      const persistedMessages = messages
+      const visibleMessages = messages
         .map(stripDurableTraceParts)
         .filter(hasSubstantiveHistoryParts);
+      const persistedMessages =
+        collapseAssistantContinuationMessages(visibleMessages);
       if (persistedMessages.length === 0) return;
       persistFinalToolApprovalStates(runId, messages);
       try {
+        const approvalContinuation = isToolApprovalContinuation(persistedMessages);
+        const collapsedContinuations =
+          persistedMessages.length < visibleMessages.length;
         saveMessagesIncrementally<AntonUIMessage>(
           sessionId,
           redactValue(persistedMessages) as AntonUIMessage[],
+          {
+            pruneExtraAssistantTail:
+              approvalContinuation || collapsedContinuations,
+          },
         );
       } catch (err) {
         if (err instanceof MessagePersistenceConflictError) {
@@ -269,12 +281,43 @@ export async function POST(req: Request) {
 }
 
 function prepareMessagesForModel(messages: AntonUIMessage[]): AntonUIMessage[] {
+  const approvalContinuationMessageId = isToolApprovalContinuation(messages)
+    ? messages.at(-1)?.id
+    : undefined;
+
   return messages.flatMap((message) => {
-    const parts = message.parts
+    const parts = compactMessagePartsForModel(
+      message,
+      message.id === approvalContinuationMessageId,
+    )
       .filter(isModelContextPart)
       .map(stripProviderReplayMetadata);
     if (!parts.some(isSubstantiveModelContextPart)) return [];
     return [{ ...message, parts }];
+  });
+}
+
+function compactMessagePartsForModel(
+  message: AntonUIMessage,
+  approvalContinuation: boolean,
+): AntonUIMessage["parts"] {
+  if (message.role !== "assistant") return message.parts;
+  if (approvalContinuation) {
+    return message.parts.filter(isApprovalContinuationContextPart);
+  }
+
+  const lastToolIndex = message.parts.findLastIndex(isToolUIPart);
+  const finalTextParts = message.parts.filter((part, index) => {
+    return (
+      part.type === "text" &&
+      part.text.trim().length > 0 &&
+      (lastToolIndex === -1 || index > lastToolIndex)
+    );
+  });
+  if (finalTextParts.length > 0) return finalTextParts;
+
+  return message.parts.filter((part) => {
+    return part.type === "text" && part.text.trim().length > 0;
   });
 }
 
@@ -329,6 +372,16 @@ function hasSubstantiveHistoryParts(message: AntonUIMessage): boolean {
   });
 }
 
+function isApprovalContinuationContextPart(
+  part: AntonUIMessage["parts"][number],
+): boolean {
+  if (!("state" in part) || typeof part.state !== "string") return false;
+  return (
+    part.state === "approval-responded" ||
+    part.state === "output-denied"
+  );
+}
+
 function isToolApprovalContinuation(messages: AntonUIMessage[]): boolean {
   const last = messages.at(-1);
   if (!last || last.role !== "assistant") return false;
@@ -366,6 +419,7 @@ function createTraceWriter({
   let sequence = 0;
   let stepCount = 0;
   let finalized = false;
+  let failedToolCount = 0;
   const events = new Map<string, AntonActivityEvent>();
 
   const metadata = (
@@ -578,7 +632,9 @@ function createTraceWriter({
   ) => {
     if (finalized) return;
     finalized = true;
-    settleRunningEvents(status === "completed" ? "completed" : "error");
+    const effectiveStatus =
+      status === "completed" && failedToolCount > 0 ? "error" : status;
+    settleRunningEvents(effectiveStatus === "completed" ? "completed" : "error");
     const finishedAt = Date.now();
     const durationMs = Math.max(0, finishedAt - startedAt);
     const inputTokens = usage?.inputTokens;
@@ -588,8 +644,10 @@ function createTraceWriter({
     const costMetadata = openRouterCostMetadata(providerMetadata);
     const storedFinishReason = limits.maxStepLimitReached
       ? "max_step_limit"
+      : effectiveStatus === "error" && failedToolCount > 0
+        ? "tool_error"
       : finishReason;
-    writeRun(status, {
+    writeRun(effectiveStatus, {
       finishedAt,
       durationMs,
       inputTokens,
@@ -616,7 +674,7 @@ function createTraceWriter({
       });
     }
     updateRun(runId, {
-      status,
+      status: effectiveStatus,
       finishedAt: new Date(finishedAt),
       durationMs,
       inputTokens: inputTokens ?? null,
@@ -738,6 +796,7 @@ function createTraceWriter({
       const current = events.get(`${runId}:tool:${event.toolCallId}`);
       const error = toolError(event.success, event.output, event.error);
       const status = error ? "error" : "completed";
+      if (error) failedToolCount += 1;
       finishEvent(`${runId}:tool:${event.toolCallId}`, {
         status,
         label: toolLabel(event.toolName, event.input),
@@ -747,6 +806,7 @@ function createTraceWriter({
           toolName: event.toolName,
           stepNumber: event.stepNumber,
           success: event.success,
+          error,
         },
       });
       const currentApproval = structuredApprovalDetails(current?.details?.approval);

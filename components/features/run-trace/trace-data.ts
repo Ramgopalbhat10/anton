@@ -1,8 +1,11 @@
 import {
   getActivityEvents,
+  getAssistantTextDisplay,
   getRunData,
   getTodoSnapshots,
   getToolTraceEntries,
+  hasFailedToolOutput,
+  hasPendingToolApproval,
   isReasoningPart,
   isTodosDataPart,
   type AntonRunStatus,
@@ -54,7 +57,95 @@ export type TraceRow =
       tool: ToolTraceEntry;
     };
 
-export function getTraceRows(message: AntonUIMessage): TraceRow[] {
+export type TodoTraceDisplay = ReadonlyMap<string, AntonTodoSnapshot>;
+
+export function getTodoTraceDisplay(
+  messages: AntonUIMessage[],
+): TodoTraceDisplay {
+  const displayByFirstPart = new Map<string, AntonTodoSnapshot>();
+  const turnTodos = new Map<
+    number,
+    {
+      firstPartKey: string;
+      latestSnapshot: AntonTodoSnapshot;
+      latestOrder: number;
+    }
+  >();
+  let userTurn = 0;
+
+  const updateTurnSnapshot = (
+    turn: number,
+    snapshot: AntonTodoSnapshot,
+    order: number,
+    firstPartKey?: string,
+  ) => {
+    const current = turnTodos.get(turn);
+    if (!current) {
+      if (!firstPartKey) return;
+      turnTodos.set(turn, {
+        firstPartKey,
+        latestSnapshot: snapshot,
+        latestOrder: order,
+      });
+      return;
+    }
+    if (
+      snapshot.updatedAt > current.latestSnapshot.updatedAt ||
+      (snapshot.updatedAt === current.latestSnapshot.updatedAt &&
+        order > current.latestOrder)
+    ) {
+      current.latestSnapshot = snapshot;
+      current.latestOrder = order;
+    }
+  };
+
+  messages.forEach((message, messageIndex) => {
+    if (message.role === "user") userTurn += 1;
+    const messageHasFailedTool = hasFailedToolOutput(message);
+    const firstTodoPartIndex = message.parts.findIndex(isTodosDataPart);
+    const firstTodoPartKey =
+      firstTodoPartIndex === -1
+        ? undefined
+        : todoPartKey(message, firstTodoPartIndex);
+    message.parts.forEach((part, partIndex) => {
+      if (!isTodosDataPart(part)) return;
+      if (messageHasFailedTool) return;
+      const order = messageIndex * 10_000 + partIndex;
+      updateTurnSnapshot(userTurn, part.data, order, todoPartKey(message, partIndex));
+    });
+    getTodoSnapshots(message).forEach((snapshot, snapshotIndex) => {
+      updateTurnSnapshot(
+        userTurn,
+        snapshot,
+        messageIndex * 10_000 + message.parts.length + snapshotIndex,
+        firstTodoPartKey,
+      );
+    });
+    const current = turnTodos.get(userTurn);
+    if (
+      current &&
+      hasOpenTodos(current.latestSnapshot) &&
+      isSuccessfulCompletionMessage(message)
+    ) {
+      updateTurnSnapshot(
+        userTurn,
+        completedTodoSnapshot(current.latestSnapshot, message),
+        messageIndex * 10_000 + message.parts.length + 1_000,
+      );
+    }
+  });
+
+  for (const item of turnTodos.values()) {
+    displayByFirstPart.set(item.firstPartKey, item.latestSnapshot);
+  }
+
+  return displayByFirstPart;
+}
+
+export function getTraceRows(
+  message: AntonUIMessage,
+  todoDisplay?: TodoTraceDisplay,
+): TraceRow[] {
   const activities = getActivityEvents(message);
   const running = (getRunData(message)?.status ?? message.metadata?.status) === "running";
   const reasoningActivities = activities.filter(
@@ -69,6 +160,10 @@ export function getTraceRows(message: AntonUIMessage): TraceRow[] {
       ? toolEntries.some((entry) => entry.id === toolCallIdForPart(part))
       : false,
   );
+  const latestToolPartIndexes = getLatestToolPartIndexes(message);
+  const latestTodoPartIndexes = todoDisplay
+    ? undefined
+    : getLatestTodoPartIndexes(message);
 
   message.parts.forEach((part, index) => {
     if (isReasoningPart(part)) {
@@ -103,17 +198,24 @@ export function getTraceRows(message: AntonUIMessage): TraceRow[] {
     }
 
     if (isTodosDataPart(part)) {
+      const todoSnapshot = todoDisplay
+        ? todoDisplay.get(todoPartKey(message, index))
+        : latestTodoPartIndexes?.has(index)
+          ? part.data
+          : undefined;
+      if (!todoSnapshot) return;
       rows.push({
         id: part.id ?? `${message.id}:todos:${index}`,
         order: index,
         kind: "todos",
-        snapshot: part.data,
+        snapshot: todoSnapshot,
       });
       return;
     }
 
     const toolCallId = toolCallIdForPart(part);
     if (!toolCallId) return;
+    if (!latestToolPartIndexes.has(index)) return;
     const tool = toolEntries.find((entry) => entry.id === toolCallId);
     if (!tool) return;
     if (tool.name === "update_todos") return;
@@ -138,6 +240,44 @@ export function getTraceRows(message: AntonUIMessage): TraceRow[] {
   }
 
   return rows.sort((a, b) => a.order - b.order);
+}
+
+function getLatestToolPartIndexes(message: AntonUIMessage): Set<number> {
+  const latestByToolCallId = new Map<string, number>();
+  message.parts.forEach((part, index) => {
+    const toolCallId = toolCallIdForPart(part);
+    if (!toolCallId) return;
+    latestByToolCallId.set(toolCallId, index);
+  });
+  return new Set(latestByToolCallId.values());
+}
+
+function getLatestTodoPartIndexes(message: AntonUIMessage): Set<number> {
+  const latestByRunId = new Map<
+    string,
+    { index: number; updatedAt: number }
+  >();
+
+  message.parts.forEach((part, index) => {
+    if (!isTodosDataPart(part)) return;
+    const current = latestByRunId.get(part.data.runId);
+    if (
+      !current ||
+      part.data.updatedAt > current.updatedAt ||
+      (part.data.updatedAt === current.updatedAt && index > current.index)
+    ) {
+      latestByRunId.set(part.data.runId, {
+        index,
+        updatedAt: part.data.updatedAt,
+      });
+    }
+  });
+
+  return new Set(Array.from(latestByRunId.values(), (item) => item.index));
+}
+
+function todoPartKey(message: AntonUIMessage, partIndex: number): string {
+  return `${message.id}:todos:${partIndex}`;
 }
 
 function eventHasTodos(event: AntonActivityEvent): boolean {
@@ -304,9 +444,70 @@ export function getModelTurnSummary(
 export function getSessionTodoSnapshots(
   messages: AntonUIMessage[],
 ): AntonTodoSnapshot[] {
-  return messages
-    .flatMap((message) => getTodoSnapshots(message))
-    .sort((a, b) => a.updatedAt - b.updatedAt);
+  const snapshots: AntonTodoSnapshot[] = [];
+  let latest: AntonTodoSnapshot | undefined;
+
+  for (const message of messages) {
+    for (const snapshot of getTodoSnapshots(message)) {
+      snapshots.push(snapshot);
+      if (
+        !latest ||
+        snapshot.updatedAt > latest.updatedAt ||
+        (snapshot.updatedAt === latest.updatedAt &&
+          snapshots.indexOf(snapshot) > snapshots.indexOf(latest))
+      ) {
+        latest = snapshot;
+      }
+    }
+
+    if (latest && hasOpenTodos(latest) && isSuccessfulCompletionMessage(message)) {
+      latest = completedTodoSnapshot(latest, message);
+      snapshots.push(latest);
+    }
+  }
+
+  return snapshots.sort((a, b) => a.updatedAt - b.updatedAt);
+}
+
+function hasOpenTodos(snapshot: AntonTodoSnapshot): boolean {
+  return snapshot.items.some((item) => item.status !== "completed");
+}
+
+function completedTodoSnapshot(
+  snapshot: AntonTodoSnapshot,
+  message: AntonUIMessage,
+): AntonTodoSnapshot {
+  const run = getRunData(message);
+  const finishedAt = run?.finishedAt ?? message.metadata?.finishedAt;
+  return {
+    runId: run?.runId ?? message.metadata?.runId ?? snapshot.runId,
+    items: snapshot.items.map((item) => ({
+      ...item,
+      status: "completed",
+    })),
+    updatedAt: Math.max(snapshot.updatedAt + 1, finishedAt ?? 0),
+  };
+}
+
+function isSuccessfulCompletionMessage(message: AntonUIMessage): boolean {
+  if (message.role !== "assistant") return false;
+  if (message.metadata?.responseKind === "plan") return false;
+  if (hasPendingToolApproval(message)) return false;
+  if (hasFailedToolOutput(message)) return false;
+  const runStatus = getRunData(message)?.status ?? message.metadata?.status;
+  if (runStatus === "running" || runStatus === "error" || runStatus === "aborted") {
+    return false;
+  }
+
+  const text = getAssistantTextDisplay(message).finalText.toLowerCase();
+  if (!text) return false;
+  const positiveCompletion =
+    /\b(complete|completed|done|passed|passes)\b/.test(text);
+  const negativeCompletion =
+    /\b(failed|fails|error|blocked|unable|cannot|couldn't|could not)\b/.test(
+      text,
+    );
+  return positiveCompletion && !negativeCompletion;
 }
 
 export function toolTitle(entry: ToolTraceEntry, runStatus?: AntonRunStatus): {

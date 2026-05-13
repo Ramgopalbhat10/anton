@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChatAddToolApproveResponseFunction } from "ai";
 import {
   ArrowDownToLine,
@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import {
+  failedToolOutputMessage,
   getAssistantTextDisplay,
   getRunData,
   getToolTraceEntries,
@@ -34,6 +35,7 @@ import {
   type ResponseMetrics,
 } from "./message-metrics";
 import { RunTraceAccordion } from "@/components/features/run-trace/run-trace";
+import { getTodoTraceDisplay } from "@/components/features/run-trace/trace-data";
 import {
   HoverCard,
   HoverCardContent,
@@ -44,6 +46,7 @@ interface MessageListProps {
   messages: AntonUIMessage[];
   status: "submitted" | "streaming" | "ready" | "error";
   recovering?: boolean;
+  streamingResponseMode?: "chat" | "plan" | null;
   onApproval: ChatAddToolApproveResponseFunction;
   onAcceptPlan: (plan: string) => void;
   acceptPlanDisabled?: boolean;
@@ -53,11 +56,13 @@ export function MessageList({
   messages,
   status,
   recovering = false,
+  streamingResponseMode = null,
   onApproval,
   onAcceptPlan,
   acceptPlanDisabled = false,
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const todoDisplay = useMemo(() => getTodoTraceDisplay(messages), [messages]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -74,9 +79,9 @@ export function MessageList({
     );
   }
 
-  const latestAssistantMessageId = messages.findLast(
-    (message) => message.role === "assistant",
-  )?.id;
+  const latestMessage = messages.at(-1);
+  const activeAssistantMessageId =
+    latestMessage?.role === "assistant" ? latestMessage.id : undefined;
 
   return (
     <div
@@ -88,7 +93,15 @@ export function MessageList({
           <MessageEvent
             key={message.id}
             message={message}
-            status={message.id === latestAssistantMessageId ? status : "ready"}
+            status={
+              message.id === activeAssistantMessageId ? status : "ready"
+            }
+            streamingResponseMode={
+              message.id === activeAssistantMessageId
+                ? streamingResponseMode
+                : null
+            }
+            todoDisplay={todoDisplay}
             onApproval={onApproval}
             onAcceptPlan={onAcceptPlan}
             acceptPlanDisabled={acceptPlanDisabled}
@@ -108,17 +121,25 @@ export function emptyMessageListText(recovering: boolean): string {
 function MessageEvent({
   message,
   status,
+  streamingResponseMode,
+  todoDisplay,
   onApproval,
   onAcceptPlan,
   acceptPlanDisabled,
 }: {
   message: AntonUIMessage;
   status: "submitted" | "streaming" | "ready" | "error";
+  streamingResponseMode: "chat" | "plan" | null;
+  todoDisplay: ReturnType<typeof getTodoTraceDisplay>;
   onApproval: ChatAddToolApproveResponseFunction;
   onAcceptPlan: (plan: string) => void;
   acceptPlanDisabled: boolean;
 }) {
   const isUser = message.role === "user";
+  const streaming = status === "submitted" || status === "streaming";
+  const responseKind =
+    message.metadata?.responseKind ??
+    (!isUser && streaming ? streamingResponseMode ?? undefined : undefined);
   const userText = message.parts
     .filter((p) => p.type === "text")
     .map((p) => (p as { text: string }).text)
@@ -127,14 +148,15 @@ function MessageEvent({
   const assistantText = !isUser
     ? getAssistantTextDisplay(message, {
         progressOnly:
-          message.metadata?.responseKind !== "plan" &&
-          (status === "submitted" || status === "streaming"),
+          responseKind !== "plan" && streaming,
       }).finalText
     : "";
   const pendingApproval = !isUser && hasPendingToolApproval(message);
+  const failedToolText = !isUser ? toolFailureFallbackText(message) : "";
   const assistantFinal = !isUser && isAssistantMessageFinal(message);
   const fallbackText = !isUser &&
     assistantText.length === 0 &&
+    failedToolText.length === 0 &&
     !pendingApproval &&
     assistantFinal
     ? toolResultFallbackText(message)
@@ -146,8 +168,21 @@ function MessageEvent({
     !isUser &&
     responseText.length > 0 &&
     !pendingApproval &&
+    failedToolText.length === 0 &&
     assistantFinal &&
-    message.metadata?.responseKind !== "plan";
+    responseKind !== "plan";
+  const showToolFailure =
+    !isUser &&
+    failedToolText.length > 0 &&
+    !pendingApproval &&
+    assistantFinal &&
+    responseKind !== "plan";
+  const showPlanCard =
+    !isUser &&
+    responseKind === "plan" &&
+    responseText.length > 0 &&
+    assistantFinal &&
+    !streaming;
 
   return (
     <div
@@ -168,6 +203,7 @@ function MessageEvent({
           <RunTraceAccordion
             message={message}
             status={status}
+            todoDisplay={todoDisplay}
             onApproval={onApproval}
           />
         )}
@@ -180,14 +216,18 @@ function MessageEvent({
               </div>
             );
           })
-        ) : message.metadata?.responseKind === "plan" &&
-          responseText.length > 0 ? (
+        ) : showPlanCard ? (
           <PlanMessageCard
             markdown={responseText}
             onAccept={onAcceptPlan}
             disabled={!assistantFinal || pendingApproval || acceptPlanDisabled}
           />
-        ) : responseText.length > 0 ? (
+        ) : showToolFailure ? (
+          <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            Tool failed: {failedToolText}
+          </div>
+        ) : responseKind === "plan" ? null
+        : responseText.length > 0 ? (
           <Markdown className="text-xs">{responseText}</Markdown>
         ) : null}
       </div>
@@ -267,6 +307,31 @@ function PlanMessageCard({
 function isAssistantMessageFinal(message: AntonUIMessage): boolean {
   const runStatus = getRunData(message)?.status ?? message.metadata?.status;
   return runStatus === undefined || runStatus !== "running";
+}
+
+function toolFailureFallbackText(message: AntonUIMessage): string {
+  const entries = getToolTraceEntries([message]);
+  const failed = entries.findLast((entry) => {
+    return (
+      entry.state === "output-error" ||
+      isFailedToolOutput(entry.output)
+    );
+  });
+  if (!failed) return "";
+  return (
+    failed.errorText ??
+    failedToolOutputMessage(failed.output) ??
+    `${failed.name} failed`
+  );
+}
+
+function isFailedToolOutput(output: unknown): boolean {
+  return (
+    typeof output === "object" &&
+    output !== null &&
+    "ok" in output &&
+    (output as { ok: unknown }).ok === false
+  );
 }
 
 function toolResultFallbackText(message: AntonUIMessage): string {
