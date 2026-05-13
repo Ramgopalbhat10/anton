@@ -126,7 +126,9 @@ function MessageEvent({
     .trim();
   const assistantText = !isUser
     ? getAssistantTextDisplay(message, {
-        progressOnly: status === "submitted" || status === "streaming",
+        progressOnly:
+          message.metadata?.responseKind !== "plan" &&
+          (status === "submitted" || status === "streaming"),
       }).finalText
     : "";
   const pendingApproval = !isUser && hasPendingToolApproval(message);
@@ -230,7 +232,10 @@ function PlanMessageCard({
             size="sm"
             variant="ghost"
             disabled={disabled}
-            onClick={() => setEditing((value) => !value)}
+            onClick={() => {
+              if (!editing) setDraft(markdown);
+              setEditing((value) => !value);
+            }}
           >
             <Pencil className="size-3.5" />
             {editing ? "Preview" : "Edit"}

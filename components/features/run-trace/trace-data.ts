@@ -62,6 +62,7 @@ export function getTraceRows(message: AntonUIMessage): TraceRow[] {
   );
   const toolEntries = getToolTraceEntries([message]);
   const rows: TraceRow[] = [];
+  const isPlanResponse = message.metadata?.responseKind === "plan";
   let reasoningIndex = 0;
   const lastToolIndex = message.parts.findLastIndex((part) =>
     toolCallIdForPart(part)
@@ -85,7 +86,11 @@ export function getTraceRows(message: AntonUIMessage): TraceRow[] {
       return;
     }
 
-    if (part.type === "text" && (running || index < lastToolIndex)) {
+    if (
+      part.type === "text" &&
+      !isPlanResponse &&
+      (running || index < lastToolIndex)
+    ) {
       const text = part.text.trim();
       if (!text) return;
       rows.push({

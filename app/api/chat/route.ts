@@ -117,7 +117,9 @@ export async function POST(req: Request) {
     });
   } else {
     const incomingHistory = uiMessages.filter(hasSubstantiveHistoryParts);
-    const conflict = getMessagePersistenceConflict(sessionId, incomingHistory);
+    const conflict = getMessagePersistenceConflict(sessionId, incomingHistory, {
+      mutableTailCount: isToolApprovalContinuation(incomingHistory) ? 1 : 0,
+    });
     if (conflict) {
       return Response.json(
         {
@@ -305,6 +307,15 @@ function hasSubstantiveHistoryParts(message: AntonUIMessage): boolean {
       return part.text.trim().length > 0;
     }
     return part.type !== "step-start";
+  });
+}
+
+function isToolApprovalContinuation(messages: AntonUIMessage[]): boolean {
+  const last = messages.at(-1);
+  if (!last || last.role !== "assistant") return false;
+  return last.parts.some((part) => {
+    if (!("state" in part) || typeof part.state !== "string") return false;
+    return part.state === "approval-responded";
   });
 }
 
