@@ -16,6 +16,7 @@ import {
   classifyBashCommand as classifyBashCommandByPolicy,
   type BashCommandClassification,
 } from "./command-policy";
+import { planVerification } from "./tools/verify";
 
 // Permission gate helpers for tool execution.
 //
@@ -175,6 +176,12 @@ export const NATIVE_TOOL_PERMISSION_METADATA = {
     ],
     true,
     "Runs a shell command with command-specific risk classification.",
+  ),
+  inspect_project: READ_ONLY,
+  verify: toolMetadata(
+    ["write", "long-running-process"],
+    true,
+    "Runs available package verification scripts in the workspace.",
   ),
   list_memory: READ_ONLY,
   remember: toolMetadata(
@@ -495,6 +502,18 @@ function buildNativeToolApprovalMetadata(
           "Lists matching file paths without reading file contents.",
         ],
       };
+    case "inspect_project":
+      return {
+        title: "Inspect active project",
+        summary: metadata.summary,
+        riskCategories: metadata.categories,
+        details: [
+          "Reads package.json, known root config files, and git status.",
+          "Does not read source file contents or modify workspace files.",
+        ],
+      };
+    case "verify":
+      return buildVerifyApproval(record, metadata, workspaceRoot);
     case "remember":
       return {
         title: "Create project memory",
@@ -584,6 +603,42 @@ function buildNativeToolApprovalMetadata(
         details: ["Runs this native Anton tool with the shown input."],
       };
   }
+}
+
+function buildVerifyApproval(
+  input: Record<string, unknown>,
+  metadata: ToolPermissionMetadata,
+  workspaceRoot: string | undefined,
+): ToolApprovalMetadata {
+  const targets = stringArrayValue(input.targets);
+  const plan = planVerification(
+    workspaceRoot ? workspaceRootLabel(workspaceRoot) : workspaceRoot,
+    {
+      targets: targets.filter(isVerificationTarget),
+    },
+  );
+  const commands = plan.ok
+    ? plan.steps
+        .map((step) =>
+          step.command
+            ? `${step.target}: ${step.command.join(" ")}`
+            : `${step.target}: skipped (${step.reason ?? "script unavailable"})`,
+        )
+        .join("; ")
+    : plan.error;
+
+  return {
+    title: "Run verification scripts",
+    summary: metadata.summary,
+    riskCategories: metadata.categories,
+    target: targets.length > 0 ? targets.join(", ") : "typecheck, lint, build",
+    details: [
+      `Targets: ${targets.length > 0 ? targets.join(", ") : "typecheck, lint, build"}.`,
+      `Commands: ${commands}.`,
+      `Timeout per command: ${numberValue(input.timeoutMs) ?? 120_000}ms.`,
+      "Runs package scripts directly through the detected package manager without shell interpolation.",
+    ],
+  };
 }
 
 function buildBashApproval(
@@ -886,6 +941,12 @@ function pathsDetail(value: unknown, workspaceRoot: string | undefined): string 
 function stringArrayValue(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === "string");
+}
+
+function isVerificationTarget(
+  value: string,
+): value is "typecheck" | "lint" | "build" {
+  return value === "typecheck" || value === "lint" || value === "build";
 }
 
 function buildEditFileDiffPreview(

@@ -93,15 +93,15 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 ## Phase 4: Agent Loop Quality
 
 - [✔️] Add structured todo/planning state for multi-step coding tasks.
-- [] Add explicit handling when the model reaches the max-step limit.
-- [] Add automatic verification policy after edits: detect package manager, run typecheck, lint, and build when appropriate.
-- [] Add stack/repo inspection summary before the first coding action in a project.
+- [✔️] Add explicit handling when the model reaches the max-step limit.
+- [✔️] Add automatic verification policy after edits: detect package manager, run typecheck, lint, and build when appropriate.
+- [✔️] Add stack/repo inspection summary before the first coding action in a project.
 - [] Add context budgeting with repo map, recent diff summary, selected file summaries, and transcript pruning.
-- [] Add model selection validation on the server; reject unsupported or disabled model IDs.
+- [✔️] Add model selection validation on the server; reject unsupported or disabled model IDs.
 - [] Add per-run token, cost, and step budgets.
 - [] Add resumable runs after tool approval, refresh, or network interruption.
-- [] Add better system prompts for coding workflow: inspect, plan, edit, verify, summarize.
-- [] Add final response structure that reports changed files, verification, and unresolved risks.
+- [✔️] Add better system prompts for coding workflow: inspect, plan, edit, verify, summarize.
+- [✔️] Add final response structure that reports changed files, verification, and unresolved risks.
 
 ## Phase 5: GitHub And Project Workflow
 

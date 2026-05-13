@@ -44,6 +44,7 @@ import {
   upsertRunEvent,
 } from "@/src/db/queries";
 import { DEFAULT_MODEL } from "@/src/lib/providers";
+import { isSupportedModelId } from "@/src/lib/models";
 import { redactText, redactValue } from "@/src/lib/redaction";
 import {
   getApprovalMetadata,
@@ -90,6 +91,12 @@ export async function POST(req: Request) {
   const mode = parsed.data.mode ?? "chat";
   const uiMessages = parsed.data.messages as AntonUIMessage[];
   const model = parsed.data.model ?? DEFAULT_MODEL;
+  if (!isSupportedModelId(model)) {
+    return Response.json(
+      { error: "unsupported model", model },
+      { status: 400 },
+    );
+  }
 
   const existing = getSession(sessionId);
   const projectId = existing?.projectId ?? parsed.data.projectId ?? null;
@@ -201,8 +208,20 @@ export async function POST(req: Request) {
           onStreamPart: (part) => trace.handleStreamPart(part),
           onAbort: () => trace.finalize("aborted"),
           onError: (error) => trace.fail(error),
-          onFinish: ({ totalUsage, finishReason, providerMetadata }) => {
-            trace.finalize("completed", totalUsage, providerMetadata, finishReason);
+          onFinish: ({
+            totalUsage,
+            finishReason,
+            providerMetadata,
+            maxSteps,
+            maxStepLimitReached,
+          }) => {
+            trace.finalize(
+              maxStepLimitReached ? "error" : "completed",
+              totalUsage,
+              providerMetadata,
+              finishReason,
+              { maxSteps, maxStepLimitReached },
+            );
             const delta = totalUsage.totalTokens;
             if (typeof delta === "number" && delta > 0) {
               addSessionTokens(sessionId, delta);
@@ -534,6 +553,8 @@ function createTraceWriter({
   const toolLabel = (name: string, input: unknown): string => {
     const summary = summarizeInput(input);
     if (name === "bash" && summary) return `Ran ${summary}`;
+    if (name === "inspect_project") return "Inspected project";
+    if (name === "verify") return "Ran verification";
     if (name === "read_file" && summary) return `Read ${summary}`;
     if (name === "read_dir" && summary) return `Listed ${summary}`;
     if (name === "stat" && summary) return `Inspected ${summary}`;
@@ -553,6 +574,7 @@ function createTraceWriter({
     usage?: LanguageModelUsage,
     providerMetadata?: ProviderMetadata,
     finishReason?: FinishReason,
+    limits: { maxSteps?: number; maxStepLimitReached?: boolean } = {},
   ) => {
     if (finalized) return;
     finalized = true;
@@ -564,6 +586,9 @@ function createTraceWriter({
     const totalTokens = usage?.totalTokens;
     const costUsd = openRouterCost(providerMetadata);
     const costMetadata = openRouterCostMetadata(providerMetadata);
+    const storedFinishReason = limits.maxStepLimitReached
+      ? "max_step_limit"
+      : finishReason;
     writeRun(status, {
       finishedAt,
       durationMs,
@@ -572,7 +597,24 @@ function createTraceWriter({
       totalTokens,
       costUsd,
       stepCount,
+      finishReason: storedFinishReason,
+      maxSteps: limits.maxSteps,
+      maxStepLimitReached: limits.maxStepLimitReached,
     });
+    if (limits.maxStepLimitReached) {
+      startEvent({
+        id: `${runId}:limit:${sequence + 1}`,
+        kind: "error",
+        status: "error",
+        label: "Max step limit reached",
+        summary: `Stopped after ${limits.maxSteps ?? stepCount} steps before the agent produced a final answer.`,
+        details: {
+          finishReason,
+          stepCount,
+          maxSteps: limits.maxSteps,
+        },
+      });
+    }
     updateRun(runId, {
       status,
       finishedAt: new Date(finishedAt),
@@ -583,7 +625,7 @@ function createTraceWriter({
       costUsd: costUsd ?? null,
       costMetadata,
       stepCount,
-      finishReason: finishReason ?? null,
+      finishReason: storedFinishReason ?? null,
     });
   };
 
