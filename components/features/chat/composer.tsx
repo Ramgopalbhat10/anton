@@ -8,6 +8,7 @@ import {
   GitBranch,
   Monitor,
   Plus,
+  ScrollText,
   ShieldCheck,
   ShieldOff,
   ShieldQuestion,
@@ -16,6 +17,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -32,6 +34,7 @@ import { ModelPicker } from "./model-picker";
 
 interface ComposerProps {
   onSend: (text: string) => boolean | Promise<boolean>;
+  onPlan: (text: string) => boolean | Promise<boolean>;
   onStop: () => void;
   disabled: boolean;
   streaming: boolean;
@@ -51,6 +54,7 @@ const MAX_HEIGHT = 44;
 
 export function Composer({
   onSend,
+  onPlan,
   onStop,
   disabled,
   streaming,
@@ -66,6 +70,7 @@ export function Composer({
 }: ComposerProps) {
   const [input, setInput] = useState("");
   const [mcpOpen, setMcpOpen] = useState(false);
+  const [planMode, setPlanMode] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useLayoutEffect(() => {
@@ -80,8 +85,12 @@ export function Composer({
   const submit = () => {
     const trimmed = input.trim();
     if (!trimmed || disabled) return;
-    void Promise.resolve(onSend(trimmed)).then((sent) => {
-      if (sent) setInput("");
+    const handler = planMode ? onPlan : onSend;
+    void Promise.resolve(handler(trimmed)).then((sent) => {
+      if (sent) {
+        setInput("");
+        setPlanMode(false);
+      }
     });
   };
 
@@ -108,7 +117,7 @@ export function Composer({
             onChange={(e) => setInput(e.target.value)}
             onInput={(e) => setInput(e.currentTarget.value)}
             onKeyDown={onKeyDown}
-            placeholder="Ask for follow-up changes"
+            placeholder={planMode ? "Ask Anton to plan the work" : "Ask for follow-up changes"}
             rows={1}
             className="field-sizing-fixed min-h-0 min-w-0 resize-none rounded-none border-0 bg-transparent p-0 font-mono text-xs leading-5 shadow-none placeholder:font-mono focus-visible:ring-0 dark:bg-transparent md:text-xs"
             style={{ minHeight: MIN_HEIGHT, maxHeight: MAX_HEIGHT }}
@@ -118,11 +127,30 @@ export function Composer({
               <Button
                 type="button"
                 variant="ghost"
-                size="icon-xs"
+                size="xs"
+                className="h-5 px-1.5 text-[11px]"
                 disabled={disabled}
                 aria-label="Add context"
               >
                 <Plus />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                className={cn(
+                  "h-5 px-1.5 text-[11px]",
+                  planMode
+                    ? "bg-primary/15 text-primary ring-1 ring-primary/30 hover:bg-primary/20"
+                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                )}
+                disabled={disabled}
+                onClick={() => setPlanMode((active) => !active)}
+                aria-pressed={planMode}
+                aria-label={planMode ? "Disable plan mode" : "Enable plan mode"}
+              >
+                <ScrollText />
+                Plan
               </Button>
               <PermissionsDropdown
                 value={permissionMode}

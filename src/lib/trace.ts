@@ -26,6 +26,7 @@ export type AntonActivityStatus =
 
 export type AntonMessageMetadata = {
   runId?: string;
+  responseKind?: "plan";
   model?: string;
   status?: AntonRunStatus;
   startedAt?: number;
@@ -99,9 +100,24 @@ export type AntonActivityEvent = {
   details?: Record<string, unknown>;
 };
 
+export type AntonTodoStatus = "pending" | "in_progress" | "completed";
+
+export type AntonTodoItem = {
+  id: string;
+  text: string;
+  status: AntonTodoStatus;
+};
+
+export type AntonTodoSnapshot = {
+  runId: string;
+  items: AntonTodoItem[];
+  updatedAt: number;
+};
+
 export type AntonDataParts = {
   run: AntonRunData;
   activity: AntonActivityEvent;
+  todos: AntonTodoSnapshot;
 };
 
 export type AntonUIMessage = UIMessage<
@@ -754,4 +770,34 @@ export function isActivityDataPart(
   part: AntonUIMessage["parts"][number],
 ): part is Extract<AntonUIMessage["parts"][number], { type: "data-activity" }> {
   return isDataUIPart(part) && part.type === "data-activity";
+}
+
+export function isTodosDataPart(
+  part: AntonUIMessage["parts"][number],
+): part is Extract<AntonUIMessage["parts"][number], { type: "data-todos" }> {
+  return isDataUIPart(part) && part.type === "data-todos";
+}
+
+export function getTodoSnapshots(message: AntonUIMessage): AntonTodoSnapshot[] {
+  const snapshots: AntonTodoSnapshot[] = [];
+  for (const part of message.parts) {
+    if (isTodosDataPart(part)) snapshots.push(part.data);
+  }
+  return snapshots.sort((a, b) => a.updatedAt - b.updatedAt);
+}
+
+export function getLatestTodoSnapshot(
+  messages: AntonUIMessage[],
+): AntonTodoSnapshot | undefined {
+  return messages
+    .flatMap((message) => getTodoSnapshots(message))
+    .sort((a, b) => a.updatedAt - b.updatedAt)
+    .at(-1);
+}
+
+export function getPlanMessages(messages: AntonUIMessage[]): AntonUIMessage[] {
+  return messages.filter(
+    (message) =>
+      message.role === "assistant" && message.metadata?.responseKind === "plan",
+  );
 }

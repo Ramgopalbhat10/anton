@@ -420,13 +420,21 @@ export function getActiveRunForSession(
 export function getMessagePersistenceConflict<UI extends UIMessage>(
   sessionId: string,
   incoming: UI[],
+  options: { mutableTailCount?: number } = {},
 ): { storedCount: number; incomingCount: number } | undefined {
   const stored = storedMessageIds(sessionId);
   if (stored.length > incoming.length) {
     return { storedCount: stored.length, incomingCount: incoming.length };
   }
 
-  for (const [idx, storedId] of stored.entries()) {
+  const mutableTailCount = Math.min(
+    options.mutableTailCount ?? 0,
+    stored.length,
+    incoming.length,
+  );
+  const stableCount = stored.length - mutableTailCount;
+
+  for (const [idx, storedId] of stored.slice(0, stableCount).entries()) {
     if (storedId !== messageId(incoming[idx], sessionId, idx)) {
       return { storedCount: stored.length, incomingCount: incoming.length };
     }

@@ -1,10 +1,13 @@
 import {
   getActivityEvents,
   getRunData,
+  getTodoSnapshots,
   getToolTraceEntries,
   isReasoningPart,
+  isTodosDataPart,
   type AntonRunStatus,
   type AntonActivityEvent,
+  type AntonTodoSnapshot,
   type AntonUIMessage,
   type ToolTraceEntry,
 } from "@/src/lib/trace";
@@ -41,6 +44,12 @@ export type TraceRow =
   | {
       id: string;
       order: number;
+      kind: "todos";
+      snapshot: AntonTodoSnapshot;
+    }
+  | {
+      id: string;
+      order: number;
       kind: "tool";
       tool: ToolTraceEntry;
     };
@@ -53,6 +62,7 @@ export function getTraceRows(message: AntonUIMessage): TraceRow[] {
   );
   const toolEntries = getToolTraceEntries([message]);
   const rows: TraceRow[] = [];
+  const isPlanResponse = message.metadata?.responseKind === "plan";
   let reasoningIndex = 0;
   const lastToolIndex = message.parts.findLastIndex((part) =>
     toolCallIdForPart(part)
@@ -76,7 +86,11 @@ export function getTraceRows(message: AntonUIMessage): TraceRow[] {
       return;
     }
 
-    if (part.type === "text" && (running || index < lastToolIndex)) {
+    if (
+      part.type === "text" &&
+      !isPlanResponse &&
+      (running || index < lastToolIndex)
+    ) {
       const text = part.text.trim();
       if (!text) return;
       rows.push({
@@ -88,10 +102,21 @@ export function getTraceRows(message: AntonUIMessage): TraceRow[] {
       return;
     }
 
+    if (isTodosDataPart(part)) {
+      rows.push({
+        id: part.id ?? `${message.id}:todos:${index}`,
+        order: index,
+        kind: "todos",
+        snapshot: part.data,
+      });
+      return;
+    }
+
     const toolCallId = toolCallIdForPart(part);
     if (!toolCallId) return;
     const tool = toolEntries.find((entry) => entry.id === toolCallId);
     if (!tool) return;
+    if (tool.name === "update_todos") return;
     rows.push({
       id: tool.id,
       order: index,
@@ -103,6 +128,7 @@ export function getTraceRows(message: AntonUIMessage): TraceRow[] {
   for (const event of activities) {
     if (event.kind === "tool" || event.kind === "reasoning") continue;
     if (event.kind === "step") continue;
+    if (event.kind === "progress" && eventHasTodos(event)) continue;
     rows.push({
       id: event.id,
       order: 10_000 + event.sequence,
@@ -112,6 +138,14 @@ export function getTraceRows(message: AntonUIMessage): TraceRow[] {
   }
 
   return rows.sort((a, b) => a.order - b.order);
+}
+
+function eventHasTodos(event: AntonActivityEvent): boolean {
+  return (
+    typeof event.details === "object" &&
+    event.details !== null &&
+    "todos" in event.details
+  );
 }
 
 function toolCallIdForPart(
@@ -242,6 +276,7 @@ export function getTraceDurationMs(rows: TraceRow[]): number | undefined {
       if (row.kind === "activity") return row.event.durationMs;
       if (row.kind === "reasoning") return row.event?.durationMs;
       if (row.kind === "progress") return undefined;
+      if (row.kind === "todos") return undefined;
       return row.tool.activity?.durationMs;
     })
     .filter((duration): duration is number => duration !== undefined);
@@ -264,6 +299,14 @@ export function getModelTurnSummary(
         : `${index + 1} ${formatDuration(duration)}`;
     })
     .join(", ")}`;
+}
+
+export function getSessionTodoSnapshots(
+  messages: AntonUIMessage[],
+): AntonTodoSnapshot[] {
+  return messages
+    .flatMap((message) => getTodoSnapshots(message))
+    .sort((a, b) => a.updatedAt - b.updatedAt);
 }
 
 export function toolTitle(entry: ToolTraceEntry, runStatus?: AntonRunStatus): {

@@ -57,6 +57,8 @@ import type {
   AntonMessageMetadata,
   AntonRunData,
   AntonRunStatus,
+  AntonTodoItem,
+  AntonTodoSnapshot,
   AntonUIMessage,
 } from "@/src/lib/trace";
 
@@ -70,6 +72,7 @@ const bodySchema = z.object({
   model: z.string().min(1).optional(),
   permissionMode: z.enum(["default", "auto-review", "full-access"]).optional(),
   enabledMcpServerIds: z.array(z.string().min(1)).optional(),
+  mode: z.enum(["chat", "plan"]).optional(),
   messages: z.array(z.unknown()).min(1),
 });
 
@@ -84,6 +87,7 @@ export async function POST(req: Request) {
   }
 
   const { sessionId } = parsed.data;
+  const mode = parsed.data.mode ?? "chat";
   const uiMessages = parsed.data.messages as AntonUIMessage[];
   const model = parsed.data.model ?? DEFAULT_MODEL;
 
@@ -113,7 +117,9 @@ export async function POST(req: Request) {
     });
   } else {
     const incomingHistory = uiMessages.filter(hasSubstantiveHistoryParts);
-    const conflict = getMessagePersistenceConflict(sessionId, incomingHistory);
+    const conflict = getMessagePersistenceConflict(sessionId, incomingHistory, {
+      mutableTailCount: isToolApprovalContinuation(incomingHistory) ? 1 : 0,
+    });
     if (conflict) {
       return Response.json(
         {
@@ -174,6 +180,7 @@ export async function POST(req: Request) {
         model,
         startedAt,
         workspaceRoot: project.localPath,
+        responseKind: mode === "plan" ? "plan" : undefined,
       });
       trace.writeRun("running");
 
@@ -182,6 +189,7 @@ export async function POST(req: Request) {
           messages: modelMessages,
           model,
           workspaceRoot: project.localPath,
+          mode,
           permissionMode: parsed.data.permissionMode as
             | PermissionMode
             | undefined,
@@ -302,6 +310,15 @@ function hasSubstantiveHistoryParts(message: AntonUIMessage): boolean {
   });
 }
 
+function isToolApprovalContinuation(messages: AntonUIMessage[]): boolean {
+  const last = messages.at(-1);
+  if (!last || last.role !== "assistant") return false;
+  return last.parts.some((part) => {
+    if (!("state" in part) || typeof part.state !== "string") return false;
+    return part.state === "approval-responded";
+  });
+}
+
 function stripProviderReplayMetadata(
   part: AntonUIMessage["parts"][number],
 ): AntonUIMessage["parts"][number] {
@@ -318,12 +335,14 @@ function createTraceWriter({
   model,
   startedAt,
   workspaceRoot,
+  responseKind,
 }: {
   writer: UIMessageStreamWriter<AntonUIMessage>;
   runId: string;
   model: string;
   startedAt: number;
   workspaceRoot: string;
+  responseKind?: "plan";
 }) {
   let sequence = 0;
   let stepCount = 0;
@@ -335,6 +354,7 @@ function createTraceWriter({
     extra: Partial<AntonMessageMetadata> = {},
   ): AntonMessageMetadata => ({
     runId,
+    responseKind,
     model,
     status,
     startedAt,
@@ -388,6 +408,23 @@ function createTraceWriter({
     events.set(safeEvent.id, safeEvent);
     persistEvent(safeEvent);
     writer.write({ type: "data-activity", id: safeEvent.id, data: safeEvent });
+  };
+
+  const writeTodos = (items: AntonTodoItem[]) => {
+    const snapshot: AntonTodoSnapshot = {
+      runId,
+      items,
+      updatedAt: Date.now(),
+    };
+    writer.write({ type: "data-todos", id: `${runId}:todos`, data: snapshot });
+    startEvent({
+      id: `${runId}:todos:${sequence + 1}`,
+      kind: "progress",
+      status: "completed",
+      label: "Todos updated",
+      summary: todoSummary(items),
+      details: { todos: snapshot },
+    });
   };
 
   const startEvent = ({
@@ -697,6 +734,8 @@ function createTraceWriter({
           respondedAt: new Date(),
         });
       }
+      const todos = todoItemsFromToolOutput(event.toolName, event.output);
+      if (todos) writeTodos(todos);
     },
     handleStreamPart(part: TextStreamPart<ToolSet>) {
       if (part.type === "reasoning-start") {
@@ -734,6 +773,43 @@ function createTraceWriter({
     },
     finalize,
   };
+}
+
+function todoItemsFromToolOutput(
+  toolName: string,
+  output: unknown,
+): AntonTodoItem[] | undefined {
+  if (toolName !== "update_todos") return undefined;
+  if (!isRecord(output) || output.ok !== true || !Array.isArray(output.items)) {
+    return undefined;
+  }
+
+  const items = output.items.flatMap((item): AntonTodoItem[] => {
+    if (!isRecord(item)) return [];
+    const id = typeof item.id === "string" ? item.id : "";
+    const text = typeof item.text === "string" ? item.text : "";
+    const status = item.status;
+    if (
+      !id ||
+      !text ||
+      (status !== "pending" &&
+        status !== "in_progress" &&
+        status !== "completed")
+    ) {
+      return [];
+    }
+    return [{ id, text, status }];
+  });
+
+  return items.length > 0 ? items : undefined;
+}
+
+function todoSummary(items: AntonTodoItem[]): string {
+  const completed = items.filter((item) => item.status === "completed").length;
+  const inProgress = items.find((item) => item.status === "in_progress");
+  return inProgress
+    ? `${completed}/${items.length} complete; current: ${inProgress.text}`
+    : `${completed}/${items.length} complete`;
 }
 
 function errorMessage(error: unknown): string {

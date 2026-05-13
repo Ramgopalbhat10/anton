@@ -195,6 +195,7 @@ export const NATIVE_TOOL_PERMISSION_METADATA = {
   list_skills: READ_ONLY,
   read_skill: READ_ONLY,
   delegate_task: READ_ONLY,
+  update_todos: READ_ONLY,
 } as const satisfies Record<string, ToolPermissionMetadata>;
 
 export function getNativeToolPermissionMetadata(
@@ -563,6 +564,16 @@ function buildNativeToolApprovalMetadata(
         details: [
           "Starts a bounded child Anton agent with read/search/skills/memory access only.",
           "The delegate cannot write files, run shell commands, or mutate memory.",
+        ],
+      };
+    case "update_todos":
+      return {
+        title: "Update todo checklist",
+        summary: metadata.summary,
+        riskCategories: metadata.categories,
+        details: [
+          "Publishes the current implementation checklist to the chat trace.",
+          "Does not read, write, or mutate workspace files.",
         ],
       };
     default:

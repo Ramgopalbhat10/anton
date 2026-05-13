@@ -92,7 +92,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 
 ## Phase 4: Agent Loop Quality
 
-- [] Add structured todo/planning state for multi-step coding tasks.
+- [✔️] Add structured todo/planning state for multi-step coding tasks.
 - [] Add explicit handling when the model reaches the max-step limit.
 - [] Add automatic verification policy after edits: detect package manager, run typecheck, lint, and build when appropriate.
 - [] Add stack/repo inspection summary before the first coding action in a project.

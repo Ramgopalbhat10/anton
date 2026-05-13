@@ -11,6 +11,8 @@ import {
   Cpu,
   DollarSign,
   Hash,
+  Pencil,
+  Play,
 } from "lucide-react";
 
 import {
@@ -22,6 +24,8 @@ import {
 } from "@/src/lib/trace";
 import { cn } from "@/lib/utils";
 import { Markdown } from "./markdown";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import {
   formatMetricCost,
   formatMetricDuration,
@@ -41,6 +45,8 @@ interface MessageListProps {
   status: "submitted" | "streaming" | "ready" | "error";
   recovering?: boolean;
   onApproval: ChatAddToolApproveResponseFunction;
+  onAcceptPlan: (plan: string) => void;
+  acceptPlanDisabled?: boolean;
 }
 
 export function MessageList({
@@ -48,6 +54,8 @@ export function MessageList({
   status,
   recovering = false,
   onApproval,
+  onAcceptPlan,
+  acceptPlanDisabled = false,
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -82,6 +90,8 @@ export function MessageList({
             message={message}
             status={message.id === latestAssistantMessageId ? status : "ready"}
             onApproval={onApproval}
+            onAcceptPlan={onAcceptPlan}
+            acceptPlanDisabled={acceptPlanDisabled}
           />
         ))}
       </div>
@@ -99,10 +109,14 @@ function MessageEvent({
   message,
   status,
   onApproval,
+  onAcceptPlan,
+  acceptPlanDisabled,
 }: {
   message: AntonUIMessage;
   status: "submitted" | "streaming" | "ready" | "error";
   onApproval: ChatAddToolApproveResponseFunction;
+  onAcceptPlan: (plan: string) => void;
+  acceptPlanDisabled: boolean;
 }) {
   const isUser = message.role === "user";
   const userText = message.parts
@@ -112,7 +126,9 @@ function MessageEvent({
     .trim();
   const assistantText = !isUser
     ? getAssistantTextDisplay(message, {
-        progressOnly: status === "submitted" || status === "streaming",
+        progressOnly:
+          message.metadata?.responseKind !== "plan" &&
+          (status === "submitted" || status === "streaming"),
       }).finalText
     : "";
   const pendingApproval = !isUser && hasPendingToolApproval(message);
@@ -130,7 +146,8 @@ function MessageEvent({
     !isUser &&
     responseText.length > 0 &&
     !pendingApproval &&
-    assistantFinal;
+    assistantFinal &&
+    message.metadata?.responseKind !== "plan";
 
   return (
     <div
@@ -163,6 +180,13 @@ function MessageEvent({
               </div>
             );
           })
+        ) : message.metadata?.responseKind === "plan" &&
+          responseText.length > 0 ? (
+          <PlanMessageCard
+            markdown={responseText}
+            onAccept={onAcceptPlan}
+            disabled={!assistantFinal || pendingApproval || acceptPlanDisabled}
+          />
         ) : responseText.length > 0 ? (
           <Markdown className="text-xs">{responseText}</Markdown>
         ) : null}
@@ -175,6 +199,68 @@ function MessageEvent({
         />
       )}
     </div>
+  );
+}
+
+function PlanMessageCard({
+  markdown,
+  disabled,
+  onAccept,
+}: {
+  markdown: string;
+  disabled: boolean;
+  onAccept: (plan: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(markdown);
+  const current = editing ? draft : markdown;
+
+  return (
+    <section className="overflow-hidden rounded-md bg-card/80 ring-1 ring-border">
+      <div className="flex min-w-0 items-center justify-between gap-2 border-b border-border px-2.5 py-1.5">
+        <div className="min-w-0">
+          <div className="flex h-5 items-center text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Plan
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
+            disabled={disabled}
+            onClick={() => {
+              if (!editing) setDraft(markdown);
+              setEditing((value) => !value);
+            }}
+          >
+            <Pencil className="size-3" />
+            {editing ? "Preview" : "Edit"}
+          </Button>
+          <Button
+            type="button"
+            size="xs"
+            disabled={disabled || current.trim().length === 0}
+            onClick={() => onAccept(current.trim())}
+          >
+            <Play className="size-3" />
+            Accept
+          </Button>
+        </div>
+      </div>
+      <div className="p-3">
+        {editing ? (
+          <Textarea
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            className="min-h-72 resize-y font-mono text-xs leading-relaxed"
+            aria-label="Edit plan markdown"
+          />
+        ) : (
+          <Markdown className="text-xs">{current}</Markdown>
+        )}
+      </div>
+    </section>
   );
 }
 
