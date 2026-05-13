@@ -217,16 +217,16 @@ function PlanMessageCard({
 
   return (
     <section className="overflow-hidden rounded-md bg-card/80 ring-1 ring-border">
-      <div className="flex min-w-0 items-center justify-between gap-3 border-b border-border px-3 py-1">
+      <div className="flex min-w-0 items-center justify-between gap-2 border-b border-border px-2.5 py-1.5">
         <div className="min-w-0">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <div className="flex h-5 items-center text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             Plan
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <Button
             type="button"
-            size="sm"
+            size="xs"
             variant="ghost"
             disabled={disabled}
             onClick={() => {
@@ -234,16 +234,16 @@ function PlanMessageCard({
               setEditing((value) => !value);
             }}
           >
-            <Pencil className="size-3.5" />
+            <Pencil className="size-3" />
             {editing ? "Preview" : "Edit"}
           </Button>
           <Button
             type="button"
-            size="sm"
+            size="xs"
             disabled={disabled || current.trim().length === 0}
             onClick={() => onAccept(current.trim())}
           >
-            <Play className="size-3.5" />
+            <Play className="size-3" />
             Accept
           </Button>
         </div>
