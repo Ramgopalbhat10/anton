@@ -9,3 +9,7 @@ export const MODEL_CATALOG = [
 ] as const;
 
 export type ModelId = (typeof MODEL_CATALOG)[number]["id"];
+
+export function isSupportedModelId(modelId: string): modelId is ModelId {
+  return MODEL_CATALOG.some((model) => model.id === modelId);
+}

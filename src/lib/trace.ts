@@ -38,6 +38,9 @@ export type AntonMessageMetadata = {
   costUsd?: number;
   costMetadata?: Record<string, unknown> | null;
   stepCount?: number;
+  finishReason?: string;
+  maxSteps?: number;
+  maxStepLimitReached?: boolean;
 };
 
 export type AntonRunData = {
@@ -53,6 +56,9 @@ export type AntonRunData = {
   costUsd?: number;
   costMetadata?: Record<string, unknown> | null;
   stepCount?: number;
+  finishReason?: string;
+  maxSteps?: number;
+  maxStepLimitReached?: boolean;
 };
 
 export type AntonRunMetricSnapshot = {
@@ -68,6 +74,7 @@ export type AntonRunMetricSnapshot = {
   costUsd?: number | null;
   costMetadata?: unknown;
   stepCount?: number | null;
+  finishReason?: string | null;
 };
 
 export type AntonActivitySnapshot = {
@@ -579,6 +586,10 @@ function hydrateMetricRecord<T>(
     next ??= { ...record };
     next[key] = metric;
   }
+  if (typeof run.finishReason === "string" && record.finishReason !== run.finishReason) {
+    next ??= { ...record };
+    next.finishReason = run.finishReason;
+  }
 
   return (next ?? value) as T;
 }
@@ -609,6 +620,10 @@ function runDataFromSnapshot(run: AntonRunMetricSnapshot): AntonRunData {
     ...(typeof run.costUsd === "number" ? { costUsd: run.costUsd } : {}),
     ...(isRecord(run.costMetadata) ? { costMetadata: run.costMetadata } : {}),
     ...(typeof run.stepCount === "number" ? { stepCount: run.stepCount } : {}),
+    ...(typeof run.finishReason === "string" ? { finishReason: run.finishReason } : {}),
+    ...(run.finishReason === "max_step_limit"
+      ? { maxStepLimitReached: true }
+      : {}),
   };
 }
 

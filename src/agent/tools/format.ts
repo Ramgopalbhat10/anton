@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { tool } from "ai";
@@ -14,8 +13,14 @@ import {
   normalizeRelPath,
 } from "./file-guardrails";
 import { runWorkspaceProcess } from "./process";
-
-export type PackageManager = "npm" | "pnpm" | "yarn" | "bun";
+import {
+  detectPackageManager,
+  execCommand,
+  hasDependency,
+  readPackageJson,
+  runScriptCommand,
+  type PackageManager,
+} from "./package-manager";
 
 export type FormatCommandPlan =
   | {
@@ -138,86 +143,9 @@ function validateFormatPaths(
   });
 }
 
-function runScriptCommand(
-  packageManager: PackageManager,
-  scriptName: string,
-  paths: readonly string[],
-): string[] {
-  const base =
-    packageManager === "npm"
-      ? ["npm", "run", scriptName]
-      : [packageManager, "run", scriptName];
-  return paths.length > 0 ? [...base, "--", ...paths] : base;
-}
-
-function execCommand(
-  packageManager: PackageManager,
-  args: readonly string[],
-): string[] {
-  if (packageManager === "npm") return ["npm", "exec", "--", ...args];
-  return [packageManager, "exec", ...args];
-}
-
-function detectPackageManager(
-  root: string,
-  packageJson: PackageJson,
-): PackageManager {
-  const declared = packageJson.packageManager?.split("@")[0];
-  if (isPackageManager(declared)) return declared;
-  if (fs.existsSync(path.join(root, "pnpm-lock.yaml"))) return "pnpm";
-  if (fs.existsSync(path.join(root, "yarn.lock"))) return "yarn";
-  if (fs.existsSync(path.join(root, "bun.lock")) || fs.existsSync(path.join(root, "bun.lockb"))) {
-    return "bun";
-  }
-  return "npm";
-}
-
-type PackageJson = {
-  packageManager?: string;
-  scripts?: Record<string, unknown>;
-  dependencies?: Record<string, unknown>;
-  devDependencies?: Record<string, unknown>;
-};
-
-function readPackageJson(root: string): { ok: true; value: PackageJson } | { ok: false; error: string } {
-  const packagePath = path.join(root, "package.json");
-  if (!fs.existsSync(packagePath)) {
-    return { ok: false, error: "No package.json found in the workspace root." };
-  }
-  try {
-    const parsed = JSON.parse(fs.readFileSync(packagePath, "utf8")) as unknown;
-    if (!isRecord(parsed)) {
-      return { ok: false, error: "package.json must contain an object." };
-    }
-    return { ok: true, value: parsed as PackageJson };
-  } catch (err) {
-    return { ok: false, error: `Failed to read package.json: ${errorMessage(err)}` };
-  }
-}
-
-function hasDependency(packageJson: PackageJson, name: string): boolean {
-  return dependencyRecordHas(packageJson.dependencies, name) ||
-    dependencyRecordHas(packageJson.devDependencies, name);
-}
-
-function dependencyRecordHas(
-  dependencies: Record<string, unknown> | undefined,
-  name: string,
-): boolean {
-  return dependencies !== undefined && Object.prototype.hasOwnProperty.call(dependencies, name);
-}
-
-function isPackageManager(value: string | undefined): value is PackageManager {
-  return value === "npm" || value === "pnpm" || value === "yarn" || value === "bun";
-}
-
 function normalizeInputPath(relPath: string): string {
   const normalized = normalizeRelPath(relPath);
   return normalized === "" ? "." : normalized;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function errorMessage(err: unknown): string {

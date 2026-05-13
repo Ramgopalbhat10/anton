@@ -11,18 +11,21 @@ export type ProcessResult = {
   exitCode: number;
   stdout: string;
   stderr: string;
+  timedOut?: boolean;
 };
 
 export async function runWorkspaceProcess(
   file: string,
   args: readonly string[],
   cwd: string,
+  options: { timeoutMs?: number } = {},
 ): Promise<ProcessResult> {
   try {
     const result = await execFileAsync(file, [...args], {
       cwd,
       env: buildBashEnvironment() as NodeJS.ProcessEnv,
       windowsHide: true,
+      timeout: options.timeoutMs,
       maxBuffer: MAX_OUTPUT_BYTES * 4,
     });
     return {
@@ -35,6 +38,7 @@ export async function runWorkspaceProcess(
       exitCode: exitCode(err),
       stdout: truncate(outputText(err, "stdout")),
       stderr: truncate(outputText(err, "stderr") || errorMessage(err)),
+      timedOut: timedOut(err),
     };
   }
 }
@@ -57,6 +61,12 @@ function exitCode(err: unknown): number {
   if (typeof err !== "object" || err === null || !("code" in err)) return 1;
   const code = (err as { code: unknown }).code;
   return typeof code === "number" ? code : 1;
+}
+
+function timedOut(err: unknown): boolean {
+  if (typeof err !== "object" || err === null || !("killed" in err)) return false;
+  const record = err as { killed?: unknown; signal?: unknown };
+  return record.killed === true && record.signal === "SIGTERM";
 }
 
 function errorMessage(err: unknown): string {

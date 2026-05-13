@@ -9,6 +9,10 @@ import { createEditFileTool, editFileTool } from "./edit-file";
 import { createWriteFileTool, writeFileTool } from "./write-file";
 import { bashTool, createBashTool } from "./bash";
 import {
+  createInspectProjectTool,
+  inspectProjectTool,
+} from "./inspect-project";
+import {
   copyTool,
   createCopyTool,
   createDeleteTool,
@@ -55,6 +59,7 @@ import {
 } from "./skills";
 import { createDelegateTaskTool } from "./delegate";
 import { createUpdateTodosTool, updateTodosTool } from "./todos";
+import { createVerifyTool, verifyTool } from "./verify";
 
 export const nativeAntonTools = applyNativeToolPermissionPolicy({
   read_file: readFileTool,
@@ -75,6 +80,8 @@ export const nativeAntonTools = applyNativeToolPermissionPolicy({
   git_restore: gitRestoreTool,
   revert_changes: revertChangesTool,
   bash: bashTool,
+  inspect_project: inspectProjectTool,
+  verify: verifyTool,
   grep: grepTool,
   glob: globTool,
   list_memory: listMemoryTool,
@@ -117,6 +124,8 @@ export function createAntonTools({
     git_restore: createGitRestoreTool(workspaceRoot),
     revert_changes: createRevertChangesTool(workspaceRoot),
     bash: createBashTool(workspaceRoot),
+    inspect_project: createInspectProjectTool(workspaceRoot),
+    verify: createVerifyTool(workspaceRoot),
     grep: createGrepTool(workspaceRoot),
     glob: createGlobTool(workspaceRoot),
     list_skills: createListSkillsTool(workspaceRoot),
