@@ -313,8 +313,8 @@ function TodosPanel({ messages }: { messages: AntonUIMessage[] }) {
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-      <TodoCard snapshot={latest} />
+    <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+      <TodoCard snapshot={latest} compact />
     </div>
   );
 }

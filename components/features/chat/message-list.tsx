@@ -222,9 +222,6 @@ function PlanMessageCard({
           <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             Plan
           </div>
-          <div className="truncate text-xs font-semibold text-foreground">
-            Implementation plan
-          </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <Button
