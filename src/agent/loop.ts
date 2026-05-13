@@ -22,6 +22,8 @@ import {
 import type { PermissionMode } from "./permissions";
 
 const MAX_STEPS = 20;
+const CHAT_MAX_OUTPUT_TOKENS = 8_192;
+const PLAN_MAX_OUTPUT_TOKENS = 4_096;
 export type AgentRunMode = "chat" | "plan";
 
 const PLAN_MODE_TOOLS = [
@@ -245,6 +247,8 @@ export async function runAgent({
     model: openrouter(selectedModel),
     system: systemPrompt(mcpTools, workspaceRoot, mode),
     messages,
+    maxOutputTokens:
+      mode === "plan" ? PLAN_MAX_OUTPUT_TOKENS : CHAT_MAX_OUTPUT_TOKENS,
     tools,
     activeTools: mode === "plan" ? [...PLAN_MODE_TOOLS] : undefined,
     stopWhen: stepCountIs(MAX_STEPS),
