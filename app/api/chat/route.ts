@@ -689,6 +689,9 @@ function createTraceWriter({
     if (typeof record.failedReason === "string") {
       return auditSummary(record.failedReason);
     }
+    if (typeof record.exitCode === "number" && record.exitCode !== 0) {
+      return `exit ${record.exitCode}`;
+    }
     return null;
   };
 
@@ -1115,7 +1118,18 @@ function runProfileForMessages(
   ) {
     return "accepted-plan-general";
   }
+  if (isCommandRunRequest(latestText)) return "command-run";
   return "general-chat";
+}
+
+function isCommandRunRequest(text: string): boolean {
+  if (/\b(fix|change|update|modify|implement|edit|write|delete|rename)\b/.test(text)) {
+    return false;
+  }
+  return (
+    /\b(run|execute|check|verify)\b/.test(text) &&
+    /\b(build|typecheck|type-check|lint|test|pnpm|npm|yarn|bun|next build|tsc|eslint)\b/.test(text)
+  );
 }
 
 function isAcceptedPlanProfile(profile: AgentRunProfile): boolean {

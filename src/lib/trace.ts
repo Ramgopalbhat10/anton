@@ -295,11 +295,18 @@ export function failedToolOutputMessage(output: unknown): string | undefined {
   if (typeof failedReason === "string" && failedReason.trim().length > 0) {
     return failedReason.trim();
   }
+  const exitCode = output.exitCode;
+  if (typeof exitCode === "number" && exitCode !== 0) {
+    return `Command exited with code ${exitCode}.`;
+  }
   return undefined;
 }
 
 function isFailedToolOutput(output: unknown): boolean {
-  return isRecord(output) && output.ok === false;
+  if (!isRecord(output)) return false;
+  if (output.ok === false) return true;
+  const exitCode = output.exitCode;
+  return typeof exitCode === "number" && exitCode !== 0;
 }
 
 function stringArray(value: unknown): string[] {

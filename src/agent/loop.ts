@@ -33,6 +33,7 @@ export type AgentRunProfile =
   | "plan"
   | "accepted-plan-simple"
   | "accepted-plan-general"
+  | "command-run"
   | "general-chat"
   | "approval-continuation";
 
@@ -110,10 +111,17 @@ const ACCEPTED_PLAN_GENERAL_TOOLS = [
   "update_todos",
 ] as const satisfies readonly NativeAntonToolName[];
 
+const COMMAND_RUN_TOOLS = [
+  "inspect_project",
+  "bash",
+  "git_status",
+] as const satisfies readonly NativeAntonToolName[];
+
 const PROFILE_NATIVE_TOOLS = {
   plan: PLAN_MODE_TOOLS,
   "accepted-plan-simple": ACCEPTED_PLAN_SIMPLE_TOOLS,
   "accepted-plan-general": ACCEPTED_PLAN_GENERAL_TOOLS,
+  "command-run": COMMAND_RUN_TOOLS,
   "general-chat": NATIVE_ANTON_TOOL_NAMES,
   "approval-continuation": NATIVE_ANTON_TOOL_NAMES,
 } as const satisfies Record<AgentRunProfile, readonly NativeAntonToolName[]>;
@@ -137,6 +145,7 @@ function systemPrompt(
     "Absolute paths and `..` traversal are rejected by the sandbox before execution.",
     "Use tool schemas as the source of truth for exact arguments and outputs; do not rely on an inline tool catalog.",
     "Use `bash` for straightforward shell-native work when that tool is available and the user asked for command-style file operations.",
+    "When the user explicitly asks to run a project command such as build, typecheck, lint, test, or a package-manager script, use `bash` so terminal output streams live in the UI.",
     "Prefer one `bash` command over many single-file tool calls for simple glob-based operations such as deleting `MIGRATION*` files.",
     "For existing-file edits, read the file first, then use `edit_file` with the returned `sha256` as `expectedHash`.",
     "- Mutating file tools refuse lockfiles, migrations, generated output, binary files, and large files unless `allowGuarded: true` is intentionally set.",
@@ -167,6 +176,12 @@ function systemPrompt(
             "- The user accepted an existing plan. Use the immediately preceding plan response as the source of truth.",
             "- Do not rediscover files already named in the plan; read only target files or narrow search results needed to edit safely.",
             "- Use `update_todos` when the accepted plan has multiple implementation steps.",
+          ]
+      : profile === "command-run"
+        ? [
+            "- The user asked to run project commands. Use `bash` for the actual command so live terminal output is visible.",
+            "- Use `inspect_project` only if you need to identify the package manager or available script names.",
+            "- Do not use `verify` in this profile; it is reserved for compact post-edit verification.",
           ]
       : [
           "- For multi-step coding tasks, call `update_todos` with a full checklist snapshot before the first edit and update it as work progresses.",
@@ -316,6 +331,12 @@ export async function runAgent({
   const selectedModel = model ?? DEFAULT_MODEL;
   let observedStepCount = 0;
   const stepUsage: StepUsageAudit[] = [];
+  const executionCache = new Map<string, Promise<unknown>>();
+  const startedToolCallIds = new Set<string>();
+  const startedToolCallKeys = new Set<string>();
+  const suppressedToolCallIds = new Set<string>();
+  const finishedToolCallIds = new Set<string>();
+  const finishedToolCallKeys = new Set<string>();
   const tools = createAntonTools({
     model: selectedModel,
     mcpTools: mcpTools.tools,
@@ -323,6 +344,7 @@ export async function runAgent({
     permissionMode,
     nativeToolNames,
     includeMcpTools: allowMcpTools,
+    executionCache,
   });
   const system = systemPrompt(mcpTools, workspaceRoot, mode, profile);
   const activeTools = Object.keys(tools);
@@ -355,6 +377,10 @@ export async function runAgent({
         usage: { include: true },
       },
     },
+    prepareStep: ({ messages: stepMessages }) => {
+      const compacted = dedupeToolReplayMessages(stepMessages);
+      return compacted === stepMessages ? undefined : { messages: compacted };
+    },
     experimental_transform: onStreamPart
       ? () =>
           new TransformStream({
@@ -372,12 +398,19 @@ export async function runAgent({
       stepUsage.push({
         stepNumber,
         finishReason,
-        toolCallCount: toolCalls.length,
+        toolCallCount: uniqueToolCallCount(toolCalls),
         ...usageAudit(usage, undefined),
       });
       onStepFinish?.({ stepNumber });
     },
     experimental_onToolCallStart: ({ stepNumber, toolCall }) => {
+      const key = toolCallSemanticKey(toolCall);
+      if (startedToolCallIds.has(toolCall.toolCallId) || startedToolCallKeys.has(key)) {
+        suppressedToolCallIds.add(toolCall.toolCallId);
+        return;
+      }
+      startedToolCallIds.add(toolCall.toolCallId);
+      startedToolCallKeys.add(key);
       onToolCallStart?.({
         stepNumber,
         toolCallId: toolCall.toolCallId,
@@ -386,6 +419,16 @@ export async function runAgent({
       });
     },
     experimental_onToolCallFinish: (event) => {
+      const key = toolCallSemanticKey(event.toolCall);
+      if (
+        suppressedToolCallIds.has(event.toolCall.toolCallId) ||
+        finishedToolCallIds.has(event.toolCall.toolCallId) ||
+        finishedToolCallKeys.has(key)
+      ) {
+        return;
+      }
+      finishedToolCallIds.add(event.toolCall.toolCallId);
+      finishedToolCallKeys.add(key);
       onToolCallFinish?.({
         stepNumber: event.stepNumber,
         toolCallId: event.toolCall.toolCallId,
@@ -477,6 +520,101 @@ function usageAudit(
     result.cachedInputTokens = cachedInputTokens;
   }
   return result;
+}
+
+function dedupeToolReplayMessages(messages: ModelMessage[]): ModelMessage[] {
+  let changed = false;
+  const keptToolCallIds = new Set<string>();
+  const droppedToolCallIds = new Set<string>();
+  const semanticToolCalls = new Map<string, string>();
+  const seenToolResults = new Set<string>();
+
+  const nextMessages = messages.flatMap((message): ModelMessage[] => {
+    if (message.role === "assistant" && Array.isArray(message.content)) {
+      const content = message.content.filter((part) => {
+        if (!isToolCallPart(part)) return true;
+        const key = toolCallSemanticKey(part);
+        const existingId = semanticToolCalls.get(key);
+        if (keptToolCallIds.has(part.toolCallId) || existingId) {
+          droppedToolCallIds.add(part.toolCallId);
+          changed = true;
+          return false;
+        }
+        keptToolCallIds.add(part.toolCallId);
+        semanticToolCalls.set(key, part.toolCallId);
+        return true;
+      });
+      if (content.length !== message.content.length) {
+        return [{ ...message, content } as ModelMessage];
+      }
+      return [message];
+    }
+
+    if (message.role === "tool" && Array.isArray(message.content)) {
+      const content = message.content.filter((part) => {
+        if (!isToolResultPart(part)) return true;
+        if (
+          droppedToolCallIds.has(part.toolCallId) ||
+          seenToolResults.has(part.toolCallId)
+        ) {
+          changed = true;
+          return false;
+        }
+        seenToolResults.add(part.toolCallId);
+        return true;
+      });
+      if (content.length === 0) {
+        changed = true;
+        return [];
+      }
+      if (content.length !== message.content.length) {
+        return [{ ...message, content } as ModelMessage];
+      }
+      return [message];
+    }
+
+    return [message];
+  });
+
+  return changed ? nextMessages : messages;
+}
+
+function uniqueToolCallCount(
+  toolCalls: readonly { toolCallId: string; toolName: string; input: unknown }[],
+): number {
+  const seen = new Set<string>();
+  for (const toolCall of toolCalls) {
+    seen.add(`${toolCall.toolName}:${stableJson(toolCall.input)}`);
+  }
+  return seen.size;
+}
+
+function isToolCallPart(
+  value: unknown,
+): value is { type: "tool-call"; toolCallId: string; toolName: string; input: unknown } {
+  return (
+    isRecord(value) &&
+    value.type === "tool-call" &&
+    typeof value.toolCallId === "string" &&
+    typeof value.toolName === "string"
+  );
+}
+
+function isToolResultPart(
+  value: unknown,
+): value is { type: "tool-result"; toolCallId: string } {
+  return (
+    isRecord(value) &&
+    value.type === "tool-result" &&
+    typeof value.toolCallId === "string"
+  );
+}
+
+function toolCallSemanticKey(toolCall: {
+  toolName: string;
+  input: unknown;
+}): string {
+  return `${toolCall.toolName}:${stableJson(toolCall.input)}`;
 }
 
 function cachedTokens(providerMetadata: ProviderMetadata | undefined): number | undefined {

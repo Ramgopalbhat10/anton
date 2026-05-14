@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { execa } from "execa";
-import { tool } from "ai";
+import { tool, type JSONValue } from "ai";
 import { ensureWorkspaceRoot, ensureWorkspaceRootAt } from "../sandbox";
 import {
   buildBashEnvironment,
@@ -14,8 +14,8 @@ import {
 import { redactText } from "@/src/lib/redaction";
 
 const MAX_OUTPUT_BYTES = 64 * 1024;
-const DEFAULT_TIMEOUT_MS = 30_000;
-const MAX_TIMEOUT_MS = 120_000;
+const DEFAULT_TIMEOUT_MS = 120_000;
+const MAX_TIMEOUT_MS = 300_000;
 
 export function createBashTool(workspaceRoot?: string) {
   return tool({
@@ -32,6 +32,10 @@ export function createBashTool(workspaceRoot?: string) {
         .describe(
           `Maximum time to wait before the command is killed. Defaults to ${DEFAULT_TIMEOUT_MS}ms, capped at ${MAX_TIMEOUT_MS}ms.`,
         ),
+    }),
+    toModelOutput: ({ output }) => ({
+      type: "json",
+      value: compactBashModelOutput(output),
     }),
     execute: async ({ command, timeoutMs }, { toolCallId }) => {
       const root = workspaceRoot
@@ -57,12 +61,37 @@ export function createBashTool(workspaceRoot?: string) {
 
 export const bashTool = createBashTool();
 
+function compactBashModelOutput(output: unknown): JSONValue {
+  if (!isRecord(output)) {
+    return { ok: false, error: "unexpected bash output" };
+  }
+  const exitCode = numberOrNull(output.exitCode);
+  const failedReason =
+    typeof output.failedReason === "string" ? output.failedReason : undefined;
+  const stderr = stringValue(output.stderr);
+  return {
+    ok: output.ok === true && exitCode === 0 && failedReason === undefined,
+    exitCode,
+    timedOut: booleanValue(output.timedOut),
+    killed: booleanValue(output.killed),
+    failedReason: failedReason ?? null,
+    stdoutTail: tail(stringValue(output.stdout), 4_000),
+    stderrTail: tail(stderr, 4_000),
+    error:
+      typeof output.error === "string"
+        ? output.error
+        : exitCode !== null && exitCode !== 0
+          ? `Command exited with code ${exitCode}.`
+          : failedReason ?? null,
+  };
+}
+
 function truncate(output: string): string {
   const redacted = redactText(output);
   const buf = Buffer.from(redacted, "utf8");
   if (buf.byteLength <= MAX_OUTPUT_BYTES) return redacted;
   const head = buf.subarray(0, MAX_OUTPUT_BYTES).toString("utf8");
-  return `${head}\n…[truncated ${buf.byteLength - MAX_OUTPUT_BYTES} bytes]`;
+  return `${head}\n...[truncated ${buf.byteLength - MAX_OUTPUT_BYTES} bytes]`;
 }
 
 async function executeWithStreaming(
@@ -217,4 +246,25 @@ function failedReasonForResult({
 function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function booleanValue(value: unknown): boolean {
+  return typeof value === "boolean" ? value : false;
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) ? value : null;
+}
+
+function tail(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  return value.slice(value.length - maxLength);
 }
