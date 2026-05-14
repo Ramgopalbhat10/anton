@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { tool } from "ai";
+import { tool, type JSONValue } from "ai";
 import { resolveInWorkspace, SandboxError } from "../sandbox";
 import {
   TEXT_FILE_MAX_BYTES,
@@ -33,6 +33,10 @@ export function createWriteFileTool(workspaceRoot?: string) {
       .describe(
         "Set true only when intentionally writing a guarded target such as a lockfile, migration, generated file, binary file, or large file.",
       ),
+  }),
+  toModelOutput: ({ output }) => ({
+    type: "json",
+    value: compactWriteFileModelOutput(output),
   }),
   execute: async ({ path: relPath, content, expectedHash, allowGuarded = false }) => {
     try {
@@ -87,8 +91,46 @@ export function createWriteFileTool(workspaceRoot?: string) {
 
 export const writeFileTool = createWriteFileTool();
 
+function compactWriteFileModelOutput(output: unknown): JSONValue {
+  if (!isRecord(output)) {
+    return { ok: false, error: "unexpected write_file output" };
+  }
+  if (output.ok !== true) {
+    return {
+      ok: false,
+      error: typeof output.error === "string" ? output.error : "write_file failed",
+    };
+  }
+  return {
+    ok: true,
+    path: stringValue(output.path),
+    bytesWritten: numberValue(output.bytesWritten),
+    existed: booleanValue(output.existed),
+    previousHash:
+      typeof output.previousHash === "string" ? output.previousHash : null,
+    previousTruncated: booleanValue(output.previousTruncated),
+    nextHash: stringValue(output.nextHash),
+  };
+}
+
 function errorMessage(err: unknown): string {
   if (err instanceof SandboxError) return err.message;
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function numberValue(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function booleanValue(value: unknown): boolean {
+  return typeof value === "boolean" ? value : false;
 }

@@ -90,21 +90,35 @@ export const nativeAntonTools = applyNativeToolPermissionPolicy({
   forget_memory: forgetMemoryTool,
   list_skills: listSkillsTool,
   read_skill: readSkillTool,
+  delegate_task: createDelegateTaskTool({}),
   update_todos: updateTodosTool,
 } as const);
+
+export type NativeAntonToolName = keyof typeof nativeAntonTools;
+
+export const NATIVE_ANTON_TOOL_NAMES = Object.keys(
+  nativeAntonTools,
+) as NativeAntonToolName[];
 
 export function createAntonTools({
   model,
   mcpTools,
   workspaceRoot,
   permissionMode,
+  nativeToolNames,
+  includeMcpTools = true,
 }: {
   model?: string;
   mcpTools?: ToolSet;
   workspaceRoot?: string;
   permissionMode?: PermissionMode;
+  nativeToolNames?: readonly NativeAntonToolName[];
+  includeMcpTools?: boolean;
 }) {
-  const nativeTools = applyNativeToolPermissionPolicy({
+  const selectedNativeToolNames = new Set(
+    nativeToolNames ?? NATIVE_ANTON_TOOL_NAMES,
+  );
+  const allNativeTools = {
     ...nativeAntonTools,
     read_file: createReadFileTool(workspaceRoot),
     edit_file: createEditFileTool(workspaceRoot),
@@ -132,13 +146,24 @@ export function createAntonTools({
     read_skill: createReadSkillTool(workspaceRoot),
     delegate_task: createDelegateTaskTool({ model, workspaceRoot }),
     update_todos: createUpdateTodosTool(),
-  }, permissionMode);
+  } satisfies Record<NativeAntonToolName, ToolSet[string]>;
+
+  const nativeTools = applyNativeToolPermissionPolicy(
+    Object.fromEntries(
+      NATIVE_ANTON_TOOL_NAMES
+        .filter((name) => selectedNativeToolNames.has(name))
+        .map((name) => [name, allNativeTools[name]]),
+    ) as ToolSet,
+    permissionMode,
+  );
 
   return {
     ...nativeTools,
-    ...(permissionMode === "full-access" && mcpTools
+    ...(includeMcpTools && permissionMode === "full-access" && mcpTools
       ? stripApprovalFlags(mcpTools)
-      : (mcpTools ?? {})),
+      : includeMcpTools
+        ? (mcpTools ?? {})
+        : {}),
   };
 }
 

@@ -10,6 +10,7 @@ const NON_SECRET_TOKEN_KEYS = new Set([
   "output_tokens",
   "reasoning_tokens",
   "text_tokens",
+  "token_audit",
   "token_count",
   "tokens_total",
   "total_tokens",

@@ -216,20 +216,25 @@ function ChatSession({
     mode: "chat" | "plan" = "chat",
   ): Promise<boolean> => {
     if (!effectiveProjectId) return false;
-    const selectedIds = selectedMcpServerIds.filter((id) =>
-      mcpServers.some((server) => server.id === id && server.enabled),
-    );
-    const preflight = await requestJson<{
-      ok: boolean;
-      untrusted: McpPreflightServer[];
-    }>("/api/mcp/preflight", {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify({ serverIds: selectedIds }),
-    });
-    if (!preflight.ok) {
-      setPendingMcpSend({ text, mode, untrusted: preflight.untrusted });
-      return false;
+    const includeMcp = mode === "chat" && !isAcceptedPlanRequest(text);
+    const selectedIds = includeMcp
+      ? selectedMcpServerIds.filter((id) =>
+          mcpServers.some((server) => server.id === id && server.enabled),
+        )
+      : [];
+    if (selectedIds.length > 0) {
+      const preflight = await requestJson<{
+        ok: boolean;
+        untrusted: McpPreflightServer[];
+      }>("/api/mcp/preflight", {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ serverIds: selectedIds }),
+      });
+      if (!preflight.ok) {
+        setPendingMcpSend({ text, mode, untrusted: preflight.untrusted });
+        return false;
+      }
     }
     if (lastNonEmptyMessagesRef.current.length > 0) {
       setMessageDisplayOverride(lastNonEmptyMessagesRef.current);
@@ -421,6 +426,10 @@ function ChatSession({
       />
     </div>
   );
+}
+
+function isAcceptedPlanRequest(text: string): boolean {
+  return text.trim().toLowerCase() === "implement plan";
 }
 
 function McpTrustDialog({

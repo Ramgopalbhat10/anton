@@ -14,7 +14,11 @@ import {
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
-import { runAgent } from "@/src/agent/loop";
+import {
+  runAgent,
+  type AgentRunProfile,
+  type TokenAudit,
+} from "@/src/agent/loop";
 import {
   buildToolApprovalMetadata,
   getNativeToolPermissionMetadata,
@@ -91,6 +95,8 @@ export async function POST(req: Request) {
   const { sessionId } = parsed.data;
   const mode = parsed.data.mode ?? "chat";
   const uiMessages = parsed.data.messages as AntonUIMessage[];
+  const profile = runProfileForMessages(mode, uiMessages);
+  const requestBodyBytes = byteLength(JSON.stringify(json ?? {}));
   const model = parsed.data.model ?? DEFAULT_MODEL;
   if (!isSupportedModelId(model)) {
     return Response.json(
@@ -175,8 +181,9 @@ export async function POST(req: Request) {
     stepCount: 0,
   });
 
+  const preparedMessages = prepareMessagesForModel(uiMessages, profile);
   const modelMessages = await convertMessagesForRun(
-    uiMessages,
+    preparedMessages,
     runId,
     startedAt,
   );
@@ -200,6 +207,8 @@ export async function POST(req: Request) {
           model,
           workspaceRoot: project.localPath,
           mode,
+          profile,
+          requestBodyBytes,
           permissionMode: parsed.data.permissionMode as
             | PermissionMode
             | undefined,
@@ -217,13 +226,14 @@ export async function POST(req: Request) {
             providerMetadata,
             maxSteps,
             maxStepLimitReached,
+            tokenAudit,
           }) => {
             trace.finalize(
               maxStepLimitReached ? "error" : "completed",
               totalUsage,
               providerMetadata,
               finishReason,
-              { maxSteps, maxStepLimitReached },
+              { maxSteps, maxStepLimitReached, tokenAudit },
             );
             const delta = totalUsage.totalTokens;
             if (typeof delta === "number" && delta > 0) {
@@ -280,20 +290,30 @@ export async function POST(req: Request) {
   return createUIMessageStreamResponse({ stream });
 }
 
-function prepareMessagesForModel(messages: AntonUIMessage[]): AntonUIMessage[] {
+function prepareMessagesForModel(
+  messages: AntonUIMessage[],
+  profile: AgentRunProfile,
+): AntonUIMessage[] {
   const approvalContinuationMessageId = isToolApprovalContinuation(messages)
     ? messages.at(-1)?.id
     : undefined;
+  const acceptedPlanMessageId = isAcceptedPlanProfile(profile)
+    ? messages.findLast(isPlanAssistantMessage)?.id
+    : undefined;
 
   return messages.flatMap((message) => {
+    const source =
+      message.id === acceptedPlanMessageId
+        ? compactAcceptedPlanMessage(message, profile)
+        : message;
     const parts = compactMessagePartsForModel(
-      message,
-      message.id === approvalContinuationMessageId,
+      source,
+      source.id === approvalContinuationMessageId,
     )
       .filter(isModelContextPart)
       .map(stripProviderReplayMetadata);
     if (!parts.some(isSubstantiveModelContextPart)) return [];
-    return [{ ...message, parts }];
+    return [{ ...source, parts }];
   });
 }
 
@@ -321,13 +341,81 @@ function compactMessagePartsForModel(
   });
 }
 
+function compactAcceptedPlanMessage(
+  message: AntonUIMessage,
+  profile: AgentRunProfile,
+): AntonUIMessage {
+  const planText = message.parts
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("\n\n");
+  if (!planText.trim()) return message;
+
+  return {
+    ...message,
+    parts: [
+      {
+        type: "text",
+        text: acceptedPlanHandoff(planText, {
+          maxChars: profile === "accepted-plan-simple" ? 3_000 : 6_000,
+        }),
+      },
+    ],
+  };
+}
+
+function acceptedPlanHandoff(
+  planText: string,
+  options: { maxChars: number },
+): string {
+  const normalized = planText.replace(/\r\n/g, "\n").trim();
+  const targetFiles = extractPlanCodeSpans(normalized).filter(isLikelyRepoPath);
+  const importantLines = normalized
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => {
+      if (!line) return false;
+      if (/^#{1,4}\s/.test(line)) return true;
+      if (/\b(pnpm|npm|yarn|bun)\s+(typecheck|lint|build|test)\b/.test(line)) {
+        return true;
+      }
+      return extractPlanCodeSpans(line).some(isLikelyRepoPath);
+    });
+
+  const sections = [
+    "Accepted plan compact handoff.",
+    targetFiles.length > 0
+      ? `Target files: ${Array.from(new Set(targetFiles)).slice(0, 20).join(", ")}`
+      : "Target files: none detected in code spans.",
+    importantLines.length > 0
+      ? ["Relevant plan lines:", ...importantLines.slice(0, 40)].join("\n")
+      : ["Plan excerpt:", normalized.slice(0, options.maxChars)].join("\n"),
+  ];
+  const handoff = sections.join("\n\n");
+  if (handoff.length <= options.maxChars) return handoff;
+  return `${handoff.slice(0, options.maxChars).trimEnd()}\n...[plan handoff truncated]`;
+}
+
+function extractPlanCodeSpans(text: string): string[] {
+  return Array.from(text.matchAll(/`([^`]+)`/g), (match) => match[1].trim())
+    .filter(Boolean);
+}
+
+function isLikelyRepoPath(value: string): boolean {
+  return (
+    /^(app|components|src|lib|public|docs|workspace)\//.test(value) ||
+    /^(app|components|src|lib|public|docs|workspace)\\/.test(value) ||
+    /^(AGENTS|CLAUDE|README|ROADMAP|package|tsconfig|next\.config|drizzle\.config)/.test(value)
+  );
+}
+
 async function convertMessagesForRun(
   messages: AntonUIMessage[],
   runId: string,
   startedAt: number,
 ) {
   try {
-    return await convertToModelMessages(prepareMessagesForModel(messages), {
+    return await convertToModelMessages(messages, {
       convertDataPart: () => undefined,
     });
   } catch (err) {
@@ -628,7 +716,11 @@ function createTraceWriter({
     usage?: LanguageModelUsage,
     providerMetadata?: ProviderMetadata,
     finishReason?: FinishReason,
-    limits: { maxSteps?: number; maxStepLimitReached?: boolean } = {},
+    limits: {
+      maxSteps?: number;
+      maxStepLimitReached?: boolean;
+      tokenAudit?: TokenAudit;
+    } = {},
   ) => {
     if (finalized) return;
     finalized = true;
@@ -641,7 +733,7 @@ function createTraceWriter({
     const outputTokens = usage?.outputTokens;
     const totalTokens = usage?.totalTokens;
     const costUsd = openRouterCost(providerMetadata);
-    const costMetadata = openRouterCostMetadata(providerMetadata);
+    const costMetadata = runCostMetadata(providerMetadata, limits.tokenAudit);
     const storedFinishReason = limits.maxStepLimitReached
       ? "max_step_limit"
       : effectiveStatus === "error" && failedToolCount > 0
@@ -836,7 +928,9 @@ function createTraceWriter({
           respondedAt: new Date(),
         });
       }
-      const todos = todoItemsFromToolOutput(event.toolName, event.output);
+      const todos =
+        todoItemsFromToolOutput(event.toolName, event.output) ??
+        todoItemsFromToolInput(event.toolName, event.input);
       if (todos) writeTodos(todos);
     },
     handleStreamPart(part: TextStreamPart<ToolSet>) {
@@ -890,6 +984,37 @@ function todoItemsFromToolOutput(
     if (!isRecord(item)) return [];
     const id = typeof item.id === "string" ? item.id : "";
     const text = typeof item.text === "string" ? item.text : "";
+    const status = item.status;
+    if (
+      !id ||
+      !text ||
+      (status !== "pending" &&
+        status !== "in_progress" &&
+        status !== "completed")
+    ) {
+      return [];
+    }
+    return [{ id, text, status }];
+  });
+
+  return items.length > 0 ? items : undefined;
+}
+
+function todoItemsFromToolInput(
+  toolName: string,
+  input: unknown,
+): AntonTodoItem[] | undefined {
+  if (toolName !== "update_todos" || !isRecord(input) || !Array.isArray(input.items)) {
+    return undefined;
+  }
+
+  const items = input.items.flatMap((item): AntonTodoItem[] => {
+    if (!isRecord(item)) return [];
+    const id = typeof item.id === "string" ? item.id.trim() : "";
+    const text =
+      typeof item.text === "string"
+        ? item.text.replace(/\s+/g, " ").trim()
+        : "";
     const status = item.status;
     if (
       !id ||
@@ -961,6 +1086,57 @@ function openRouterCostMetadata(
     source: "providerMetadata.openrouter.usage",
     usage,
   }) as Record<string, unknown>;
+}
+
+function runCostMetadata(
+  providerMetadata: ProviderMetadata | undefined,
+  tokenAudit: TokenAudit | undefined,
+): Record<string, unknown> | null {
+  const providerCostMetadata = openRouterCostMetadata(providerMetadata);
+  if (!tokenAudit) return providerCostMetadata;
+  return redactValue({
+    ...(providerCostMetadata ?? {}),
+    tokenAudit,
+  }) as Record<string, unknown>;
+}
+
+function runProfileForMessages(
+  mode: "chat" | "plan",
+  messages: AntonUIMessage[],
+): AgentRunProfile {
+  if (mode === "plan") return "plan";
+  if (isToolApprovalContinuation(messages)) return "approval-continuation";
+  const latestText = latestUserText(messages).trim().toLowerCase();
+  if (latestText === "implement plan") return "accepted-plan-simple";
+  if (
+    latestText === "implement the plan" ||
+    latestText === "apply plan" ||
+    latestText === "apply the plan"
+  ) {
+    return "accepted-plan-general";
+  }
+  return "general-chat";
+}
+
+function isAcceptedPlanProfile(profile: AgentRunProfile): boolean {
+  return profile === "accepted-plan-simple" || profile === "accepted-plan-general";
+}
+
+function isPlanAssistantMessage(message: AntonUIMessage): boolean {
+  return message.role === "assistant" && message.metadata?.responseKind === "plan";
+}
+
+function latestUserText(messages: AntonUIMessage[]): string {
+  const latest = messages.findLast((message) => message.role === "user");
+  if (!latest) return "";
+  return latest.parts
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("\n");
+}
+
+function byteLength(value: string): number {
+  return Buffer.byteLength(value, "utf8");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
