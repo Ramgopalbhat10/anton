@@ -20,6 +20,11 @@ import {
   type TokenAudit,
 } from "@/src/agent/loop";
 import {
+  buildSessionContextDigest,
+  RunContextCollector,
+  type RunContextStatus,
+} from "@/src/agent/context";
+import {
   buildToolApprovalMetadata,
   getNativeToolPermissionMetadata,
   isMcpTool,
@@ -53,6 +58,7 @@ import { redactText, redactValue } from "@/src/lib/redaction";
 import {
   collapseAssistantContinuationMessages,
   getApprovalMetadata,
+  getAssistantTextDisplay,
   getToolTraceEntries,
   isRunDataPart,
 } from "@/src/lib/trace";
@@ -182,11 +188,18 @@ export async function POST(req: Request) {
   });
 
   const preparedMessages = prepareMessagesForModel(uiMessages, profile);
+  const sessionContextDigest = buildSessionContextDigest({
+    sessionId,
+    latestUserText: latestUserText(uiMessages),
+  });
   const modelMessages = await convertMessagesForRun(
     preparedMessages,
     runId,
     startedAt,
   );
+  const contextCollector = new RunContextCollector(runId, sessionId);
+  let contextTerminalStatus: RunContextStatus = "completed";
+  let contextTerminalError: unknown;
 
   const stream = createUIMessageStream<AntonUIMessage>({
     originalMessages: uiMessages,
@@ -209,6 +222,7 @@ export async function POST(req: Request) {
           mode,
           profile,
           requestBodyBytes,
+          sessionContextDigest,
           permissionMode: parsed.data.permissionMode as
             | PermissionMode
             | undefined,
@@ -216,10 +230,22 @@ export async function POST(req: Request) {
           onStepStart: ({ stepNumber }) => trace.startStep(stepNumber),
           onStepFinish: ({ stepNumber }) => trace.finishStep(stepNumber),
           onToolCallStart: (event) => trace.startTool(event),
-          onToolCallFinish: (event) => trace.finishTool(event),
+          onToolCallFinish: (event) => {
+            contextCollector.addTool(event);
+            trace.finishTool(event);
+          },
           onStreamPart: (part) => trace.handleStreamPart(part),
-          onAbort: () => trace.finalize("aborted"),
-          onError: (error) => trace.fail(error),
+          onAbort: () => {
+            contextTerminalStatus = "aborted";
+            trace.finalize("aborted");
+            contextCollector.persist({ status: "aborted" });
+          },
+          onError: (error) => {
+            contextTerminalStatus = "error";
+            contextTerminalError = error;
+            trace.fail(error);
+            contextCollector.persist({ status: "error", error });
+          },
           onFinish: ({
             totalUsage,
             finishReason,
@@ -228,6 +254,7 @@ export async function POST(req: Request) {
             maxStepLimitReached,
             tokenAudit,
           }) => {
+            contextTerminalStatus = maxStepLimitReached ? "error" : "completed";
             trace.finalize(
               maxStepLimitReached ? "error" : "completed",
               totalUsage,
@@ -250,7 +277,10 @@ export async function POST(req: Request) {
           }),
         );
       } catch (err) {
+        contextTerminalStatus = "error";
+        contextTerminalError = err;
         trace.fail(err);
+        contextCollector.persist({ status: "error", error: err });
         throw err;
       }
     },
@@ -274,6 +304,11 @@ export async function POST(req: Request) {
               approvalContinuation || collapsedContinuations,
           },
         );
+        contextCollector.persist({
+          status: contextTerminalStatus,
+          finalText: finalAssistantText(messages),
+          error: contextTerminalError,
+        });
       } catch (err) {
         if (err instanceof MessagePersistenceConflictError) {
           updateRun(runId, {
@@ -288,6 +323,14 @@ export async function POST(req: Request) {
   });
 
   return createUIMessageStreamResponse({ stream });
+}
+
+function finalAssistantText(messages: AntonUIMessage[]): string | undefined {
+  const assistant = messages.findLast((message) => message.role === "assistant");
+  if (!assistant) return undefined;
+  const display = getAssistantTextDisplay(assistant);
+  const finalText = display.finalText || display.progressText;
+  return finalText.trim() || undefined;
 }
 
 function prepareMessagesForModel(

@@ -218,6 +218,33 @@ export const runEvents = sqliteTable(
   ],
 );
 
+export const runContextSummaries = sqliteTable(
+  "run_context_summaries",
+  {
+    runId: text("run_id")
+      .primaryKey()
+      .references(() => runs.id, { onDelete: "cascade" }),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    summary: text("summary").notNull(),
+    facts: text("facts", { mode: "json" }).notNull(),
+    files: text("files", { mode: "json" }).notNull(),
+    commands: text("commands", { mode: "json" }).notNull(),
+    tools: text("tools", { mode: "json" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch('now') * 1000)`),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch('now') * 1000)`),
+  },
+  (table) => [
+    index("run_context_summaries_session_id_idx").on(table.sessionId),
+    index("run_context_summaries_created_at_idx").on(table.createdAt),
+  ],
+);
+
 export const mcpServers = sqliteTable(
   "mcp_servers",
   {
@@ -296,6 +323,8 @@ export type Run = typeof runs.$inferSelect;
 export type NewRun = typeof runs.$inferInsert;
 export type RunEvent = typeof runEvents.$inferSelect;
 export type NewRunEvent = typeof runEvents.$inferInsert;
+export type RunContextSummary = typeof runContextSummaries.$inferSelect;
+export type NewRunContextSummary = typeof runContextSummaries.$inferInsert;
 export type ToolCall = typeof toolCalls.$inferSelect;
 export type NewToolCall = typeof toolCalls.$inferInsert;
 export type ToolApproval = typeof toolApprovals.$inferSelect;

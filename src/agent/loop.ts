@@ -133,6 +133,7 @@ function systemPrompt(
   workspaceRoot?: string,
   mode: AgentRunMode = "chat",
   profile: AgentRunProfile = profileForMode(mode),
+  sessionContextDigest?: string,
 ): string {
   const root = workspaceRoot
     ? ensureWorkspaceRootAt(workspaceRoot)
@@ -202,8 +203,26 @@ function systemPrompt(
     "",
     ...projectMemoryPromptLines(),
     "",
+    ...sessionContextPromptLines(sessionContextDigest),
+    "",
     ...projectSkillPromptLines(workspaceRoot),
   ].join("\n");
+}
+
+function sessionContextPromptLines(
+  sessionContextDigest: string | undefined,
+): string[] {
+  if (!sessionContextDigest?.trim()) {
+    return [
+      "Prior run context:",
+      "- No compact prior run context available for this session.",
+    ];
+  }
+  return [
+    sessionContextDigest,
+    "- Treat prior run context as continuity, not proof of current filesystem state.",
+    "- Re-read files or rerun commands when the user asks for exact current details.",
+  ];
 }
 
 function projectMemoryPromptLines(): string[] {
@@ -272,6 +291,7 @@ export async function runAgent({
   profile = profileForMode(mode),
   enabledMcpServerIds,
   requestBodyBytes,
+  sessionContextDigest,
   onStepStart,
   onStepFinish,
   onToolCallStart,
@@ -289,6 +309,7 @@ export async function runAgent({
   profile?: AgentRunProfile;
   enabledMcpServerIds?: string[];
   requestBodyBytes?: number;
+  sessionContextDigest?: string;
   onStepStart?: (event: { stepNumber: number }) => void;
   onStepFinish?: (event: { stepNumber: number }) => void;
   onToolCallStart?: (event: {
@@ -350,7 +371,13 @@ export async function runAgent({
     includeMcpTools: allowMcpTools,
     executionCache,
   });
-  const system = systemPrompt(mcpTools, workspaceRoot, mode, profile);
+  const system = systemPrompt(
+    mcpTools,
+    workspaceRoot,
+    mode,
+    profile,
+    sessionContextDigest,
+  );
   const activeTools = Object.keys(tools);
   const tokenAuditBase = {
     profile,
