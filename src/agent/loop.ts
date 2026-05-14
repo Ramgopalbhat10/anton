@@ -158,6 +158,7 @@ function systemPrompt(
     "",
     "Conventions:",
     "- Answer concisely. Prefer short, correct answers over long hedged ones.",
+    "- Text you write before a later tool call is progress, not the final answer. After the last tool call, write one final answer that addresses every explicit user request, including findings from earlier tools.",
     ...(mode === "plan"
       ? [
           "- You are in explicit Plan mode. Analyze the request and repository context, then produce a markdown implementation plan only.",
@@ -183,6 +184,7 @@ function systemPrompt(
         ? [
             "- The user asked for command-line work. Use `bash` for command execution so live terminal output is visible.",
             "- Use `inspect_project` only if you need to identify the package manager or available script names.",
+            "- If the user asks for both information and command execution, collect the information first, run the command, then include both in the final response.",
             "- Do not use `verify` in this profile; it is reserved for compact post-edit verification.",
           ]
       : [
