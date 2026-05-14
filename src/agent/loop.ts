@@ -87,6 +87,7 @@ const ACCEPTED_PLAN_SIMPLE_TOOLS = [
   "read_file",
   "edit_file",
   "write_file",
+  "bash",
   "verify",
   "git_status",
 ] as const satisfies readonly NativeAntonToolName[];
@@ -102,6 +103,7 @@ const ACCEPTED_PLAN_GENERAL_TOOLS = [
   "copy",
   "mkdir",
   "format",
+  "bash",
   "verify",
   "grep",
   "glob",
@@ -144,9 +146,9 @@ function systemPrompt(
     `The workspace root is \`${rel === "." ? root : rel}\`. All file paths you pass to tools must be relative to this root.`,
     "Absolute paths and `..` traversal are rejected by the sandbox before execution.",
     "Use tool schemas as the source of truth for exact arguments and outputs; do not rely on an inline tool catalog.",
-    "Use `bash` for straightforward shell-native work when that tool is available and the user asked for command-style file operations.",
-    "When the user explicitly asks to run a project command such as build, typecheck, lint, test, or a package-manager script, use `bash` so terminal output streams live in the UI.",
-    "Prefer one `bash` command over many single-file tool calls for simple glob-based operations such as deleting `MIGRATION*` files.",
+    "Use `bash` by default for shell-native work when that tool is available: package scripts, build/lint/typecheck/test commands, git commands, file listing/searching, and simple file operations such as rm/mv/cp/mkdir.",
+    "Prefer one `bash` command over many single-file tool calls for glob-based operations such as deleting `MIGRATION*` files, listing files, or inspecting command output.",
+    "Use structured read/edit tools for exact file content inspection, guarded patches, or when a tool's typed output is materially safer than shell output.",
     "For existing-file edits, read the file first, then use `edit_file` with the returned `sha256` as `expectedHash`.",
     "- Mutating file tools refuse lockfiles, migrations, generated output, binary files, and large files unless `allowGuarded: true` is intentionally set.",
     "Do not write test cases, add test files, or introduce test scripts. Verify changes with typecheck, lint, build, and focused manual checks as appropriate.",
@@ -179,7 +181,7 @@ function systemPrompt(
           ]
       : profile === "command-run"
         ? [
-            "- The user asked to run project commands. Use `bash` for the actual command so live terminal output is visible.",
+            "- The user asked for command-line work. Use `bash` for command execution so live terminal output is visible.",
             "- Use `inspect_project` only if you need to identify the package manager or available script names.",
             "- Do not use `verify` in this profile; it is reserved for compact post-edit verification.",
           ]
@@ -535,7 +537,11 @@ function dedupeToolReplayMessages(messages: ModelMessage[]): ModelMessage[] {
         if (!isToolCallPart(part)) return true;
         const key = toolCallSemanticKey(part);
         const existingId = semanticToolCalls.get(key);
-        if (keptToolCallIds.has(part.toolCallId) || existingId) {
+        if (keptToolCallIds.has(part.toolCallId)) {
+          changed = true;
+          return false;
+        }
+        if (existingId) {
           droppedToolCallIds.add(part.toolCallId);
           changed = true;
           return false;
