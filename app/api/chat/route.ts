@@ -369,19 +369,10 @@ function compactMessagePartsForModel(
     return message.parts.filter(isApprovalContinuationContextPart);
   }
 
-  const lastToolIndex = message.parts.findLastIndex(isToolUIPart);
-  const finalTextParts = message.parts.filter((part, index) => {
-    return (
-      part.type === "text" &&
-      part.text.trim().length > 0 &&
-      (lastToolIndex === -1 || index > lastToolIndex)
-    );
-  });
-  if (finalTextParts.length > 0) return finalTextParts;
-
-  return message.parts.filter((part) => {
+  const textParts = message.parts.filter((part) => {
     return part.type === "text" && part.text.trim().length > 0;
   });
+  return textParts;
 }
 
 function compactAcceptedPlanMessage(

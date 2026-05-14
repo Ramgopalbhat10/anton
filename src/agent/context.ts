@@ -72,7 +72,7 @@ export class RunContextCollector {
       ...(error ? { error } : {}),
     });
 
-    this.collectFacts(event.toolName, event.output);
+    this.collectFacts(event.toolName, event.input, event.output);
     this.collectFiles(event.toolName, event.input);
     this.collectCommand(event.toolName, event.input, event.output, error);
   }
@@ -98,7 +98,7 @@ export class RunContextCollector {
     });
   }
 
-  private collectFacts(toolName: string, output: unknown): void {
+  private collectFacts(toolName: string, input: unknown, output: unknown): void {
     if (!isRecord(output)) return;
 
     if (toolName === "inspect_project") {
@@ -123,6 +123,11 @@ export class RunContextCollector {
           this.addFact(`Dirty files: ${dirtyFileCount}`);
         }
       }
+    }
+
+    if (toolName === "read_file" && readPath(input) === "package.json") {
+      const packageFacts = packageFactsFromContent(stringValue(output.content));
+      for (const fact of packageFacts) this.addFact(fact);
     }
 
     const summary = stringValue(output.summary);
@@ -305,6 +310,44 @@ function keywordsFor(text: string): string[] {
     .map((word) => word.trim())
     .filter((word) => word.length >= 3);
   return Array.from(new Set(words)).slice(0, 30);
+}
+
+function packageFactsFromContent(content: string): string[] {
+  if (!content.trim()) return [];
+  const parsed = parseJsonObject(content);
+  if (!parsed) return [];
+  const dependencies = packageSectionNames(parsed.dependencies);
+  const devDependencies = packageSectionNames(parsed.devDependencies);
+  const packageManager = stringValue(parsed.packageManager);
+  const facts: string[] = [];
+  if (dependencies.length > 0) {
+    facts.push(`Runtime dependencies: ${dependencies.slice(0, 40).join(", ")}`);
+  }
+  if (devDependencies.length > 0) {
+    facts.push(`Dev dependencies: ${devDependencies.slice(0, 30).join(", ")}`);
+  }
+  if (packageManager) facts.push(`Package manager field: ${packageManager}`);
+  return facts;
+}
+
+function parseJsonObject(content: string): Record<string, unknown> | undefined {
+  try {
+    const parsed: unknown = JSON.parse(content);
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function packageSectionNames(value: unknown): string[] {
+  if (!isRecord(value)) return [];
+  return Object.keys(value).sort((left, right) => left.localeCompare(right));
+}
+
+function readPath(input: unknown): string | undefined {
+  if (!isRecord(input)) return undefined;
+  const path = stringValue(input.path).replace(/\\/g, "/");
+  return path || undefined;
 }
 
 function summarizeInput(input: unknown): string | undefined {

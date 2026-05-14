@@ -221,6 +221,7 @@ function sessionContextPromptLines(
   return [
     sessionContextDigest,
     "- Treat prior run context as continuity, not proof of current filesystem state.",
+    "- If the user asks what happened earlier or what was previously identified, answer from prior run context instead of rerunning tools.",
     "- Re-read files or rerun commands when the user asks for exact current details.",
   ];
 }

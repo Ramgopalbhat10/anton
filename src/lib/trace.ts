@@ -257,11 +257,13 @@ export function getAssistantTextDisplay(
   const lastToolIndex = message.parts.findLastIndex(isToolUIPart);
   const progressText: string[] = [];
   const finalText: string[] = [];
+  const allText: string[] = [];
 
   for (const [index, part] of message.parts.entries()) {
     if (part.type !== "text") continue;
     const text = part.text.trim();
     if (!text) continue;
+    allText.push(text);
     if (options.progressOnly || (lastToolIndex !== -1 && index < lastToolIndex)) {
       progressText.push(text);
     } else {
@@ -271,7 +273,9 @@ export function getAssistantTextDisplay(
 
   return {
     progressText: progressText.join("\n\n"),
-    finalText: finalText.join("\n\n"),
+    finalText: options.progressOnly
+      ? finalText.join("\n\n")
+      : allText.join("\n\n"),
   };
 }
 
