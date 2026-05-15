@@ -87,9 +87,9 @@ function ExpandedSidebar({
 }) {
   return (
     <div className="flex h-full w-[300px] shrink-0 flex-col">
-      <div className="grid h-10 grid-cols-[32px_minmax(0,1fr)_32px] items-center gap-1 pl-2 pr-2">
-        <BrandMark />
-        <div className="flex min-w-0 items-center">
+      <div className="flex h-10 items-center justify-between px-2">
+        <div className="flex min-w-0 items-center gap-1.5 pl-2">
+          <BrandMark />
           <span className="truncate text-xs font-semibold tracking-tight">
             Anton
           </span>
@@ -151,10 +151,10 @@ function CollapsedSidebar({
 }) {
   return (
     <div className="flex h-full w-[41px] shrink-0 flex-col">
-      <div className="flex h-10 w-full items-center pl-2">
+      <div className="flex h-10 w-full items-center justify-center">
         <BrandMark />
       </div>
-      <nav className="flex w-full flex-col gap-1 pl-2">
+      <nav className="flex w-full flex-col items-center gap-1">
         <Button
           type="button"
           size="icon-sm"
@@ -162,15 +162,15 @@ function CollapsedSidebar({
           className="bg-sidebar-accent text-sidebar-accent-foreground"
           aria-label="Sessions"
         >
-          <MessageSquare />
+          <MessageSquare className="size-3.5" />
         </Button>
         <Button asChild size="icon-sm" variant="ghost" aria-label="New chat">
           <Link href="/">
-            <Plus />
+            <Plus className="size-3.5" />
           </Link>
         </Button>
       </nav>
-      <div className="mt-auto w-full border-t border-sidebar-border py-1.5 pl-2">
+      <div className="mt-auto flex w-full justify-center border-t border-sidebar-border py-1.5">
         <Button
           type="button"
           variant="ghost"
@@ -178,7 +178,7 @@ function CollapsedSidebar({
           onClick={onOpenSettings}
           aria-label="Settings"
         >
-          <Settings />
+          <Settings className="size-3.5" />
         </Button>
       </div>
     </div>

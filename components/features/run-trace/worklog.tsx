@@ -6,6 +6,8 @@ import {
   CheckCircle2,
   FileText,
   ListTodo,
+  Maximize2,
+  Minimize2,
   Plus,
   TerminalSquare,
   X,
@@ -49,6 +51,8 @@ interface WorklogProps {
   onApproval: ChatAddToolApproveResponseFunction;
   className?: string;
   onClose?: () => void;
+  expanded?: boolean;
+  onExpandToggle?: () => void;
 }
 
 export function Worklog({
@@ -56,6 +60,8 @@ export function Worklog({
   onApproval,
   className,
   onClose,
+  expanded = false,
+  onExpandToggle,
 }: WorklogProps) {
   const [tabs, setTabs] = useState<SidebarTab[]>(["worklog"]);
   const [activeTab, setActiveTab] = useState<SidebarTab | null>("worklog");
@@ -88,97 +94,114 @@ export function Worklog({
       )}
       aria-label="Trace workspace"
     >
-      <header className="flex h-10 shrink-0 items-center justify-between border-b border-border px-2">
-        <div className="flex min-w-0 items-center gap-1">
-          {tabs.map((tab) => {
-            const meta = tabMeta(tab);
-            return (
-              <div
-                key={tab}
-                className={cn(
-                  "inline-flex h-7 min-w-0 items-center rounded text-xs font-semibold transition-colors",
-                  activeTab === tab
-                    ? "bg-secondary text-foreground"
-                    : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
-                )}
-                role="group"
-                aria-label={`${meta.label} tab`}
+      <div className="flex h-full min-w-0 w-full shrink-0 flex-col xl:min-w-[420px]">
+        <header className="flex h-10 shrink-0 items-center justify-between border-b border-border px-2">
+          <div className="flex min-w-0 items-center gap-1">
+            {tabs.map((tab) => {
+              const meta = tabMeta(tab);
+              return (
+                <div
+                  key={tab}
+                  className={cn(
+                    "inline-flex h-7 min-w-0 items-center rounded text-xs font-semibold transition-colors",
+                    activeTab === tab
+                      ? "bg-secondary text-foreground"
+                      : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
+                  )}
+                  role="group"
+                  aria-label={`${meta.label} tab`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => closeTab(tab)}
+                    className="group/close relative ml-1 inline-flex size-5 shrink-0 items-center justify-center rounded transition-colors hover:bg-background/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    aria-label={`Close ${meta.label} tab`}
+                    title={`Close ${meta.label}`}
+                  >
+                    <meta.Icon className="size-3.5 transition-opacity group-hover/close:opacity-0 group-focus-visible/close:opacity-0" />
+                    <X className="absolute size-3.5 opacity-0 transition-opacity group-hover/close:opacity-100 group-focus-visible/close:opacity-100" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab(tab)}
+                    className="min-w-0 rounded py-1 pl-0.5 pr-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    aria-pressed={activeTab === tab}
+                  >
+                    <span className="block truncate">{meta.label}</span>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex shrink-0 items-center gap-1">
+            <div className="relative">
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="ghost"
+                onClick={() => setMenuOpen((open) => !open)}
+                disabled={availableTabs.length === 0}
+                aria-label="Add sidebar tab"
+                aria-expanded={menuOpen}
               >
-                <button
-                  type="button"
-                  onClick={() => closeTab(tab)}
-                  className="group/close relative ml-1 inline-flex size-5 shrink-0 items-center justify-center rounded transition-colors hover:bg-background/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  aria-label={`Close ${meta.label} tab`}
-                  title={`Close ${meta.label}`}
-                >
-                  <meta.Icon className="size-3.5 transition-opacity group-hover/close:opacity-0 group-focus-visible/close:opacity-0" />
-                  <X className="absolute size-3.5 opacity-0 transition-opacity group-hover/close:opacity-100 group-focus-visible/close:opacity-100" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab(tab)}
-                  className="min-w-0 rounded py-1 pl-0.5 pr-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  aria-pressed={activeTab === tab}
-                >
-                  <span className="block truncate">{meta.label}</span>
-                </button>
-              </div>
-            );
-          })}
-          <div className="relative">
-            <Button
-              type="button"
-              size="icon-sm"
-              variant="ghost"
-              onClick={() => setMenuOpen((open) => !open)}
-              disabled={availableTabs.length === 0}
-              aria-label="Add sidebar tab"
-              aria-expanded={menuOpen}
-            >
-              <Plus />
-            </Button>
-            {menuOpen && availableTabs.length > 0 && (
-              <div className="absolute left-0 top-full z-50 mt-1 w-36 rounded-md bg-popover p-1 text-xs text-popover-foreground shadow-lg ring-1 ring-border">
-                {availableTabs.map((tab) => {
-                  const meta = tabMeta(tab.id);
-                  return (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-accent"
-                      onClick={() => addTab(tab.id)}
-                    >
-                      <meta.Icon className="size-3.5 text-muted-foreground" />
-                      {meta.label}
-                    </button>
-                  );
-                })}
-              </div>
+                <Plus />
+              </Button>
+              {menuOpen && availableTabs.length > 0 && (
+                <div className="absolute right-0 top-full z-50 mt-1 w-36 rounded-md bg-popover p-1 text-xs text-popover-foreground shadow-lg ring-1 ring-border">
+                  {availableTabs.map((tab) => {
+                    const meta = tabMeta(tab.id);
+                    return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-accent"
+                        onClick={() => addTab(tab.id)}
+                      >
+                        <meta.Icon className="size-3.5 text-muted-foreground" />
+                        {meta.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            {onExpandToggle && (
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="ghost"
+                onClick={onExpandToggle}
+                aria-label={expanded ? "Shrink trace workspace" : "Expand trace workspace"}
+                aria-pressed={expanded}
+              >
+                {expanded ? <Minimize2 /> : <Maximize2 />}
+              </Button>
+            )}
+            {onClose && (
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="ghost"
+                onClick={onClose}
+                aria-label="Close trace workspace"
+              >
+                <X />
+              </Button>
             )}
           </div>
-        </div>
-        {onClose && (
-          <Button
-            type="button"
-            size="icon-sm"
-            variant="ghost"
-            onClick={onClose}
-            aria-label="Close trace workspace"
-          >
-            <X />
-          </Button>
-        )}
-      </header>
+        </header>
 
-      {activeTab === "worklog" ? (
-        <WorklogPanel messages={messages} onApproval={onApproval} />
-      ) : activeTab === "plans" ? (
-        <PlansPanel messages={messages} />
-      ) : activeTab === "todos" ? (
-        <TodosPanel messages={messages} />
-      ) : (
-        <EmptyTabsPanel />
-      )}
+        {activeTab === "worklog" ? (
+          <WorklogPanel messages={messages} onApproval={onApproval} />
+        ) : activeTab === "plans" ? (
+          <PlansPanel messages={messages} />
+        ) : activeTab === "todos" ? (
+          <TodosPanel messages={messages} />
+        ) : (
+          <EmptyTabsPanel />
+        )}
+      </div>
     </aside>
   );
 }
