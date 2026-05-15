@@ -1,6 +1,7 @@
-export const DEFAULT_MODEL_ID = "anthropic/claude-sonnet-4.5";
+export const DEFAULT_MODEL_ID = "deepseek/deepseek-v4-flash";
 
 export const MODEL_CATALOG = [
+  { id: "deepseek/deepseek-v4-flash", label: "DeepSeek V4 Flash" },
   { id: "anthropic/claude-sonnet-4.5", label: "Claude Sonnet 4.5" },
   { id: "anthropic/claude-haiku-4.5", label: "Claude Haiku 4.5" },
   { id: "deepseek/deepseek-v4-pro", label: "DeepSeek V4 Pro" },
