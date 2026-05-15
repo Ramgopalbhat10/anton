@@ -257,17 +257,21 @@ function ModeSelector({
         <selected.Icon className="size-3.5" />
         <SelectValue>{selected.label}</SelectValue>
       </SelectTrigger>
-      <SelectContent align="start" className="min-w-44">
-        <SelectViewport>
+      <SelectContent align="start" className="min-w-40">
+        <SelectViewport className="p-0.5">
           {MODE_ITEMS.map((item) => (
-            <SelectItem key={item.value} value={item.value} className="py-1.5">
-              <span className="flex min-w-0 items-center gap-2">
-                <item.Icon className="size-3.5 text-muted-foreground" />
-                <span className="grid min-w-0 gap-0.5">
-                  <span className="text-xs text-foreground">{item.label}</span>
-                  <span className="text-[10px] leading-none text-muted-foreground">
-                    {item.description}
-                  </span>
+            <SelectItem
+              key={item.value}
+              value={item.value}
+              className="py-1 pr-7 pl-1.5"
+            >
+              <span className="grid min-w-0 gap-0.5">
+                <span className="inline-flex items-center gap-1.5 text-xs leading-4 text-foreground">
+                  <item.Icon className="size-3.5 text-muted-foreground" />
+                  {item.label}
+                </span>
+                <span className="pl-5 text-[10px] leading-3 text-muted-foreground">
+                  {item.description}
                 </span>
               </span>
             </SelectItem>
