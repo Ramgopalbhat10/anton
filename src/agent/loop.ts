@@ -343,6 +343,7 @@ export async function runAgent({
     totalUsage: LanguageModelUsage;
     finishReason: FinishReason;
     providerMetadata?: ProviderMetadata;
+    stepProviderMetadata: ProviderMetadata[];
     stepCount: number;
     maxSteps: number;
     maxStepLimitReached: boolean;
@@ -364,6 +365,7 @@ export async function runAgent({
   const selectedModel = model ?? DEFAULT_MODEL;
   let observedStepCount = 0;
   const stepUsage: StepUsageAudit[] = [];
+  const stepProviderMetadata: ProviderMetadata[] = [];
   const executionCache = new Map<string, Promise<unknown>>();
   const startedToolCallIds = new Set<string>();
   const startedToolCallKeys = new Set<string>();
@@ -433,12 +435,19 @@ export async function runAgent({
       observedStepCount = Math.max(observedStepCount, stepNumber + 1);
       onStepStart?.({ stepNumber });
     },
-    onStepFinish: ({ stepNumber, usage, finishReason, toolCalls }) => {
+    onStepFinish: ({
+      stepNumber,
+      usage,
+      finishReason,
+      toolCalls,
+      providerMetadata,
+    }) => {
+      if (providerMetadata) stepProviderMetadata.push(providerMetadata);
       stepUsage.push({
         stepNumber,
         finishReason,
         toolCallCount: uniqueToolCallCount(toolCalls),
-        ...usageAudit(usage, undefined),
+        ...usageAudit(usage, providerMetadata),
       });
       onStepFinish?.({ stepNumber });
     },
@@ -489,6 +498,7 @@ export async function runAgent({
         totalUsage,
         finishReason,
         providerMetadata,
+        stepProviderMetadata,
         stepCount: observedStepCount,
         maxSteps: MAX_STEPS,
         maxStepLimitReached:

@@ -28,27 +28,33 @@ export type SessionTokenUsage = {
 export function buildTokenUsageMetrics({
   usage,
   providerMetadata,
+  stepProviderMetadata,
 }: {
   usage?: LanguageModelUsage;
   providerMetadata?: ProviderMetadata;
+  stepProviderMetadata?: readonly ProviderMetadata[];
 }): TokenUsageMetrics | undefined {
   const rawInputTokens = finiteNumber(usage?.inputTokens);
   const outputTokens = finiteNumber(usage?.outputTokens);
   const rawTotalTokens = finiteNumber(usage?.totalTokens);
-  const cachedInputTokens = openRouterTokenCount(providerMetadata, [
-    "cached_tokens",
-    "cachedTokens",
-    "cached_input_tokens",
-    "cachedInputTokens",
-    "cache_read_tokens",
-    "cacheReadTokens",
-  ]);
-  const cacheWriteTokens = openRouterTokenCount(providerMetadata, [
-    "cache_write_tokens",
-    "cacheWriteTokens",
-    "cache_creation_tokens",
-    "cacheCreationTokens",
-  ]);
+  const cachedInputTokens =
+    finiteNumber(usage?.inputTokenDetails?.cacheReadTokens) ??
+    openRouterTokenCount(providerMetadata, [
+      "cached_tokens",
+      "cachedTokens",
+      "cached_input_tokens",
+      "cachedInputTokens",
+      "cache_read_tokens",
+      "cacheReadTokens",
+    ], stepProviderMetadata);
+  const cacheWriteTokens =
+    finiteNumber(usage?.inputTokenDetails?.cacheWriteTokens) ??
+    openRouterTokenCount(providerMetadata, [
+      "cache_write_tokens",
+      "cacheWriteTokens",
+      "cache_creation_tokens",
+      "cacheCreationTokens",
+    ], stepProviderMetadata);
   const providerEffectiveTokens = openRouterTokenCount(providerMetadata, [
     "effective_tokens",
     "effectiveTokens",
@@ -56,7 +62,7 @@ export function buildTokenUsageMetrics({
     "billableTokens",
     "charged_tokens",
     "chargedTokens",
-  ]);
+  ], stepProviderMetadata);
   const uncachedInputTokens =
     rawInputTokens === undefined
       ? undefined
@@ -140,30 +146,58 @@ export function tokenUsageFromCostMetadata(
 
 export function openRouterCostFromMetadata(
   providerMetadata: ProviderMetadata | undefined,
+  stepProviderMetadata?: readonly ProviderMetadata[],
 ): number | undefined {
-  const usage = openRouterUsage(providerMetadata);
-  return finiteNumber(usage?.cost);
+  const stepCosts = collectOpenRouterUsage(providerMetadata, stepProviderMetadata)
+    .map((usage) => finiteNumber(usage.cost))
+    .filter((cost): cost is number => cost !== undefined);
+  if (stepCosts.length === 0) return undefined;
+  return stepCosts.reduce((sum, cost) => sum + cost, 0);
 }
 
 function openRouterTokenCount(
   providerMetadata: ProviderMetadata | undefined,
   keys: readonly string[],
+  stepProviderMetadata?: readonly ProviderMetadata[],
 ): number | undefined {
-  const usage = openRouterUsage(providerMetadata);
-  const promptDetails = isRecord(usage?.prompt_tokens_details)
-    ? usage.prompt_tokens_details
-    : undefined;
-  const promptDetailsCamel = isRecord(usage?.promptTokensDetails)
-    ? usage.promptTokensDetails
-    : undefined;
-  for (const source of [usage, promptDetails, promptDetailsCamel]) {
-    if (!source) continue;
-    for (const key of keys) {
-      const value = finiteNumber(source[key]);
-      if (value !== undefined) return value;
+  let total = 0;
+  let found = false;
+  for (const usage of collectOpenRouterUsage(providerMetadata, stepProviderMetadata)) {
+    let usageValue: number | undefined;
+    const promptDetails = isRecord(usage.prompt_tokens_details)
+      ? usage.prompt_tokens_details
+      : undefined;
+    const promptDetailsCamel = isRecord(usage.promptTokensDetails)
+      ? usage.promptTokensDetails
+      : undefined;
+    for (const source of [usage, promptDetails, promptDetailsCamel]) {
+      if (!source) continue;
+      for (const key of keys) {
+        const value = finiteNumber(source[key]);
+        if (value === undefined) continue;
+        usageValue = value;
+        break;
+      }
+      if (usageValue !== undefined) break;
+    }
+    if (usageValue !== undefined) {
+      total += usageValue;
+      found = true;
     }
   }
-  return undefined;
+  return found ? total : undefined;
+}
+
+function collectOpenRouterUsage(
+  providerMetadata: ProviderMetadata | undefined,
+  stepProviderMetadata: readonly ProviderMetadata[] | undefined,
+): Record<string, unknown>[] {
+  const stepUsage = (stepProviderMetadata ?? [])
+    .map(openRouterUsage)
+    .filter((usage): usage is Record<string, unknown> => usage !== undefined);
+  if (stepUsage.length > 0) return stepUsage;
+  const usage = openRouterUsage(providerMetadata);
+  return usage ? [usage] : [];
 }
 
 function openRouterUsage(

@@ -255,6 +255,7 @@ export async function POST(req: Request) {
             totalUsage,
             finishReason,
             providerMetadata,
+            stepProviderMetadata,
             maxSteps,
             maxStepLimitReached,
             tokenAudit,
@@ -265,7 +266,12 @@ export async function POST(req: Request) {
               totalUsage,
               providerMetadata,
               finishReason,
-              { maxSteps, maxStepLimitReached, tokenAudit },
+              {
+                maxSteps,
+                maxStepLimitReached,
+                tokenAudit,
+                stepProviderMetadata,
+              },
             );
             const delta = totalUsage.totalTokens;
             if (typeof delta === "number" && delta > 0) {
@@ -764,6 +770,7 @@ function createTraceWriter({
       maxSteps?: number;
       maxStepLimitReached?: boolean;
       tokenAudit?: TokenAudit;
+      stepProviderMetadata?: ProviderMetadata[];
     } = {},
   ) => {
     if (finalized) return;
@@ -776,12 +783,20 @@ function createTraceWriter({
     const inputTokens = usage?.inputTokens;
     const outputTokens = usage?.outputTokens;
     const totalTokens = usage?.totalTokens;
-    const costUsd = openRouterCostFromMetadata(providerMetadata);
-    const tokenUsage = buildTokenUsageMetrics({ usage, providerMetadata });
+    const costUsd = openRouterCostFromMetadata(
+      providerMetadata,
+      limits.stepProviderMetadata,
+    );
+    const tokenUsage = buildTokenUsageMetrics({
+      usage,
+      providerMetadata,
+      stepProviderMetadata: limits.stepProviderMetadata,
+    });
     const costMetadata = runCostMetadata(
       providerMetadata,
       limits.tokenAudit,
       tokenUsage,
+      limits.stepProviderMetadata,
     );
     const storedFinishReason = limits.maxStepLimitReached
       ? "max_step_limit"
@@ -1117,15 +1132,26 @@ function errorMessageOrUndefined(error: unknown): string | undefined {
 
 function openRouterCostMetadata(
   providerMetadata: ProviderMetadata | undefined,
+  stepProviderMetadata: ProviderMetadata[] | undefined,
 ): Record<string, unknown> | null {
   const openrouter = providerMetadata?.openrouter;
-  if (!isRecord(openrouter)) return null;
-  const usage = openrouter.usage;
-  if (!isRecord(usage)) return null;
+  const usage = isRecord(openrouter) && isRecord(openrouter.usage)
+    ? openrouter.usage
+    : null;
+  const stepUsage = (stepProviderMetadata ?? []).flatMap((metadata, index) => {
+    const stepOpenrouter = metadata.openrouter;
+    if (!isRecord(stepOpenrouter) || !isRecord(stepOpenrouter.usage)) return [];
+    return [{ stepNumber: index, usage: stepOpenrouter.usage }];
+  });
+  if (!usage && stepUsage.length === 0) return null;
   return redactValue({
     provider: "openrouter",
-    source: "providerMetadata.openrouter.usage",
-    usage,
+    source:
+      stepUsage.length > 0
+        ? "providerMetadata.openrouter.usage.steps"
+        : "providerMetadata.openrouter.usage",
+    ...(usage ? { usage } : {}),
+    ...(stepUsage.length > 0 ? { stepUsage } : {}),
   }) as Record<string, unknown>;
 }
 
@@ -1133,8 +1159,12 @@ function runCostMetadata(
   providerMetadata: ProviderMetadata | undefined,
   tokenAudit: TokenAudit | undefined,
   tokenUsage: TokenUsageMetrics | undefined,
+  stepProviderMetadata: ProviderMetadata[] | undefined,
 ): Record<string, unknown> | null {
-  const providerCostMetadata = openRouterCostMetadata(providerMetadata);
+  const providerCostMetadata = openRouterCostMetadata(
+    providerMetadata,
+    stepProviderMetadata,
+  );
   if (!tokenAudit && !tokenUsage) return providerCostMetadata;
   return redactValue({
     ...(providerCostMetadata ?? {}),
