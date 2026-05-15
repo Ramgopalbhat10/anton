@@ -119,7 +119,6 @@ function systemPrompt(
   workspaceRoot?: string,
   mode: AgentRunMode = "chat",
   profile: AgentRunProfile = profileForMode(mode),
-  sessionContextDigest?: string,
 ): string {
   const root = workspaceRoot
     ? ensureWorkspaceRootAt(workspaceRoot)
@@ -151,6 +150,7 @@ function systemPrompt(
     "- MCP tools come from globally configured or workspace MCP servers, run outside Anton's native sandbox, and always require tool-call approval.",
     "- When you finish, report changed files, verification results, and unresolved risks or skipped checks. If the run reaches the max step limit, stop and say what remains instead of implying completion.",
     "- Do not guess file contents - read them first.",
+    "- Model-only prior run context may appear as an assistant message before the latest user request. Use it for continuity, but re-read files or rerun commands when exact current state matters.",
     "",
     ...mcpToolPromptLines(mcpTools),
     "",
@@ -159,8 +159,6 @@ function systemPrompt(
     ...projectSkillPromptLines(workspaceRoot),
     "",
     ...runProfilePromptLines(mode, profile),
-    "",
-    ...sessionContextPromptLines(sessionContextDigest),
   ].join("\n");
 }
 
@@ -213,23 +211,6 @@ function runProfilePromptLines(
     "- For multi-step coding tasks, call `update_todos` with a full checklist snapshot before the first edit and update it as work progresses.",
     "- Before the first coding action in a project, call `inspect_project`, then summarize the relevant stack, scripts, git state, and local instructions in your progress text.",
     "- After editing files, run `verify` before the final answer when the project exposes typecheck, lint, or build scripts. If verification is skipped or fails, say exactly why.",
-  ];
-}
-
-function sessionContextPromptLines(
-  sessionContextDigest: string | undefined,
-): string[] {
-  if (!sessionContextDigest?.trim()) {
-    return [
-      "Prior run context:",
-      "- No compact prior run context available for this session.",
-    ];
-  }
-  return [
-    sessionContextDigest,
-    "- Treat prior run context as continuity, not proof of current filesystem state.",
-    "- If the user asks what happened earlier or what was previously identified, answer from prior run context instead of rerunning tools.",
-    "- Re-read files or rerun commands when the user asks for exact current details.",
   ];
 }
 
@@ -299,7 +280,6 @@ export async function runAgent({
   profile = profileForMode(mode),
   enabledMcpServerIds,
   requestBodyBytes,
-  sessionContextDigest,
   onStepStart,
   onStepFinish,
   onToolCallStart,
@@ -317,7 +297,6 @@ export async function runAgent({
   profile?: AgentRunProfile;
   enabledMcpServerIds?: string[];
   requestBodyBytes?: number;
-  sessionContextDigest?: string;
   onStepStart?: (event: { stepNumber: number }) => void;
   onStepFinish?: (event: { stepNumber: number }) => void;
   onToolCallStart?: (event: {
@@ -386,7 +365,6 @@ export async function runAgent({
     workspaceRoot,
     mode,
     profile,
-    sessionContextDigest,
   );
   const activeTools = Object.keys(tools);
   const tokenAuditBase = {

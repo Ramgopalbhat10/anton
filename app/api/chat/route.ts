@@ -6,6 +6,7 @@ import {
   isToolUIPart,
   type FinishReason,
   type LanguageModelUsage,
+  type ModelMessage,
   type ProviderMetadata,
   type TextStreamPart,
   type ToolSet,
@@ -197,10 +198,9 @@ export async function POST(req: Request) {
     sessionId,
     latestUserText: latestUserText(uiMessages),
   });
-  const modelMessages = await convertMessagesForRun(
-    preparedMessages,
-    runId,
-    startedAt,
+  const modelMessages = addPriorRunContextMessage(
+    await convertMessagesForRun(preparedMessages, runId, startedAt),
+    sessionContextDigest,
   );
   const contextCollector = new RunContextCollector(runId, sessionId);
   let contextTerminalStatus: RunContextStatus = "completed";
@@ -227,7 +227,6 @@ export async function POST(req: Request) {
           mode,
           profile,
           requestBodyBytes,
-          sessionContextDigest,
           permissionMode: parsed.data.permissionMode as
             | PermissionMode
             | undefined,
@@ -472,6 +471,40 @@ async function convertMessagesForRun(
     });
     throw err;
   }
+}
+
+function addPriorRunContextMessage(
+  messages: ModelMessage[],
+  sessionContextDigest: string | undefined,
+): ModelMessage[] {
+  const text = priorRunContextMessageText(sessionContextDigest);
+  if (!text) return messages;
+  const contextMessage: ModelMessage = {
+    role: "assistant",
+    content: text,
+  };
+  const latestUserIndex = messages.findLastIndex(
+    (message) => message.role === "user",
+  );
+  if (latestUserIndex === -1) return [...messages, contextMessage];
+  return [
+    ...messages.slice(0, latestUserIndex),
+    contextMessage,
+    ...messages.slice(latestUserIndex),
+  ];
+}
+
+function priorRunContextMessageText(
+  sessionContextDigest: string | undefined,
+): string | undefined {
+  const digest = sessionContextDigest?.trim();
+  if (!digest) return undefined;
+  return [
+    "Prior run context (model-only, for continuity; may be stale):",
+    digest,
+    "",
+    "Use this when the user asks what happened earlier or what was previously identified. Re-read files or rerun commands when the user asks for exact current details.",
+  ].join("\n");
 }
 
 function isModelContextPart(
