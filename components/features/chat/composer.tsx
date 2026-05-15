@@ -30,6 +30,7 @@ import { Switch } from "@/components/ui/switch";
 import type { ModelId } from "@/src/lib/models";
 import type { PermissionMode } from "@/src/agent/permissions";
 import type { McpServerSummary, ProjectSummary } from "@/src/lib/api-types";
+import type { SessionTokenUsage } from "@/src/lib/token-usage";
 import { ModelPicker } from "./model-picker";
 
 interface ComposerProps {
@@ -40,7 +41,7 @@ interface ComposerProps {
   streaming: boolean;
   model: ModelId;
   onModelChange: (model: ModelId) => void;
-  tokens: number;
+  tokenUsage: SessionTokenUsage;
   project: ProjectSummary | null;
   permissionMode: PermissionMode;
   onPermissionModeChange: (mode: PermissionMode) => void;
@@ -60,7 +61,7 @@ export function Composer({
   streaming,
   model,
   onModelChange,
-  tokens,
+  tokenUsage,
   project,
   permissionMode,
   onPermissionModeChange,
@@ -166,7 +167,7 @@ export function Composer({
             </div>
 
             <div className="flex min-w-0 items-center gap-1.5">
-              <TokenCounter tokens={tokens} pending={streaming} />
+              <TokenCounter tokenUsage={tokenUsage} pending={streaming} />
               <ModelPicker
                 value={model}
                 onChange={onModelChange}
@@ -338,17 +339,18 @@ function PermissionsDropdown({
 }
 
 function TokenCounter({
-  tokens,
+  tokenUsage,
   pending,
 }: {
-  tokens: number;
+  tokenUsage: SessionTokenUsage;
   pending: boolean;
 }) {
+  const tokens = tokenUsage.effectiveTokens;
   if (tokens <= 0 && !pending) return null;
   return (
     <span
       className="inline-flex h-5 items-center gap-1 rounded-md bg-secondary px-1.5 text-[11px] font-mono text-muted-foreground"
-      title="Total tokens used in this session"
+      title={tokenUsageTitle(tokenUsage)}
     >
       <span className="size-1.5 rounded-full bg-muted-foreground/50" aria-hidden />
       <span className="text-muted-foreground/70">session</span>
@@ -358,8 +360,42 @@ function TokenCounter({
   );
 }
 
+function tokenUsageTitle(usage: SessionTokenUsage): string {
+  const lines = [
+    "Effective session usage",
+    `Effective: ${formatInteger(usage.effectiveTokens)} tokens`,
+    `Raw: ${formatInteger(usage.rawTokens)} tokens`,
+    `Cached input: ${formatInteger(usage.cachedInputTokens)} tokens`,
+  ];
+  if (usage.cacheWriteTokens > 0) {
+    lines.push(`Cache write: ${formatInteger(usage.cacheWriteTokens)} tokens`);
+  }
+  if (usage.costUsd !== undefined) {
+    lines.push(`Cost: ${formatCost(usage.costUsd)}`);
+  }
+  if (!usage.hasEffectiveMetrics) {
+    lines.push("Effective value falls back to raw tokens for older runs.");
+  }
+  return lines.join("\n");
+}
+
 function formatTokens(n: number): string {
   if (n < 1000) return String(n);
   if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
   return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
+function formatInteger(n: number): string {
+  return new Intl.NumberFormat().format(Math.round(n));
+}
+
+function formatCost(n: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    currencyDisplay: "symbol",
+    maximumFractionDigits: 4,
+  })
+    .format(n)
+    .replace("US$", "$");
 }

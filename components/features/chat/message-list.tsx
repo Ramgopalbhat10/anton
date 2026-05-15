@@ -420,6 +420,13 @@ function StatsHoverCard({ metrics }: { metrics: ResponseMetrics }) {
             <span>Total</span>
             <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatMetricNumber(metrics.totalTokens)}</span>
           </div>
+          {metrics.effectiveTokens !== undefined && (
+            <div className="flex items-center gap-1.5 text-muted-foreground">
+              <Hash className="size-3" />
+              <span>Effective</span>
+              <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatMetricNumber(metrics.effectiveTokens)}</span>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-x-3 gap-y-1">
             <div className="flex items-center gap-1.5">
               <ArrowDownToLine className="size-3 text-muted-foreground" />
@@ -432,6 +439,21 @@ function StatsHoverCard({ metrics }: { metrics: ResponseMetrics }) {
               <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatMetricNumber(metrics.outputTokens)}</span>
             </div>
           </div>
+          {(metrics.cachedInputTokens !== undefined ||
+            metrics.cacheWriteTokens !== undefined) && (
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+              <div className="flex items-center gap-1.5">
+                <Hash className="size-3 text-muted-foreground" />
+                <span className="text-muted-foreground">Cached</span>
+                <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatMetricNumber(metrics.cachedInputTokens)}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Hash className="size-3 text-muted-foreground" />
+                <span className="text-muted-foreground">Write</span>
+                <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatMetricNumber(metrics.cacheWriteTokens)}</span>
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-x-3 gap-y-1">
             <div className="flex items-center gap-1.5">
               <DollarSign className="size-3 text-muted-foreground" />

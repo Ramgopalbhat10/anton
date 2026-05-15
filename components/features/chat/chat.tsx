@@ -11,7 +11,7 @@ import { PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 
 import { DEFAULT_MODEL_ID, type ModelId } from "@/src/lib/models";
 import type { PermissionMode } from "@/src/agent/permissions";
-import { getRunDataList, type AntonUIMessage } from "@/src/lib/trace";
+import type { AntonUIMessage } from "@/src/lib/trace";
 import type { McpPreflightServer, McpServerSummary } from "@/src/lib/api-types";
 import { getJson, jsonHeaders, requestJson } from "@/src/lib/client-fetch";
 import {
@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { MessageList } from "./message-list";
 import { Composer } from "./composer";
+import { sessionTokenUsage } from "./message-metrics";
 import { generateChatId } from "./chat-utils";
 import { WorkspaceRequired } from "./workspace-required";
 import { Worklog } from "@/components/features/run-trace/worklog";
@@ -284,14 +285,7 @@ function ChatSession({
   const headerTitle = initialTitle ?? (sessionIdProp ? "Session" : "New chat");
   const persistedTokensTotal =
     sessions.find((s) => s.id === sessionId)?.tokensTotal ?? initialTokensTotal;
-  const messageTokensTotal = displayMessages.reduce((sum, message) => {
-    return sum + getRunDataList(message).reduce((runSum, run) => {
-      return typeof run.totalTokens === "number" && Number.isFinite(run.totalTokens)
-        ? runSum + run.totalTokens
-        : runSum;
-    }, 0);
-  }, 0);
-  const tokensTotal = Math.max(persistedTokensTotal, messageTokensTotal);
+  const tokenUsage = sessionTokenUsage(displayMessages, persistedTokensTotal);
 
   const toggleWorklog = () => {
     if (
@@ -375,7 +369,7 @@ function ChatSession({
             streaming={streaming}
             model={model}
             onModelChange={setModel}
-            tokens={tokensTotal}
+            tokenUsage={tokenUsage}
             project={project}
             permissionMode={permissionMode}
             onPermissionModeChange={setPermissionMode}

@@ -8,7 +8,12 @@ import {
   type ToolSet,
   type FinishReason,
 } from "ai";
-import { openrouter, DEFAULT_MODEL } from "@/src/lib/providers";
+import {
+  openrouter,
+  DEFAULT_MODEL,
+  toOpenRouterModelId,
+} from "@/src/lib/providers";
+import { buildTokenUsageMetrics } from "@/src/lib/token-usage";
 import { listMemories } from "@/src/db/queries";
 import { listSkills } from "./skills";
 import {
@@ -93,30 +98,11 @@ const ACCEPTED_PLAN_SIMPLE_TOOLS = [
 ] as const satisfies readonly NativeAntonToolName[];
 
 const ACCEPTED_PLAN_GENERAL_TOOLS = [
-  "read_file",
-  "read_dir",
-  "stat",
-  "edit_file",
-  "write_file",
-  "delete",
-  "rename",
-  "copy",
-  "mkdir",
-  "format",
-  "bash",
-  "verify",
-  "grep",
-  "glob",
-  "git_status",
-  "git_diff",
-  "git_show",
-  "update_todos",
+  ...NATIVE_ANTON_TOOL_NAMES,
 ] as const satisfies readonly NativeAntonToolName[];
 
 const COMMAND_RUN_TOOLS = [
-  "inspect_project",
-  "bash",
-  "git_status",
+  ...NATIVE_ANTON_TOOL_NAMES,
 ] as const satisfies readonly NativeAntonToolName[];
 
 const PROFILE_NATIVE_TOOLS = {
@@ -143,7 +129,6 @@ function systemPrompt(
     "You are Anton, a minimal coding-agent harness. Your job is to explore, read,",
     "and modify code inside a sandboxed workspace directory on the user's machine.",
     "",
-    `Current run profile: \`${profile}\`. Only the tool schemas supplied to this run are available.`,
     `The workspace root is \`${rel === "." ? root : rel}\`. All file paths you pass to tools must be relative to this root.`,
     "Absolute paths and `..` traversal are rejected by the sandbox before execution.",
     "Use tool schemas as the source of truth for exact arguments and outputs; do not rely on an inline tool catalog.",
@@ -155,44 +140,10 @@ function systemPrompt(
     "Do not write test cases, add test files, or introduce test scripts. Verify changes with typecheck, lint, build, and focused manual checks as appropriate.",
     "Never ask the user for approval in prose; the harness shows an approval UI for risky tools.",
     "If a tool returns `{ ok: false, error }`, report the error and try a different approach; do not retry the exact same call.",
-    ...mcpToolPromptLines(mcpTools),
     "",
     "Conventions:",
     "- Answer concisely. Prefer short, correct answers over long hedged ones.",
     "- Text you write before a later tool call is progress, not the final answer. After the last tool call, write one final answer that addresses every explicit user request, including findings from earlier tools.",
-    ...(mode === "plan"
-      ? [
-          "- You are in explicit Plan mode. Analyze the request and repository context, then produce a markdown implementation plan only.",
-          "- In Plan mode, do not edit files, run mutating commands, format files, commit, branch, or call workspace mutation tools.",
-          "- For a minimal localized change where the user names the target file, symbol, or string, inspect only that target with one narrow read or search before writing the plan.",
-          "- Do not call `inspect_project` in Plan mode unless the requested plan depends on unknown project scripts, stack, or repository state.",
-          "- Use read-only inspection tools as needed. Do not call `update_todos` in Plan mode.",
-          "- The final response should be the plan itself with clear sections and enough implementation detail to execute in a later turn.",
-        ]
-      : profile === "accepted-plan-simple"
-        ? [
-            "- The user accepted an existing plan. Use the immediately preceding plan response as the source of truth.",
-            "- Do not rediscover files already named in the plan; read only the target files needed to get fresh hashes before editing.",
-            "- Keep progress brief and use the narrow edit and verification tools supplied to this run.",
-          ]
-      : profile === "accepted-plan-general"
-        ? [
-            "- The user accepted an existing plan. Use the immediately preceding plan response as the source of truth.",
-            "- Do not rediscover files already named in the plan; read only target files or narrow search results needed to edit safely.",
-            "- Use `update_todos` when the accepted plan has multiple implementation steps.",
-          ]
-      : profile === "command-run"
-        ? [
-            "- The user asked for command-line work. Use `bash` for command execution so live terminal output is visible.",
-            "- Use `inspect_project` only if you need to identify the package manager or available script names.",
-            "- If the user asks for both information and command execution, collect the information first, run the command, then include both in the final response.",
-            "- Do not use `verify` in this profile; it is reserved for compact post-edit verification.",
-          ]
-      : [
-          "- For multi-step coding tasks, call `update_todos` with a full checklist snapshot before the first edit and update it as work progresses.",
-          "- Before the first coding action in a project, call `inspect_project`, then summarize the relevant stack, scripts, git state, and local instructions in your progress text.",
-          "- After editing files, run `verify` before the final answer when the project exposes typecheck, lint, or build scripts. If verification is skipped or fails, say exactly why.",
-        ]),
     "- Plan first for multi-step tasks: explore read-only tools (`inspect_project`, `glob`, `grep`, `read_dir`, `stat`, `read_file`) before editing (`edit_file`, `write_file`) or running shell commands.",
     "- Use memory only for durable project preferences or facts that should carry across sessions.",
     "- When a listed skill matches the user's task, call `read_skill` before using it.",
@@ -201,12 +152,68 @@ function systemPrompt(
     "- When you finish, report changed files, verification results, and unresolved risks or skipped checks. If the run reaches the max step limit, stop and say what remains instead of implying completion.",
     "- Do not guess file contents - read them first.",
     "",
+    ...mcpToolPromptLines(mcpTools),
+    "",
     ...projectMemoryPromptLines(),
     "",
-    ...sessionContextPromptLines(sessionContextDigest),
-    "",
     ...projectSkillPromptLines(workspaceRoot),
+    "",
+    ...runProfilePromptLines(mode, profile),
+    "",
+    ...sessionContextPromptLines(sessionContextDigest),
   ].join("\n");
+}
+
+function runProfilePromptLines(
+  mode: AgentRunMode,
+  profile: AgentRunProfile,
+): string[] {
+  const header = [
+    "Current run profile:",
+    `- Profile: \`${profile}\`. Only the tool schemas supplied to this run are available.`,
+  ];
+  if (mode === "plan") {
+    return [
+      ...header,
+      "- You are in explicit Plan mode. Analyze the request and repository context, then produce a markdown implementation plan only.",
+      "- In Plan mode, do not edit files, run mutating commands, format files, commit, branch, or call workspace mutation tools.",
+      "- For a minimal localized change where the user names the target file, symbol, or string, inspect only that target with one narrow read or search before writing the plan.",
+      "- Do not call `inspect_project` in Plan mode unless the requested plan depends on unknown project scripts, stack, or repository state.",
+      "- Use read-only inspection tools as needed. Do not call `update_todos` in Plan mode.",
+      "- The final response should be the plan itself with clear sections and enough implementation detail to execute in a later turn.",
+    ];
+  }
+  if (profile === "accepted-plan-simple") {
+    return [
+      ...header,
+      "- The user accepted an existing plan. Use the immediately preceding plan response as the source of truth.",
+      "- Do not rediscover files already named in the plan; read only the target files needed to get fresh hashes before editing.",
+      "- Keep progress brief and use the narrow edit and verification tools supplied to this run.",
+    ];
+  }
+  if (profile === "accepted-plan-general") {
+    return [
+      ...header,
+      "- The user accepted an existing plan. Use the immediately preceding plan response as the source of truth.",
+      "- Do not rediscover files already named in the plan; read only target files or narrow search results needed to edit safely.",
+      "- Use `update_todos` when the accepted plan has multiple implementation steps.",
+    ];
+  }
+  if (profile === "command-run") {
+    return [
+      ...header,
+      "- The user asked for command-line work. Use `bash` for command execution so live terminal output is visible.",
+      "- Use `inspect_project` only if you need to identify the package manager or available script names.",
+      "- If the user asks for both information and command execution, collect the information first, run the command, then include both in the final response.",
+      "- Do not use `verify` in this profile; it is reserved for compact post-edit verification.",
+    ];
+  }
+  return [
+    ...header,
+    "- For multi-step coding tasks, call `update_todos` with a full checklist snapshot before the first edit and update it as work progresses.",
+    "- Before the first coding action in a project, call `inspect_project`, then summarize the relevant stack, scripts, git state, and local instructions in your progress text.",
+    "- After editing files, run `verify` before the final answer when the project exposes typecheck, lint, or build scripts. If verification is skipped or fails, say exactly why.",
+  ];
 }
 
 function sessionContextPromptLines(
@@ -238,7 +245,7 @@ function projectMemoryPromptLines(): string[] {
 }
 
 function mcpToolPromptLines(mcpTools: LoadedMcpTools): string[] {
-  const lines = ["", "Configured MCP tools:"];
+  const lines = ["Configured MCP tools:"];
   if (mcpTools.toolSummaries.length === 0) {
     lines.push("- No MCP tools loaded.");
   } else {
@@ -395,7 +402,7 @@ export async function runAgent({
   };
 
   return streamText({
-    model: openrouter(selectedModel),
+    model: openrouter(toOpenRouterModelId(selectedModel)),
     system,
     messages,
     maxOutputTokens:
@@ -547,7 +554,10 @@ function usageAudit(
     const value = finiteNumber(usageRecord[source]);
     if (value !== undefined) result[target] = value;
   }
-  const cachedInputTokens = cachedTokens(providerMetadata);
+  const cachedInputTokens = buildTokenUsageMetrics({
+    usage,
+    providerMetadata,
+  })?.cachedInputTokens;
   if (cachedInputTokens !== undefined) {
     result.cachedInputTokens = cachedInputTokens;
   }
@@ -651,22 +661,6 @@ function toolCallSemanticKey(toolCall: {
   input: unknown;
 }): string {
   return `${toolCall.toolName}:${stableJson(toolCall.input)}`;
-}
-
-function cachedTokens(providerMetadata: ProviderMetadata | undefined): number | undefined {
-  const openrouter = isRecord(providerMetadata?.openrouter)
-    ? providerMetadata.openrouter
-    : undefined;
-  const usage = isRecord(openrouter?.usage) ? openrouter.usage : undefined;
-  const promptDetails = isRecord(usage?.prompt_tokens_details)
-    ? usage.prompt_tokens_details
-    : undefined;
-  return (
-    finiteNumber(usage?.cached_tokens) ??
-    finiteNumber(usage?.cachedTokens) ??
-    finiteNumber(promptDetails?.cached_tokens) ??
-    finiteNumber(promptDetails?.cachedTokens)
-  );
 }
 
 function finiteNumber(value: unknown): number | undefined {

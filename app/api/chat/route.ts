@@ -56,6 +56,11 @@ import { DEFAULT_MODEL } from "@/src/lib/providers";
 import { isSupportedModelId } from "@/src/lib/models";
 import { redactText, redactValue } from "@/src/lib/redaction";
 import {
+  buildTokenUsageMetrics,
+  openRouterCostFromMetadata,
+  type TokenUsageMetrics,
+} from "@/src/lib/token-usage";
+import {
   collapseAssistantContinuationMessages,
   getApprovalMetadata,
   getAssistantTextDisplay,
@@ -570,6 +575,8 @@ function createTraceWriter({
     status: AntonRunStatus,
     extra: Partial<Omit<AntonRunData, "runId" | "model" | "status" | "startedAt">> = {},
   ) => {
+    const metadataExtra = { ...extra };
+    delete metadataExtra.costMetadata;
     const data: AntonRunData = {
       runId,
       model,
@@ -577,7 +584,7 @@ function createTraceWriter({
       startedAt,
       ...extra,
     };
-    writeMetadata(status, extra);
+    writeMetadata(status, metadataExtra);
     writer.write({ type: "data-run", id: runId, data });
   };
 
@@ -769,8 +776,13 @@ function createTraceWriter({
     const inputTokens = usage?.inputTokens;
     const outputTokens = usage?.outputTokens;
     const totalTokens = usage?.totalTokens;
-    const costUsd = openRouterCost(providerMetadata);
-    const costMetadata = runCostMetadata(providerMetadata, limits.tokenAudit);
+    const costUsd = openRouterCostFromMetadata(providerMetadata);
+    const tokenUsage = buildTokenUsageMetrics({ usage, providerMetadata });
+    const costMetadata = runCostMetadata(
+      providerMetadata,
+      limits.tokenAudit,
+      tokenUsage,
+    );
     const storedFinishReason = limits.maxStepLimitReached
       ? "max_step_limit"
       : effectiveStatus === "error" && failedToolCount > 0
@@ -783,6 +795,7 @@ function createTraceWriter({
       outputTokens,
       totalTokens,
       costUsd,
+      costMetadata,
       stepCount,
       finishReason: storedFinishReason,
       maxSteps: limits.maxSteps,
@@ -1102,15 +1115,6 @@ function errorMessageOrUndefined(error: unknown): string | undefined {
   return errorMessage(error);
 }
 
-function openRouterCost(providerMetadata: ProviderMetadata | undefined): number | undefined {
-  const openrouter = providerMetadata?.openrouter;
-  if (!isRecord(openrouter)) return undefined;
-  const usage = openrouter.usage;
-  if (!isRecord(usage)) return undefined;
-  const cost = usage.cost;
-  return typeof cost === "number" && Number.isFinite(cost) ? cost : undefined;
-}
-
 function openRouterCostMetadata(
   providerMetadata: ProviderMetadata | undefined,
 ): Record<string, unknown> | null {
@@ -1128,12 +1132,14 @@ function openRouterCostMetadata(
 function runCostMetadata(
   providerMetadata: ProviderMetadata | undefined,
   tokenAudit: TokenAudit | undefined,
+  tokenUsage: TokenUsageMetrics | undefined,
 ): Record<string, unknown> | null {
   const providerCostMetadata = openRouterCostMetadata(providerMetadata);
-  if (!tokenAudit) return providerCostMetadata;
+  if (!tokenAudit && !tokenUsage) return providerCostMetadata;
   return redactValue({
     ...(providerCostMetadata ?? {}),
-    tokenAudit,
+    ...(tokenUsage ? { tokenUsage } : {}),
+    ...(tokenAudit ? { tokenAudit } : {}),
   }) as Record<string, unknown>;
 }
 
