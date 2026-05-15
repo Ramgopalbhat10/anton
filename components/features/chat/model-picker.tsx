@@ -40,15 +40,19 @@ export function ModelPicker({
         <SelectValue>{selected?.label ?? value}</SelectValue>
       </SelectTrigger>
       <SelectContent align="end">
-        <SelectViewport>
+        <SelectViewport className="p-0.5">
           {MODEL_CATALOG.map((model) => (
-            <SelectItem key={model.id} value={model.id}>
-              {model.label}
+            <SelectItem
+              key={model.id}
+              value={model.id}
+              className="py-1 pr-7 pl-1.5"
+            >
+              <span className="text-xs leading-4">{model.label}</span>
             </SelectItem>
           ))}
         </SelectViewport>
         <div
-          className="flex items-center justify-between gap-4 border-t border-border px-2 py-2 text-xs"
+          className="flex items-center justify-between gap-4 border-t border-border px-1.5 py-1.5 text-xs"
           onPointerDown={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
         >

@@ -330,21 +330,21 @@ function McpSelector({
         MCP {selectedCount}
       </Button>
       {open && !disabled && (
-        <div className="absolute bottom-full left-0 z-50 mb-2 w-64 rounded-md bg-popover p-1.5 text-xs text-popover-foreground shadow-lg ring-1 ring-border">
+        <div className="absolute bottom-full left-0 z-50 mb-2 w-56 rounded-md bg-popover p-1 text-xs text-popover-foreground shadow-lg ring-1 ring-border">
           {enabledServers.length === 0 ? (
-            <div className="px-1 py-2 text-muted-foreground">
+            <div className="px-1.5 py-1.5 text-muted-foreground">
               No enabled MCP servers.
             </div>
           ) : (
-            <ul className="grid gap-1">
+            <ul className="grid gap-0.5">
               {enabledServers.map((server) => {
                 const checked = selectedIds.includes(server.id);
                 return (
                   <li key={server.id}>
                     <div
-                      className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded px-2 py-1.5 text-primary"
+                      className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded px-1.5 py-1 text-primary"
                     >
-                      <span className="truncate font-medium">
+                      <span className="truncate text-[11px] font-medium leading-4">
                         {server.displayName}
                       </span>
                       <Switch
@@ -394,11 +394,15 @@ function PermissionsDropdown({
       <SelectTrigger className="h-5 gap-1 border-0 bg-transparent px-1.5 text-[11px] font-medium text-primary hover:bg-primary/10">
         <SelectValue />
       </SelectTrigger>
-      <SelectContent>
-        <SelectViewport>
+      <SelectContent className="min-w-36">
+        <SelectViewport className="p-0.5">
           {PERMISSION_MODE_ITEMS.map((item) => (
-            <SelectItem key={item.value} value={item.value}>
-              <span className="inline-flex items-center gap-1.5">
+            <SelectItem
+              key={item.value}
+              value={item.value}
+              className="py-1 pr-7 pl-1.5"
+            >
+              <span className="inline-flex items-center gap-1.5 text-xs leading-4">
                 <item.Icon className="size-3.5" />
                 {item.label}
               </span>
