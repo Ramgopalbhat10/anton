@@ -10,6 +10,7 @@ import {
 import { PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 
 import { DEFAULT_MODEL_ID, type ModelId } from "@/src/lib/models";
+import { DEFAULT_CHAT_MODE, type ChatMode } from "@/src/lib/chat-modes";
 import type { PermissionMode } from "@/src/agent/permissions";
 import type { AntonUIMessage } from "@/src/lib/trace";
 import type { McpPreflightServer, McpServerSummary } from "@/src/lib/api-types";
@@ -88,16 +89,18 @@ function ChatSession({
     (initialModel ?? DEFAULT_MODEL_ID) as ModelId,
   );
   const [permissionMode, setPermissionMode] = useState<PermissionMode>("auto-review");
+  const [mode, setMode] = useState<ChatMode>(DEFAULT_CHAT_MODE);
+  const [thinkingEnabled, setThinkingEnabled] = useState(false);
   const [mcpServers, setMcpServers] = useState<McpServerSummary[]>([]);
   const [selectedMcpServerIds, setSelectedMcpServerIds] = useState<string[]>([]);
   const [pendingMcpSend, setPendingMcpSend] = useState<{
     text: string;
-    mode: "chat" | "plan";
+    mode: ChatMode;
     untrusted: McpPreflightServer[];
   } | null>(null);
-  const [streamingResponseMode, setStreamingResponseMode] = useState<
-    "chat" | "plan" | null
-  >(null);
+  const [streamingResponseMode, setStreamingResponseMode] = useState<ChatMode | null>(
+    null,
+  );
   const effectiveProjectId = initialProjectId ?? activeProjectId;
   const project = useProjectSummary(effectiveProjectId);
 
@@ -214,10 +217,10 @@ function ChatSession({
 
   const sendWithMcp = async (
     text: string,
-    mode: "chat" | "plan" = "chat",
+    requestedMode: ChatMode = mode,
   ): Promise<boolean> => {
-    if (!effectiveProjectId) return false;
-    const includeMcp = mode === "chat" && !isAcceptedPlanRequest(text);
+    if (requestedMode !== "chat" && !effectiveProjectId) return false;
+    const includeMcp = requestedMode === "agent" && !isAcceptedPlanRequest(text);
     const selectedIds = includeMcp
       ? selectedMcpServerIds.filter((id) =>
           mcpServers.some((server) => server.id === id && server.enabled),
@@ -233,21 +236,22 @@ function ChatSession({
         body: JSON.stringify({ serverIds: selectedIds }),
       });
       if (!preflight.ok) {
-        setPendingMcpSend({ text, mode, untrusted: preflight.untrusted });
+        setPendingMcpSend({ text, mode: requestedMode, untrusted: preflight.untrusted });
         return false;
       }
     }
     if (lastNonEmptyMessagesRef.current.length > 0) {
       setMessageDisplayOverride(lastNonEmptyMessagesRef.current);
     }
-    setStreamingResponseMode(mode);
+    setStreamingResponseMode(requestedMode);
     void sendMessage(
       { text },
       {
         body: {
           projectId: effectiveProjectId,
           model,
-          mode,
+          mode: requestedMode,
+          thinkingEnabled,
           permissionMode,
           enabledMcpServerIds: selectedIds,
         },
@@ -346,12 +350,12 @@ function ChatSession({
             streamingResponseMode={streaming ? streamingResponseMode : null}
             onApproval={addToolApprovalResponse}
             onAcceptPlan={() => {
-              void sendWithMcp("Implement plan", "chat");
+              void sendWithMcp("Implement plan", "agent");
             }}
             acceptPlanDisabled={streaming || !effectiveProjectId}
           />
 
-          {displayMessages.length === 0 && !effectiveProjectId && (
+          {displayMessages.length === 0 && !effectiveProjectId && mode !== "chat" && (
             <WorkspaceRequired onOpenSettings={() => setSettingsOpen(true)} />
           )}
 
@@ -363,12 +367,15 @@ function ChatSession({
 
           <Composer
             onSend={sendWithMcp}
-            onPlan={(text) => sendWithMcp(text, "plan")}
             onStop={stop}
-            disabled={streaming || !effectiveProjectId}
+            disabled={streaming}
             streaming={streaming}
+            mode={mode}
+            onModeChange={setMode}
             model={model}
             onModelChange={setModel}
+            thinkingEnabled={thinkingEnabled}
+            onThinkingEnabledChange={setThinkingEnabled}
             tokenUsage={tokenUsage}
             project={project}
             permissionMode={permissionMode}
@@ -431,7 +438,7 @@ function McpTrustDialog({
   onClose,
   onApprove,
 }: {
-  pending: { text: string; mode: "chat" | "plan"; untrusted: McpPreflightServer[] } | null;
+  pending: { text: string; mode: ChatMode; untrusted: McpPreflightServer[] } | null;
   onClose: () => void;
   onApprove: () => void;
 }) {

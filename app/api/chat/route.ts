@@ -55,6 +55,7 @@ import {
 } from "@/src/db/queries";
 import { DEFAULT_MODEL } from "@/src/lib/providers";
 import { isSupportedModelId } from "@/src/lib/models";
+import { CHAT_MODES, DEFAULT_CHAT_MODE, type ChatMode } from "@/src/lib/chat-modes";
 import { redactText, redactValue } from "@/src/lib/redaction";
 import {
   buildTokenUsageMetrics,
@@ -90,7 +91,8 @@ const bodySchema = z.object({
   model: z.string().min(1).optional(),
   permissionMode: z.enum(["default", "auto-review", "full-access"]).optional(),
   enabledMcpServerIds: z.array(z.string().min(1)).optional(),
-  mode: z.enum(["chat", "plan"]).optional(),
+  mode: z.enum(CHAT_MODES).optional(),
+  thinkingEnabled: z.boolean().optional(),
   messages: z.array(z.unknown()).min(1),
 });
 
@@ -105,9 +107,10 @@ export async function POST(req: Request) {
   }
 
   const { sessionId } = parsed.data;
-  const mode = parsed.data.mode ?? "chat";
+  const mode = parsed.data.mode ?? DEFAULT_CHAT_MODE;
   const uiMessages = parsed.data.messages as AntonUIMessage[];
   const profile = runProfileForMessages(mode, uiMessages);
+  const needsProject = mode !== "chat";
   const requestBodyBytes = byteLength(JSON.stringify(json ?? {}));
   const model = parsed.data.model ?? DEFAULT_MODEL;
   if (!isSupportedModelId(model)) {
@@ -119,15 +122,15 @@ export async function POST(req: Request) {
 
   const existing = getSession(sessionId);
   const projectId = existing?.projectId ?? parsed.data.projectId ?? null;
-  if (!projectId) {
+  if (needsProject && !projectId) {
     return Response.json(
-      { error: "projectId is required for agent chat sessions" },
+      { error: "projectId is required for project-aware modes" },
       { status: 400 },
     );
   }
 
-  const project = getProject(projectId);
-  if (!project || project.status !== "ready") {
+  const project = projectId ? getProject(projectId) : undefined;
+  if (needsProject && (!project || project.status !== "ready")) {
     return Response.json(
       { error: "project not found or not ready" },
       { status: 400 },
@@ -194,10 +197,12 @@ export async function POST(req: Request) {
   });
 
   const preparedMessages = prepareMessagesForModel(uiMessages, profile);
-  const sessionContextDigest = buildSessionContextDigest({
-    sessionId,
-    latestUserText: latestUserText(uiMessages),
-  });
+  const sessionContextDigest = mode === "chat"
+    ? undefined
+    : buildSessionContextDigest({
+        sessionId,
+        latestUserText: latestUserText(uiMessages),
+      });
   const modelMessages = addPriorRunContextMessage(
     await convertMessagesForRun(preparedMessages, runId, startedAt),
     sessionContextDigest,
@@ -214,7 +219,7 @@ export async function POST(req: Request) {
         runId,
         model,
         startedAt,
-        workspaceRoot: project.localPath,
+        workspaceRoot: project?.localPath,
         responseKind: mode === "plan" ? "plan" : undefined,
       });
       trace.writeRun("running");
@@ -223,10 +228,11 @@ export async function POST(req: Request) {
         const result = await runAgent({
           messages: modelMessages,
           model,
-          workspaceRoot: project.localPath,
+          workspaceRoot: project?.localPath,
           mode,
           profile,
           requestBodyBytes,
+          thinkingEnabled: parsed.data.thinkingEnabled ?? false,
           permissionMode: parsed.data.permissionMode as
             | PermissionMode
             | undefined,
@@ -579,7 +585,7 @@ function createTraceWriter({
   runId: string;
   model: string;
   startedAt: number;
-  workspaceRoot: string;
+  workspaceRoot?: string;
   responseKind?: "plan";
 }) {
   let sequence = 0;
@@ -917,11 +923,13 @@ function createTraceWriter({
         details.riskSummary = `Calls external MCP tool "${parts[2] ?? event.toolName}" from "${parts[1] ?? "unknown"}" server.`;
       }
 
-      const approval = buildToolApprovalMetadata({
-        toolName: event.toolName,
-        input: event.input,
-        workspaceRoot,
-      });
+      const approval = workspaceRoot
+        ? buildToolApprovalMetadata({
+            toolName: event.toolName,
+            input: event.input,
+            workspaceRoot,
+          })
+        : undefined;
       if (approval) {
         details.approval = redactValue(approval);
         details.riskCategories = [...approval.riskCategories];
@@ -1207,9 +1215,11 @@ function runCostMetadata(
 }
 
 function runProfileForMessages(
-  mode: "chat" | "plan",
+  mode: ChatMode,
   messages: AntonUIMessage[],
 ): AgentRunProfile {
+  if (mode === "chat") return "pure-chat";
+  if (mode === "ask") return "ask";
   if (mode === "plan") return "plan";
   if (isToolApprovalContinuation(messages)) return "approval-continuation";
   const latestText = latestUserText(messages).trim().toLowerCase();

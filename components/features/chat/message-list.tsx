@@ -23,6 +23,7 @@ import {
   hasPendingToolApproval,
   type AntonUIMessage,
 } from "@/src/lib/trace";
+import type { ChatMode } from "@/src/lib/chat-modes";
 import { cn } from "@/lib/utils";
 import { Markdown } from "./markdown";
 import { Button } from "@/components/ui/button";
@@ -46,7 +47,7 @@ interface MessageListProps {
   messages: AntonUIMessage[];
   status: "submitted" | "streaming" | "ready" | "error";
   recovering?: boolean;
-  streamingResponseMode?: "chat" | "plan" | null;
+  streamingResponseMode?: ChatMode | null;
   onApproval: ChatAddToolApproveResponseFunction;
   onAcceptPlan: (plan: string) => void;
   acceptPlanDisabled?: boolean;
@@ -129,7 +130,7 @@ function MessageEvent({
 }: {
   message: AntonUIMessage;
   status: "submitted" | "streaming" | "ready" | "error";
-  streamingResponseMode: "chat" | "plan" | null;
+  streamingResponseMode: ChatMode | null;
   todoDisplay: ReturnType<typeof getTodoTraceDisplay>;
   onApproval: ChatAddToolApproveResponseFunction;
   onAcceptPlan: (plan: string) => void;

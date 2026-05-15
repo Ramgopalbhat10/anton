@@ -33,8 +33,10 @@ import type { PermissionMode } from "./permissions";
 const MAX_STEPS = 20;
 const CHAT_MAX_OUTPUT_TOKENS = 8_192;
 const PLAN_MAX_OUTPUT_TOKENS = 4_096;
-export type AgentRunMode = "chat" | "plan";
+export type AgentRunMode = "chat" | "ask" | "plan" | "agent";
 export type AgentRunProfile =
+  | "pure-chat"
+  | "ask"
   | "plan"
   | "accepted-plan-simple"
   | "accepted-plan-general"
@@ -72,6 +74,23 @@ type StepUsageAudit = UsageAudit & {
   toolCallCount: number;
 };
 
+const CHAT_MODE_TOOLS = [] as const satisfies readonly NativeAntonToolName[];
+
+const ASK_MODE_TOOLS = [
+  "inspect_project",
+  "read_file",
+  "read_dir",
+  "stat",
+  "grep",
+  "glob",
+  "git_status",
+  "git_diff",
+  "git_show",
+  "list_memory",
+  "list_skills",
+  "read_skill",
+] as const satisfies readonly NativeAntonToolName[];
+
 const PLAN_MODE_TOOLS = [
   "read_file",
   "read_dir",
@@ -102,10 +121,14 @@ const ACCEPTED_PLAN_GENERAL_TOOLS = [
 ] as const satisfies readonly NativeAntonToolName[];
 
 const COMMAND_RUN_TOOLS = [
-  ...NATIVE_ANTON_TOOL_NAMES,
+  "inspect_project",
+  "bash",
+  "git_status",
 ] as const satisfies readonly NativeAntonToolName[];
 
 const PROFILE_NATIVE_TOOLS = {
+  "pure-chat": CHAT_MODE_TOOLS,
+  ask: ASK_MODE_TOOLS,
   plan: PLAN_MODE_TOOLS,
   "accepted-plan-simple": ACCEPTED_PLAN_SIMPLE_TOOLS,
   "accepted-plan-general": ACCEPTED_PLAN_GENERAL_TOOLS,
@@ -117,9 +140,11 @@ const PROFILE_NATIVE_TOOLS = {
 function systemPrompt(
   mcpTools: LoadedMcpTools,
   workspaceRoot?: string,
-  mode: AgentRunMode = "chat",
+  mode: AgentRunMode = "ask",
   profile: AgentRunProfile = profileForMode(mode),
 ): string {
+  if (profile === "pure-chat") return pureChatSystemPrompt();
+
   const root = workspaceRoot
     ? ensureWorkspaceRootAt(workspaceRoot)
     : ensureWorkspaceRoot();
@@ -162,6 +187,14 @@ function systemPrompt(
   ].join("\n");
 }
 
+function pureChatSystemPrompt(): string {
+  return [
+    "You are Anton in Chat mode, a concise general-purpose assistant.",
+    "Answer the user's question directly without using project context, workspace files, prior run context, or tools.",
+    "Do not claim to have inspected code or run commands. If the user asks for project-specific or current-file details, explain that Ask or Agent mode is needed.",
+  ].join("\n");
+}
+
 function runProfilePromptLines(
   mode: AgentRunMode,
   profile: AgentRunProfile,
@@ -170,6 +203,15 @@ function runProfilePromptLines(
     "Current run profile:",
     `- Profile: \`${profile}\`. Only the tool schemas supplied to this run are available.`,
   ];
+  if (profile === "ask") {
+    return [
+      ...header,
+      "- You are in Ask mode. Answer questions about the selected project using read-only tools and prior run context when useful.",
+      "- Do not edit files, run shell commands, write memory, update todos, commit, branch, or call mutation tools.",
+      "- Prefer compact inspection: use `inspect_project` for stack/scripts, and narrow `grep`, `glob`, `read_dir`, `stat`, or `read_file` calls for exact facts.",
+      "- If the user asks for a change, provide guidance or a plan and tell them Agent mode is required to modify files.",
+    ];
+  }
   if (mode === "plan") {
     return [
       ...header,
@@ -276,9 +318,10 @@ export async function runAgent({
   model,
   workspaceRoot,
   permissionMode,
-  mode = "chat",
+  mode = "ask",
   profile = profileForMode(mode),
   enabledMcpServerIds,
+  thinkingEnabled = false,
   requestBodyBytes,
   onStepStart,
   onStepFinish,
@@ -296,6 +339,7 @@ export async function runAgent({
   mode?: AgentRunMode;
   profile?: AgentRunProfile;
   enabledMcpServerIds?: string[];
+  thinkingEnabled?: boolean;
   requestBodyBytes?: number;
   onStepStart?: (event: { stepNumber: number }) => void;
   onStepFinish?: (event: { stepNumber: number }) => void;
@@ -391,11 +435,7 @@ export async function runAgent({
     activeTools,
     stopWhen: stepCountIs(MAX_STEPS),
     providerOptions: {
-      openrouter: {
-        provider: { sort: "price" },
-        reasoning: reasoningOptionsForProfile(profile),
-        usage: { include: true },
-      },
+      openrouter: openRouterProviderOptions(profile, thinkingEnabled),
     },
     prepareStep: ({ messages: stepMessages }) => {
       const compacted = dedupeToolReplayMessages(stepMessages);
@@ -500,7 +540,10 @@ export async function runAgent({
 export type { AntonUIMessage } from "@/src/lib/trace";
 
 export function profileForMode(mode: AgentRunMode): AgentRunProfile {
-  return mode === "plan" ? "plan" : "general-chat";
+  if (mode === "chat") return "pure-chat";
+  if (mode === "ask") return "ask";
+  if (mode === "plan") return "plan";
+  return "general-chat";
 }
 
 export function profileAllowsMcp(profile: AgentRunProfile): boolean {
@@ -525,6 +568,21 @@ function reasoningOptionsForProfile(profile: AgentRunProfile): {
     enabled: true,
     effort: "low",
     exclude: profile === "accepted-plan-simple",
+  };
+}
+
+function openRouterProviderOptions(
+  profile: AgentRunProfile,
+  thinkingEnabled: boolean,
+): {
+  provider: { sort: "price" };
+  reasoning?: ReturnType<typeof reasoningOptionsForProfile>;
+  usage: { include: true };
+} {
+  return {
+    provider: { sort: "price" },
+    ...(thinkingEnabled ? { reasoning: reasoningOptionsForProfile(profile) } : {}),
+    usage: { include: true },
   };
 }
 

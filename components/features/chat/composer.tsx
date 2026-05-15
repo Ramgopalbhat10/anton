@@ -1,14 +1,23 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ComponentType,
+  type KeyboardEvent,
+} from "react";
 import {
   ArrowUp,
   ChevronDown,
+  Code2,
   DatabaseZap,
   GitBranch,
+  MessageCircle,
   Monitor,
   Plus,
   ScrollText,
+  Search,
   ShieldCheck,
   ShieldOff,
   ShieldQuestion,
@@ -17,7 +26,6 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -28,6 +36,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import type { ModelId } from "@/src/lib/models";
+import type { ChatMode } from "@/src/lib/chat-modes";
 import type { PermissionMode } from "@/src/agent/permissions";
 import type { McpServerSummary, ProjectSummary } from "@/src/lib/api-types";
 import type { SessionTokenUsage } from "@/src/lib/token-usage";
@@ -35,12 +44,15 @@ import { ModelPicker } from "./model-picker";
 
 interface ComposerProps {
   onSend: (text: string) => boolean | Promise<boolean>;
-  onPlan: (text: string) => boolean | Promise<boolean>;
   onStop: () => void;
   disabled: boolean;
   streaming: boolean;
+  mode: ChatMode;
+  onModeChange: (mode: ChatMode) => void;
   model: ModelId;
   onModelChange: (model: ModelId) => void;
+  thinkingEnabled: boolean;
+  onThinkingEnabledChange: (enabled: boolean) => void;
   tokenUsage: SessionTokenUsage;
   project: ProjectSummary | null;
   permissionMode: PermissionMode;
@@ -55,12 +67,15 @@ const MAX_HEIGHT = 44;
 
 export function Composer({
   onSend,
-  onPlan,
   onStop,
   disabled,
   streaming,
+  mode,
+  onModeChange,
   model,
   onModelChange,
+  thinkingEnabled,
+  onThinkingEnabledChange,
   tokenUsage,
   project,
   permissionMode,
@@ -71,8 +86,8 @@ export function Composer({
 }: ComposerProps) {
   const [input, setInput] = useState("");
   const [mcpOpen, setMcpOpen] = useState(false);
-  const [planMode, setPlanMode] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const sendDisabled = disabled || (mode !== "chat" && !project);
 
   useLayoutEffect(() => {
     const el = textareaRef.current;
@@ -85,12 +100,10 @@ export function Composer({
 
   const submit = () => {
     const trimmed = input.trim();
-    if (!trimmed || disabled) return;
-    const handler = planMode ? onPlan : onSend;
-    void Promise.resolve(handler(trimmed)).then((sent) => {
+    if (!trimmed || sendDisabled) return;
+    void Promise.resolve(onSend(trimmed)).then((sent) => {
       if (sent) {
         setInput("");
-        setPlanMode(false);
       }
     });
   };
@@ -118,7 +131,7 @@ export function Composer({
             onChange={(e) => setInput(e.target.value)}
             onInput={(e) => setInput(e.currentTarget.value)}
             onKeyDown={onKeyDown}
-            placeholder={planMode ? "Ask Anton to plan the work" : "Ask for follow-up changes"}
+            placeholder={placeholderForMode(mode)}
             rows={1}
             className="field-sizing-fixed min-h-0 min-w-0 resize-none rounded-none border-0 bg-transparent p-0 font-mono text-xs leading-5 shadow-none placeholder:font-mono focus-visible:ring-0 dark:bg-transparent md:text-xs"
             style={{ minHeight: MIN_HEIGHT, maxHeight: MAX_HEIGHT }}
@@ -135,24 +148,7 @@ export function Composer({
               >
                 <Plus />
               </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="xs"
-                className={cn(
-                  "h-5 px-1.5 text-[11px]",
-                  planMode
-                    ? "bg-primary/15 text-primary ring-1 ring-primary/30 hover:bg-primary/20"
-                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                )}
-                disabled={disabled}
-                onClick={() => setPlanMode((active) => !active)}
-                aria-pressed={planMode}
-                aria-label={planMode ? "Disable plan mode" : "Enable plan mode"}
-              >
-                <ScrollText />
-                Plan
-              </Button>
+              <ModeSelector value={mode} onChange={onModeChange} disabled={disabled} />
               <PermissionsDropdown
                 value={permissionMode}
                 onChange={onPermissionModeChange}
@@ -163,6 +159,7 @@ export function Composer({
                 open={mcpOpen}
                 onOpenChange={setMcpOpen}
                 onSelectedIdsChange={onSelectedMcpServerIdsChange}
+                disabled={disabled || mode !== "agent" || !project}
               />
             </div>
 
@@ -171,6 +168,8 @@ export function Composer({
               <ModelPicker
                 value={model}
                 onChange={onModelChange}
+                thinkingEnabled={thinkingEnabled}
+                onThinkingEnabledChange={onThinkingEnabledChange}
                 disabled={streaming}
                 triggerClassName="h-5 w-36 px-1.5 text-[11px]"
               />
@@ -188,7 +187,7 @@ export function Composer({
                 <Button
                   type="submit"
                   size="icon-xs"
-                  disabled={disabled || !input.trim()}
+                  disabled={sendDisabled || !input.trim()}
                   aria-label="Send message"
                 >
                   <ArrowUp />
@@ -226,18 +225,86 @@ export function Composer({
   );
 }
 
+const MODE_ITEMS = [
+  { value: "chat", label: "Chat", description: "Pure Q&A", Icon: MessageCircle },
+  { value: "ask", label: "Ask", description: "Reads project", Icon: Search },
+  { value: "plan", label: "Plan", description: "Plans changes", Icon: ScrollText },
+  { value: "agent", label: "Agent", description: "Can edit code", Icon: Code2 },
+] as const satisfies readonly {
+  value: ChatMode;
+  label: string;
+  description: string;
+  Icon: ComponentType<{ className?: string }>;
+}[];
+
+function ModeSelector({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: ChatMode;
+  onChange: (mode: ChatMode) => void;
+  disabled: boolean;
+}) {
+  const selected = MODE_ITEMS.find((item) => item.value === value) ?? MODE_ITEMS[1];
+  return (
+    <Select
+      value={value}
+      onValueChange={(next) => onChange(next as ChatMode)}
+      disabled={disabled}
+    >
+      <SelectTrigger className="h-5 gap-1 border-0 bg-transparent px-1.5 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground">
+        <selected.Icon className="size-3.5" />
+        <SelectValue>{selected.label}</SelectValue>
+      </SelectTrigger>
+      <SelectContent align="start" className="min-w-44">
+        <SelectViewport>
+          {MODE_ITEMS.map((item) => (
+            <SelectItem key={item.value} value={item.value} className="py-1.5">
+              <span className="flex min-w-0 items-center gap-2">
+                <item.Icon className="size-3.5 text-muted-foreground" />
+                <span className="grid min-w-0 gap-0.5">
+                  <span className="text-xs text-foreground">{item.label}</span>
+                  <span className="text-[10px] leading-none text-muted-foreground">
+                    {item.description}
+                  </span>
+                </span>
+              </span>
+            </SelectItem>
+          ))}
+        </SelectViewport>
+      </SelectContent>
+    </Select>
+  );
+}
+
+function placeholderForMode(mode: ChatMode): string {
+  switch (mode) {
+    case "chat":
+      return "Ask anything";
+    case "ask":
+      return "Ask about this project";
+    case "plan":
+      return "Ask Anton to plan the work";
+    case "agent":
+      return "Ask Anton to change the code";
+  }
+}
+
 function McpSelector({
   servers,
   selectedIds,
   open,
   onOpenChange,
   onSelectedIdsChange,
+  disabled,
 }: {
   servers: McpServerSummary[];
   selectedIds: string[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelectedIdsChange: (ids: string[]) => void;
+  disabled: boolean;
 }) {
   const enabledServers = servers.filter((server) => server.enabled);
   const selectedCount = enabledServers.filter((server) =>
@@ -250,6 +317,7 @@ function McpSelector({
         variant="ghost"
         size="xs"
         className="h-5 px-1.5 text-[11px] text-primary hover:bg-primary/10"
+        disabled={disabled}
         onClick={() => onOpenChange(!open)}
         aria-expanded={open}
         aria-label="Select MCP servers"
@@ -257,7 +325,7 @@ function McpSelector({
         <DatabaseZap />
         MCP {selectedCount}
       </Button>
-      {open && (
+      {open && !disabled && (
         <div className="absolute bottom-full left-0 z-50 mb-2 w-64 rounded-md bg-popover p-1.5 text-xs text-popover-foreground shadow-lg ring-1 ring-border">
           {enabledServers.length === 0 ? (
             <div className="px-1 py-2 text-muted-foreground">
