@@ -100,7 +100,7 @@ Run `pnpm typecheck` and `pnpm lint` before committing. Do not write test cases,
 
 ```
 OPENROUTER_API_KEY=sk-or-v1-...
-DEFAULT_MODEL=anthropic/claude-haiku-4.5
+DEFAULT_MODEL=deepseek/deepseek-v4-flash
 WORKSPACE_ROOT=./workspace
 DATABASE_URL=./anton.db
 ```

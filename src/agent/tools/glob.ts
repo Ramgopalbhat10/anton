@@ -11,7 +11,7 @@ import {
   ensureWorkspaceRootAt,
 } from "../sandbox";
 
-const MAX_RESULTS = 500;
+const MAX_RESULTS = 200;
 const MAX_ENTRIES_SCANNED = 20_000;
 
 const IGNORED_DIRS = new Set([

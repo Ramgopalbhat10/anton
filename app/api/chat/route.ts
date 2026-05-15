@@ -6,6 +6,7 @@ import {
   isToolUIPart,
   type FinishReason,
   type LanguageModelUsage,
+  type ModelMessage,
   type ProviderMetadata,
   type TextStreamPart,
   type ToolSet,
@@ -14,7 +15,16 @@ import {
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
-import { runAgent } from "@/src/agent/loop";
+import {
+  runAgent,
+  type AgentRunProfile,
+  type TokenAudit,
+} from "@/src/agent/loop";
+import {
+  buildSessionContextDigest,
+  RunContextCollector,
+  type RunContextStatus,
+} from "@/src/agent/context";
 import {
   buildToolApprovalMetadata,
   getNativeToolPermissionMetadata,
@@ -45,10 +55,17 @@ import {
 } from "@/src/db/queries";
 import { DEFAULT_MODEL } from "@/src/lib/providers";
 import { isSupportedModelId } from "@/src/lib/models";
+import { CHAT_MODES, DEFAULT_CHAT_MODE, type ChatMode } from "@/src/lib/chat-modes";
 import { redactText, redactValue } from "@/src/lib/redaction";
+import {
+  buildTokenUsageMetrics,
+  openRouterCostFromMetadata,
+  type TokenUsageMetrics,
+} from "@/src/lib/token-usage";
 import {
   collapseAssistantContinuationMessages,
   getApprovalMetadata,
+  getAssistantTextDisplay,
   getToolTraceEntries,
   isRunDataPart,
 } from "@/src/lib/trace";
@@ -74,7 +91,8 @@ const bodySchema = z.object({
   model: z.string().min(1).optional(),
   permissionMode: z.enum(["default", "auto-review", "full-access"]).optional(),
   enabledMcpServerIds: z.array(z.string().min(1)).optional(),
-  mode: z.enum(["chat", "plan"]).optional(),
+  mode: z.enum(CHAT_MODES).optional(),
+  thinkingEnabled: z.boolean().optional(),
   messages: z.array(z.unknown()).min(1),
 });
 
@@ -89,8 +107,11 @@ export async function POST(req: Request) {
   }
 
   const { sessionId } = parsed.data;
-  const mode = parsed.data.mode ?? "chat";
+  const mode = parsed.data.mode ?? DEFAULT_CHAT_MODE;
   const uiMessages = parsed.data.messages as AntonUIMessage[];
+  const profile = runProfileForMessages(mode, uiMessages);
+  const needsProject = mode !== "chat";
+  const requestBodyBytes = byteLength(JSON.stringify(json ?? {}));
   const model = parsed.data.model ?? DEFAULT_MODEL;
   if (!isSupportedModelId(model)) {
     return Response.json(
@@ -101,15 +122,15 @@ export async function POST(req: Request) {
 
   const existing = getSession(sessionId);
   const projectId = existing?.projectId ?? parsed.data.projectId ?? null;
-  if (!projectId) {
+  if (needsProject && !projectId) {
     return Response.json(
-      { error: "projectId is required for agent chat sessions" },
+      { error: "projectId is required for project-aware modes" },
       { status: 400 },
     );
   }
 
-  const project = getProject(projectId);
-  if (!project || project.status !== "ready") {
+  const project = projectId ? getProject(projectId) : undefined;
+  if (needsProject && (!project || project.status !== "ready")) {
     return Response.json(
       { error: "project not found or not ready" },
       { status: 400 },
@@ -175,11 +196,20 @@ export async function POST(req: Request) {
     stepCount: 0,
   });
 
-  const modelMessages = await convertMessagesForRun(
-    uiMessages,
-    runId,
-    startedAt,
+  const preparedMessages = prepareMessagesForModel(uiMessages, profile);
+  const sessionContextDigest = mode === "chat"
+    ? undefined
+    : buildSessionContextDigest({
+        sessionId,
+        latestUserText: latestUserText(uiMessages),
+      });
+  const modelMessages = addPriorRunContextMessage(
+    await convertMessagesForRun(preparedMessages, runId, startedAt),
+    sessionContextDigest,
   );
+  const contextCollector = new RunContextCollector(runId, sessionId);
+  let contextTerminalStatus: RunContextStatus = "completed";
+  let contextTerminalError: unknown;
 
   const stream = createUIMessageStream<AntonUIMessage>({
     originalMessages: uiMessages,
@@ -189,7 +219,7 @@ export async function POST(req: Request) {
         runId,
         model,
         startedAt,
-        workspaceRoot: project.localPath,
+        workspaceRoot: project?.localPath,
         responseKind: mode === "plan" ? "plan" : undefined,
       });
       trace.writeRun("running");
@@ -198,8 +228,11 @@ export async function POST(req: Request) {
         const result = await runAgent({
           messages: modelMessages,
           model,
-          workspaceRoot: project.localPath,
+          workspaceRoot: project?.localPath,
           mode,
+          profile,
+          requestBodyBytes,
+          thinkingEnabled: parsed.data.thinkingEnabled ?? false,
           permissionMode: parsed.data.permissionMode as
             | PermissionMode
             | undefined,
@@ -207,23 +240,43 @@ export async function POST(req: Request) {
           onStepStart: ({ stepNumber }) => trace.startStep(stepNumber),
           onStepFinish: ({ stepNumber }) => trace.finishStep(stepNumber),
           onToolCallStart: (event) => trace.startTool(event),
-          onToolCallFinish: (event) => trace.finishTool(event),
+          onToolCallFinish: (event) => {
+            contextCollector.addTool(event);
+            trace.finishTool(event);
+          },
           onStreamPart: (part) => trace.handleStreamPart(part),
-          onAbort: () => trace.finalize("aborted"),
-          onError: (error) => trace.fail(error),
+          onAbort: () => {
+            contextTerminalStatus = "aborted";
+            trace.finalize("aborted");
+            contextCollector.persist({ status: "aborted" });
+          },
+          onError: (error) => {
+            contextTerminalStatus = "error";
+            contextTerminalError = error;
+            trace.fail(error);
+            contextCollector.persist({ status: "error", error });
+          },
           onFinish: ({
             totalUsage,
             finishReason,
             providerMetadata,
+            stepProviderMetadata,
             maxSteps,
             maxStepLimitReached,
+            tokenAudit,
           }) => {
+            contextTerminalStatus = maxStepLimitReached ? "error" : "completed";
             trace.finalize(
               maxStepLimitReached ? "error" : "completed",
               totalUsage,
               providerMetadata,
               finishReason,
-              { maxSteps, maxStepLimitReached },
+              {
+                maxSteps,
+                maxStepLimitReached,
+                tokenAudit,
+                stepProviderMetadata,
+              },
             );
             const delta = totalUsage.totalTokens;
             if (typeof delta === "number" && delta > 0) {
@@ -240,7 +293,10 @@ export async function POST(req: Request) {
           }),
         );
       } catch (err) {
+        contextTerminalStatus = "error";
+        contextTerminalError = err;
         trace.fail(err);
+        contextCollector.persist({ status: "error", error: err });
         throw err;
       }
     },
@@ -264,6 +320,11 @@ export async function POST(req: Request) {
               approvalContinuation || collapsedContinuations,
           },
         );
+        contextCollector.persist({
+          status: contextTerminalStatus,
+          finalText: finalAssistantText(messages),
+          error: contextTerminalError,
+        });
       } catch (err) {
         if (err instanceof MessagePersistenceConflictError) {
           updateRun(runId, {
@@ -280,20 +341,38 @@ export async function POST(req: Request) {
   return createUIMessageStreamResponse({ stream });
 }
 
-function prepareMessagesForModel(messages: AntonUIMessage[]): AntonUIMessage[] {
+function finalAssistantText(messages: AntonUIMessage[]): string | undefined {
+  const assistant = messages.findLast((message) => message.role === "assistant");
+  if (!assistant) return undefined;
+  const display = getAssistantTextDisplay(assistant);
+  const finalText = display.finalText || display.progressText;
+  return finalText.trim() || undefined;
+}
+
+function prepareMessagesForModel(
+  messages: AntonUIMessage[],
+  profile: AgentRunProfile,
+): AntonUIMessage[] {
   const approvalContinuationMessageId = isToolApprovalContinuation(messages)
     ? messages.at(-1)?.id
     : undefined;
+  const acceptedPlanMessageId = isAcceptedPlanProfile(profile)
+    ? messages.findLast(isPlanAssistantMessage)?.id
+    : undefined;
 
   return messages.flatMap((message) => {
+    const source =
+      message.id === acceptedPlanMessageId
+        ? compactAcceptedPlanMessage(message, profile)
+        : message;
     const parts = compactMessagePartsForModel(
-      message,
-      message.id === approvalContinuationMessageId,
+      source,
+      source.id === approvalContinuationMessageId,
     )
       .filter(isModelContextPart)
       .map(stripProviderReplayMetadata);
     if (!parts.some(isSubstantiveModelContextPart)) return [];
-    return [{ ...message, parts }];
+    return [{ ...source, parts }];
   });
 }
 
@@ -306,19 +385,78 @@ function compactMessagePartsForModel(
     return message.parts.filter(isApprovalContinuationContextPart);
   }
 
-  const lastToolIndex = message.parts.findLastIndex(isToolUIPart);
-  const finalTextParts = message.parts.filter((part, index) => {
-    return (
-      part.type === "text" &&
-      part.text.trim().length > 0 &&
-      (lastToolIndex === -1 || index > lastToolIndex)
-    );
-  });
-  if (finalTextParts.length > 0) return finalTextParts;
-
-  return message.parts.filter((part) => {
+  const textParts = message.parts.filter((part) => {
     return part.type === "text" && part.text.trim().length > 0;
   });
+  return textParts;
+}
+
+function compactAcceptedPlanMessage(
+  message: AntonUIMessage,
+  profile: AgentRunProfile,
+): AntonUIMessage {
+  const planText = message.parts
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("\n\n");
+  if (!planText.trim()) return message;
+
+  return {
+    ...message,
+    parts: [
+      {
+        type: "text",
+        text: acceptedPlanHandoff(planText, {
+          maxChars: profile === "accepted-plan-simple" ? 3_000 : 6_000,
+        }),
+      },
+    ],
+  };
+}
+
+function acceptedPlanHandoff(
+  planText: string,
+  options: { maxChars: number },
+): string {
+  const normalized = planText.replace(/\r\n/g, "\n").trim();
+  const targetFiles = extractPlanCodeSpans(normalized).filter(isLikelyRepoPath);
+  const importantLines = normalized
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => {
+      if (!line) return false;
+      if (/^#{1,4}\s/.test(line)) return true;
+      if (/\b(pnpm|npm|yarn|bun)\s+(typecheck|lint|build|test)\b/.test(line)) {
+        return true;
+      }
+      return extractPlanCodeSpans(line).some(isLikelyRepoPath);
+    });
+
+  const sections = [
+    "Accepted plan compact handoff.",
+    targetFiles.length > 0
+      ? `Target files: ${Array.from(new Set(targetFiles)).slice(0, 20).join(", ")}`
+      : "Target files: none detected in code spans.",
+    importantLines.length > 0
+      ? ["Relevant plan lines:", ...importantLines.slice(0, 40)].join("\n")
+      : ["Plan excerpt:", normalized.slice(0, options.maxChars)].join("\n"),
+  ];
+  const handoff = sections.join("\n\n");
+  if (handoff.length <= options.maxChars) return handoff;
+  return `${handoff.slice(0, options.maxChars).trimEnd()}\n...[plan handoff truncated]`;
+}
+
+function extractPlanCodeSpans(text: string): string[] {
+  return Array.from(text.matchAll(/`([^`]+)`/g), (match) => match[1].trim())
+    .filter(Boolean);
+}
+
+function isLikelyRepoPath(value: string): boolean {
+  return (
+    /^(app|components|src|lib|public|docs|workspace)\//.test(value) ||
+    /^(app|components|src|lib|public|docs|workspace)\\/.test(value) ||
+    /^(AGENTS|CLAUDE|README|ROADMAP|package|tsconfig|next\.config|drizzle\.config)/.test(value)
+  );
 }
 
 async function convertMessagesForRun(
@@ -327,7 +465,7 @@ async function convertMessagesForRun(
   startedAt: number,
 ) {
   try {
-    return await convertToModelMessages(prepareMessagesForModel(messages), {
+    return await convertToModelMessages(messages, {
       convertDataPart: () => undefined,
     });
   } catch (err) {
@@ -339,6 +477,40 @@ async function convertMessagesForRun(
     });
     throw err;
   }
+}
+
+function addPriorRunContextMessage(
+  messages: ModelMessage[],
+  sessionContextDigest: string | undefined,
+): ModelMessage[] {
+  const text = priorRunContextMessageText(sessionContextDigest);
+  if (!text) return messages;
+  const contextMessage: ModelMessage = {
+    role: "assistant",
+    content: text,
+  };
+  const latestUserIndex = messages.findLastIndex(
+    (message) => message.role === "user",
+  );
+  if (latestUserIndex === -1) return [...messages, contextMessage];
+  return [
+    ...messages.slice(0, latestUserIndex),
+    contextMessage,
+    ...messages.slice(latestUserIndex),
+  ];
+}
+
+function priorRunContextMessageText(
+  sessionContextDigest: string | undefined,
+): string | undefined {
+  const digest = sessionContextDigest?.trim();
+  if (!digest) return undefined;
+  return [
+    "Prior run context (model-only, for continuity; may be stale):",
+    digest,
+    "",
+    "Use this when the user asks what happened earlier or what was previously identified. Re-read files or rerun commands when the user asks for exact current details.",
+  ].join("\n");
 }
 
 function isModelContextPart(
@@ -413,7 +585,7 @@ function createTraceWriter({
   runId: string;
   model: string;
   startedAt: number;
-  workspaceRoot: string;
+  workspaceRoot?: string;
   responseKind?: "plan";
 }) {
   let sequence = 0;
@@ -448,6 +620,8 @@ function createTraceWriter({
     status: AntonRunStatus,
     extra: Partial<Omit<AntonRunData, "runId" | "model" | "status" | "startedAt">> = {},
   ) => {
+    const metadataExtra = { ...extra };
+    delete metadataExtra.costMetadata;
     const data: AntonRunData = {
       runId,
       model,
@@ -455,7 +629,7 @@ function createTraceWriter({
       startedAt,
       ...extra,
     };
-    writeMetadata(status, extra);
+    writeMetadata(status, metadataExtra);
     writer.write({ type: "data-run", id: runId, data });
   };
 
@@ -601,6 +775,9 @@ function createTraceWriter({
     if (typeof record.failedReason === "string") {
       return auditSummary(record.failedReason);
     }
+    if (typeof record.exitCode === "number" && record.exitCode !== 0) {
+      return `exit ${record.exitCode}`;
+    }
     return null;
   };
 
@@ -628,7 +805,12 @@ function createTraceWriter({
     usage?: LanguageModelUsage,
     providerMetadata?: ProviderMetadata,
     finishReason?: FinishReason,
-    limits: { maxSteps?: number; maxStepLimitReached?: boolean } = {},
+    limits: {
+      maxSteps?: number;
+      maxStepLimitReached?: boolean;
+      tokenAudit?: TokenAudit;
+      stepProviderMetadata?: ProviderMetadata[];
+    } = {},
   ) => {
     if (finalized) return;
     finalized = true;
@@ -640,8 +822,21 @@ function createTraceWriter({
     const inputTokens = usage?.inputTokens;
     const outputTokens = usage?.outputTokens;
     const totalTokens = usage?.totalTokens;
-    const costUsd = openRouterCost(providerMetadata);
-    const costMetadata = openRouterCostMetadata(providerMetadata);
+    const costUsd = openRouterCostFromMetadata(
+      providerMetadata,
+      limits.stepProviderMetadata,
+    );
+    const tokenUsage = buildTokenUsageMetrics({
+      usage,
+      providerMetadata,
+      stepProviderMetadata: limits.stepProviderMetadata,
+    });
+    const costMetadata = runCostMetadata(
+      providerMetadata,
+      limits.tokenAudit,
+      tokenUsage,
+      limits.stepProviderMetadata,
+    );
     const storedFinishReason = limits.maxStepLimitReached
       ? "max_step_limit"
       : effectiveStatus === "error" && failedToolCount > 0
@@ -654,6 +849,7 @@ function createTraceWriter({
       outputTokens,
       totalTokens,
       costUsd,
+      costMetadata,
       stepCount,
       finishReason: storedFinishReason,
       maxSteps: limits.maxSteps,
@@ -727,11 +923,13 @@ function createTraceWriter({
         details.riskSummary = `Calls external MCP tool "${parts[2] ?? event.toolName}" from "${parts[1] ?? "unknown"}" server.`;
       }
 
-      const approval = buildToolApprovalMetadata({
-        toolName: event.toolName,
-        input: event.input,
-        workspaceRoot,
-      });
+      const approval = workspaceRoot
+        ? buildToolApprovalMetadata({
+            toolName: event.toolName,
+            input: event.input,
+            workspaceRoot,
+          })
+        : undefined;
       if (approval) {
         details.approval = redactValue(approval);
         details.riskCategories = [...approval.riskCategories];
@@ -836,7 +1034,9 @@ function createTraceWriter({
           respondedAt: new Date(),
         });
       }
-      const todos = todoItemsFromToolOutput(event.toolName, event.output);
+      const todos =
+        todoItemsFromToolOutput(event.toolName, event.output) ??
+        todoItemsFromToolInput(event.toolName, event.input);
       if (todos) writeTodos(todos);
     },
     handleStreamPart(part: TextStreamPart<ToolSet>) {
@@ -906,6 +1106,37 @@ function todoItemsFromToolOutput(
   return items.length > 0 ? items : undefined;
 }
 
+function todoItemsFromToolInput(
+  toolName: string,
+  input: unknown,
+): AntonTodoItem[] | undefined {
+  if (toolName !== "update_todos" || !isRecord(input) || !Array.isArray(input.items)) {
+    return undefined;
+  }
+
+  const items = input.items.flatMap((item): AntonTodoItem[] => {
+    if (!isRecord(item)) return [];
+    const id = typeof item.id === "string" ? item.id.trim() : "";
+    const text =
+      typeof item.text === "string"
+        ? item.text.replace(/\s+/g, " ").trim()
+        : "";
+    const status = item.status;
+    if (
+      !id ||
+      !text ||
+      (status !== "pending" &&
+        status !== "in_progress" &&
+        status !== "completed")
+    ) {
+      return [];
+    }
+    return [{ id, text, status }];
+  });
+
+  return items.length > 0 ? items : undefined;
+}
+
 function todoSummary(items: AntonTodoItem[]): string {
   const completed = items.filter((item) => item.status === "completed").length;
   const inProgress = items.find((item) => item.status === "in_progress");
@@ -940,27 +1171,99 @@ function errorMessageOrUndefined(error: unknown): string | undefined {
   return errorMessage(error);
 }
 
-function openRouterCost(providerMetadata: ProviderMetadata | undefined): number | undefined {
-  const openrouter = providerMetadata?.openrouter;
-  if (!isRecord(openrouter)) return undefined;
-  const usage = openrouter.usage;
-  if (!isRecord(usage)) return undefined;
-  const cost = usage.cost;
-  return typeof cost === "number" && Number.isFinite(cost) ? cost : undefined;
-}
-
 function openRouterCostMetadata(
   providerMetadata: ProviderMetadata | undefined,
+  stepProviderMetadata: ProviderMetadata[] | undefined,
 ): Record<string, unknown> | null {
   const openrouter = providerMetadata?.openrouter;
-  if (!isRecord(openrouter)) return null;
-  const usage = openrouter.usage;
-  if (!isRecord(usage)) return null;
+  const usage = isRecord(openrouter) && isRecord(openrouter.usage)
+    ? openrouter.usage
+    : null;
+  const stepUsage = (stepProviderMetadata ?? []).flatMap((metadata, index) => {
+    const stepOpenrouter = metadata.openrouter;
+    if (!isRecord(stepOpenrouter) || !isRecord(stepOpenrouter.usage)) return [];
+    return [{ stepNumber: index, usage: stepOpenrouter.usage }];
+  });
+  if (!usage && stepUsage.length === 0) return null;
   return redactValue({
     provider: "openrouter",
-    source: "providerMetadata.openrouter.usage",
-    usage,
+    source:
+      stepUsage.length > 0
+        ? "providerMetadata.openrouter.usage.steps"
+        : "providerMetadata.openrouter.usage",
+    ...(usage ? { usage } : {}),
+    ...(stepUsage.length > 0 ? { stepUsage } : {}),
   }) as Record<string, unknown>;
+}
+
+function runCostMetadata(
+  providerMetadata: ProviderMetadata | undefined,
+  tokenAudit: TokenAudit | undefined,
+  tokenUsage: TokenUsageMetrics | undefined,
+  stepProviderMetadata: ProviderMetadata[] | undefined,
+): Record<string, unknown> | null {
+  const providerCostMetadata = openRouterCostMetadata(
+    providerMetadata,
+    stepProviderMetadata,
+  );
+  if (!tokenAudit && !tokenUsage) return providerCostMetadata;
+  return redactValue({
+    ...(providerCostMetadata ?? {}),
+    ...(tokenUsage ? { tokenUsage } : {}),
+    ...(tokenAudit ? { tokenAudit } : {}),
+  }) as Record<string, unknown>;
+}
+
+function runProfileForMessages(
+  mode: ChatMode,
+  messages: AntonUIMessage[],
+): AgentRunProfile {
+  if (mode === "chat") return "pure-chat";
+  if (mode === "ask") return "ask";
+  if (mode === "plan") return "plan";
+  if (isToolApprovalContinuation(messages)) return "approval-continuation";
+  const latestText = latestUserText(messages).trim().toLowerCase();
+  if (latestText === "implement plan") return "accepted-plan-simple";
+  if (
+    latestText === "implement the plan" ||
+    latestText === "apply plan" ||
+    latestText === "apply the plan"
+  ) {
+    return "accepted-plan-general";
+  }
+  if (isCommandRunRequest(latestText)) return "command-run";
+  return "general-chat";
+}
+
+function isCommandRunRequest(text: string): boolean {
+  if (/\b(fix|change|update|modify|implement|edit|write|delete|rename)\b/.test(text)) {
+    return false;
+  }
+  return (
+    /\b(run|execute|check|verify)\b/.test(text) &&
+    /\b(build|typecheck|type-check|lint|test|pnpm|npm|yarn|bun|next build|tsc|eslint)\b/.test(text)
+  );
+}
+
+function isAcceptedPlanProfile(profile: AgentRunProfile): boolean {
+  return profile === "accepted-plan-simple" || profile === "accepted-plan-general";
+}
+
+function isPlanAssistantMessage(message: AntonUIMessage): boolean {
+  return message.role === "assistant" && message.metadata?.responseKind === "plan";
+}
+
+function latestUserText(messages: AntonUIMessage[]): string {
+  const latest = messages.findLast((message) => message.role === "user");
+  if (!latest) return "";
+  return latest.parts
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("\n");
+}
+
+function byteLength(value: string): number {
+  return Buffer.byteLength(value, "utf8");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

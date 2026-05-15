@@ -40,10 +40,53 @@ export function applySingleFilePatch({
   }
 }
 
+export function exactHunkPatchAlreadyApplied({
+  source,
+  patch,
+}: {
+  source: string;
+  patch: string;
+}): boolean {
+  const blocks = exactHunkBlocks(source, patch);
+  if (!blocks) return false;
+  return (
+    !blocks.normalizedSource.includes(blocks.oldBlock) &&
+    blocks.normalizedSource.includes(blocks.newBlock)
+  );
+}
+
 function applyExactHunkPatch(
   source: string,
   patch: string,
 ): string | undefined {
+  const blocks = exactHunkBlocks(source, patch);
+  if (!blocks) return undefined;
+  if (!blocks.oldBlock) return undefined;
+
+  const first = blocks.normalizedSource.indexOf(blocks.oldBlock);
+  if (first === -1) return undefined;
+  if (blocks.normalizedSource.indexOf(blocks.oldBlock, first + blocks.oldBlock.length) !== -1) {
+    return undefined;
+  }
+
+  return (
+    blocks.normalizedSource.slice(0, first) +
+    blocks.newBlock +
+    blocks.normalizedSource.slice(first + blocks.oldBlock.length)
+  ).replace(/\n/g, blocks.newline);
+}
+
+function exactHunkBlocks(
+  source: string,
+  patch: string,
+):
+  | {
+      normalizedSource: string;
+      oldBlock: string;
+      newBlock: string;
+      newline: string;
+    }
+  | undefined {
   const rawLines = patch.replace(/\r\n/g, "\n").split("\n");
   const hunkStart = rawLines.findIndex((line) => line.startsWith("@@"));
   if (hunkStart === -1) return undefined;
@@ -78,19 +121,7 @@ function applyExactHunkPatch(
   const normalizedSource = source.replace(/\r\n/g, "\n");
   const oldBlock = oldLines.join("\n");
   const newBlock = newLines.join("\n");
-  if (!oldBlock) return undefined;
-
-  const first = normalizedSource.indexOf(oldBlock);
-  if (first === -1) return undefined;
-  if (normalizedSource.indexOf(oldBlock, first + oldBlock.length) !== -1) {
-    return undefined;
-  }
-
-  return (
-    normalizedSource.slice(0, first) +
-    newBlock +
-    normalizedSource.slice(first + oldBlock.length)
-  ).replace(/\n/g, newline);
+  return { normalizedSource, oldBlock, newBlock, newline };
 }
 
 function parseSingleFilePatch(

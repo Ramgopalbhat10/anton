@@ -5,6 +5,10 @@ import {
   type AntonRunData,
   type AntonUIMessage,
 } from "@/src/lib/trace";
+import {
+  tokenUsageFromCostMetadata,
+  type SessionTokenUsage,
+} from "@/src/lib/token-usage";
 
 export type ResponseMetrics = {
   model?: string;
@@ -12,6 +16,10 @@ export type ResponseMetrics = {
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
+  cachedInputTokens?: number;
+  cacheWriteTokens?: number;
+  uncachedInputTokens?: number;
+  effectiveTokens?: number;
   costUsd?: number;
 };
 
@@ -35,6 +43,10 @@ export function messageMetrics(message: AntonUIMessage): ResponseMetrics {
       aggregate.totalTokens ??
       readNumber(metadata, "totalTokens") ??
       readNumber(run, "totalTokens"),
+    cachedInputTokens: aggregate.cachedInputTokens,
+    cacheWriteTokens: aggregate.cacheWriteTokens,
+    uncachedInputTokens: aggregate.uncachedInputTokens,
+    effectiveTokens: aggregate.effectiveTokens,
     costUsd:
       aggregate.costUsd ??
       readNumber(metadata, "costUsd") ??
@@ -45,11 +57,66 @@ export function messageMetrics(message: AntonUIMessage): ResponseMetrics {
 }
 
 function aggregateRunMetrics(runs: AntonRunData[]): ResponseMetrics {
+  const tokenUsage = runs.map((run) => tokenUsageFromCostMetadata(run.costMetadata));
   return {
     inputTokens: sumDefined(runs.map((run) => run.inputTokens)),
     outputTokens: sumDefined(runs.map((run) => run.outputTokens)),
     totalTokens: sumDefined(runs.map((run) => run.totalTokens)),
+    cachedInputTokens: sumDefined(
+      tokenUsage.map((usage) => usage?.cachedInputTokens),
+    ),
+    cacheWriteTokens: sumDefined(
+      tokenUsage.map((usage) => usage?.cacheWriteTokens),
+    ),
+    uncachedInputTokens: sumDefined(
+      tokenUsage.map((usage) => usage?.uncachedInputTokens),
+    ),
+    effectiveTokens: sumDefined(tokenUsage.map((usage) => usage?.effectiveTokens)),
     costUsd: sumDefined(runs.map((run) => run.costUsd)),
+  };
+}
+
+export function sessionTokenUsage(
+  messages: AntonUIMessage[],
+  fallbackRawTokens: number,
+): SessionTokenUsage {
+  const runs = messages.flatMap((message) => getRunDataList(message));
+  let rawTokens = 0;
+  let effectiveTokens = 0;
+  let cachedInputTokens = 0;
+  let cacheWriteTokens = 0;
+  let costUsd = 0;
+  let hasCost = false;
+  let hasRuns = false;
+  let hasEffectiveMetrics = false;
+
+  for (const run of runs) {
+    const usage = tokenUsageFromCostMetadata(run.costMetadata);
+    const runRawTokens = run.totalTokens ?? usage?.rawTotalTokens ?? 0;
+    rawTokens += runRawTokens;
+    effectiveTokens += usage?.effectiveTokens ?? runRawTokens;
+    cachedInputTokens += usage?.cachedInputTokens ?? 0;
+    cacheWriteTokens += usage?.cacheWriteTokens ?? 0;
+    if (run.costUsd !== undefined) {
+      costUsd += run.costUsd;
+      hasCost = true;
+    }
+    hasRuns = true;
+    if (usage?.effectiveTokens !== undefined) hasEffectiveMetrics = true;
+  }
+
+  if (!hasRuns) {
+    rawTokens = fallbackRawTokens;
+    effectiveTokens = fallbackRawTokens;
+  }
+
+  return {
+    effectiveTokens: Math.round(effectiveTokens),
+    rawTokens: Math.round(rawTokens),
+    cachedInputTokens: Math.round(cachedInputTokens),
+    cacheWriteTokens: Math.round(cacheWriteTokens),
+    ...(hasCost ? { costUsd } : {}),
+    hasEffectiveMetrics,
   };
 }
 

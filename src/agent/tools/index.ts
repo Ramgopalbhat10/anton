@@ -90,21 +90,40 @@ export const nativeAntonTools = applyNativeToolPermissionPolicy({
   forget_memory: forgetMemoryTool,
   list_skills: listSkillsTool,
   read_skill: readSkillTool,
+  delegate_task: createDelegateTaskTool({}),
   update_todos: updateTodosTool,
 } as const);
+
+export type NativeAntonToolName = keyof typeof nativeAntonTools;
+
+export const NATIVE_ANTON_TOOL_NAMES = Object.keys(
+  nativeAntonTools,
+) as NativeAntonToolName[];
+
+type ToolExecutionCache = Map<string, Promise<unknown>>;
+type InFlightToolExecutionCache = Map<string, Promise<unknown>>;
 
 export function createAntonTools({
   model,
   mcpTools,
   workspaceRoot,
   permissionMode,
+  nativeToolNames,
+  includeMcpTools = true,
+  executionCache,
 }: {
   model?: string;
   mcpTools?: ToolSet;
   workspaceRoot?: string;
   permissionMode?: PermissionMode;
+  nativeToolNames?: readonly NativeAntonToolName[];
+  includeMcpTools?: boolean;
+  executionCache?: ToolExecutionCache;
 }) {
-  const nativeTools = applyNativeToolPermissionPolicy({
+  const selectedNativeToolNames = new Set(
+    nativeToolNames ?? NATIVE_ANTON_TOOL_NAMES,
+  );
+  const allNativeTools = {
     ...nativeAntonTools,
     read_file: createReadFileTool(workspaceRoot),
     edit_file: createEditFileTool(workspaceRoot),
@@ -132,14 +151,84 @@ export function createAntonTools({
     read_skill: createReadSkillTool(workspaceRoot),
     delegate_task: createDelegateTaskTool({ model, workspaceRoot }),
     update_todos: createUpdateTodosTool(),
-  }, permissionMode);
+  } satisfies Record<NativeAntonToolName, ToolSet[string]>;
 
-  return {
+  const nativeTools = applyNativeToolPermissionPolicy(
+    Object.fromEntries(
+      NATIVE_ANTON_TOOL_NAMES
+        .filter((name) => selectedNativeToolNames.has(name))
+        .map((name) => [name, allNativeTools[name]]),
+    ) as ToolSet,
+    permissionMode,
+  );
+
+  return withExecutionCache({
     ...nativeTools,
-    ...(permissionMode === "full-access" && mcpTools
+    ...(includeMcpTools && permissionMode === "full-access" && mcpTools
       ? stripApprovalFlags(mcpTools)
-      : (mcpTools ?? {})),
-  };
+      : includeMcpTools
+        ? (mcpTools ?? {})
+        : {}),
+  }, executionCache);
 }
 
 export type AntonTools = ReturnType<typeof createAntonTools>;
+
+function withExecutionCache(
+  tools: ToolSet,
+  cache: ToolExecutionCache = new Map(),
+): ToolSet {
+  const inFlightByInput: InFlightToolExecutionCache = new Map();
+  return Object.fromEntries(
+    Object.entries(tools).map(([name, toolValue]) => {
+      const candidate = toolValue as ToolSet[string] & {
+        execute?: (
+          input: unknown,
+          options: { toolCallId: string; [key: string]: unknown },
+        ) => unknown;
+      };
+      if (typeof candidate.execute !== "function") return [name, toolValue];
+      const execute = candidate.execute;
+
+      return [
+        name,
+        {
+          ...toolValue,
+          execute: (
+            input: unknown,
+          options: { toolCallId: string; [key: string]: unknown },
+        ) => {
+          const key = `${name}:${options.toolCallId}`;
+          const existing = cache.get(key);
+          if (existing) return existing;
+          const inputKey = `${name}:${stableJson(input)}`;
+          const matchingInFlight = inFlightByInput.get(inputKey);
+          if (matchingInFlight) {
+            cache.set(key, matchingInFlight);
+            return matchingInFlight;
+          }
+          const result = Promise.resolve(execute(input, options)).finally(() => {
+            inFlightByInput.delete(inputKey);
+          });
+          cache.set(key, result);
+          inFlightByInput.set(inputKey, result);
+          return result;
+        },
+      },
+      ];
+    }),
+  ) as ToolSet;
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJson).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, nested]) => `${JSON.stringify(key)}:${stableJson(nested)}`);
+    return `{${entries.join(",")}}`;
+  }
+  return JSON.stringify(value);
+}

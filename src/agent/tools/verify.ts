@@ -15,6 +15,7 @@ import { runWorkspaceProcess } from "./process";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_TIMEOUT_MS = 300_000;
+const MODEL_OUTPUT_TEXT_CAP = 8_000;
 
 const verificationTargetSchema = z.enum(["typecheck", "lint", "build"]);
 
@@ -124,8 +125,8 @@ export function createVerifyTool(workspaceRoot?: string) {
           command: step.command.join(" "),
           exitCode: result.exitCode,
           timedOut: result.timedOut ?? false,
-          stdout: result.stdout,
-          stderr: result.stderr,
+          stdout: capOutput(result.stdout),
+          stderr: capOutput(result.stderr),
           ...(ok
             ? {}
             : {
@@ -156,6 +157,11 @@ export function createVerifyTool(workspaceRoot?: string) {
       };
     },
   });
+}
+
+function capOutput(value: string): string {
+  if (value.length <= MODEL_OUTPUT_TEXT_CAP) return value;
+  return `${value.slice(0, MODEL_OUTPUT_TEXT_CAP).trimEnd()}\n...[truncated ${value.length - MODEL_OUTPUT_TEXT_CAP} chars]`;
 }
 
 export const verifyTool = createVerifyTool();

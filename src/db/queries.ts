@@ -16,6 +16,7 @@ import {
   mcpServers,
   mcpTrustDecisions,
   projects,
+  runContextSummaries,
   runEvents,
   runs,
   sessions,
@@ -28,11 +29,13 @@ import {
   type McpTrustDecision,
   type NewMcpServer,
   type NewRun,
+  type NewRunContextSummary,
   type NewRunEvent,
   type NewToolApproval,
   type NewToolCall,
   type Project,
   type Run,
+  type RunContextSummary,
   type RunEvent,
   type Session,
   type ToolApproval,
@@ -622,6 +625,45 @@ export function upsertRunEvent(input: NewRunEvent): RunEvent {
     .from(runEvents)
     .where(eq(runEvents.id, input.id))
     .get() as RunEvent;
+}
+
+export function upsertRunContextSummary(
+  input: NewRunContextSummary,
+): RunContextSummary {
+  db
+    .insert(runContextSummaries)
+    .values(input)
+    .onConflictDoUpdate({
+      target: runContextSummaries.runId,
+      set: {
+        sessionId: input.sessionId,
+        summary: input.summary,
+        facts: input.facts,
+        files: input.files,
+        commands: input.commands,
+        tools: input.tools,
+        updatedAt: input.updatedAt ?? new Date(),
+      },
+    })
+    .run();
+  return db
+    .select()
+    .from(runContextSummaries)
+    .where(eq(runContextSummaries.runId, input.runId))
+    .get() as RunContextSummary;
+}
+
+export function listRunContextSummariesForSession(
+  sessionId: string,
+  limit = 50,
+): RunContextSummary[] {
+  return db
+    .select()
+    .from(runContextSummaries)
+    .where(eq(runContextSummaries.sessionId, sessionId))
+    .orderBy(desc(runContextSummaries.createdAt))
+    .limit(limit)
+    .all();
 }
 
 export function getToolCall(id: string): ToolCall | undefined {

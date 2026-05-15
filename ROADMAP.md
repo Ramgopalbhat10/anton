@@ -96,9 +96,10 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Add explicit handling when the model reaches the max-step limit.
 - [✔️] Add automatic verification policy after edits: detect package manager, run typecheck, lint, and build when appropriate.
 - [✔️] Add stack/repo inspection summary before the first coding action in a project.
+- [✔️] Add token-audit metadata, run profiles, filtered tool definitions, MCP gating, and accepted-plan context compaction.
 - [] Add context budgeting with repo map, recent diff summary, selected file summaries, and transcript pruning.
 - [✔️] Add model selection validation on the server; reject unsupported or disabled model IDs.
-- [] Add per-run token, cost, and step budgets.
+- [] Add enforceable per-run token, cost, and step budgets.
 - [] Add resumable runs after tool approval, refresh, or network interruption.
 - [✔️] Add better system prompts for coding workflow: inspect, plan, edit, verify, summarize.
 - [✔️] Add final response structure that reports changed files, verification, and unresolved risks.

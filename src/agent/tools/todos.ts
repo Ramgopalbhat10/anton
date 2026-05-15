@@ -36,13 +36,26 @@ export function createUpdateTodosTool() {
         };
       }
 
-      return {
-        ok: true as const,
-        items: items.map((item) => ({
+      const normalized = items.map((item) => ({
           id: item.id.trim(),
           text: item.text.replace(/\s+/g, " ").trim(),
           status: item.status,
-        })),
+        }));
+      const completedCount = normalized.filter(
+        (item) => item.status === "completed",
+      ).length;
+      const inProgress = normalized.find(
+        (item) => item.status === "in_progress",
+      );
+
+      return {
+        ok: true as const,
+        itemCount: normalized.length,
+        completedCount,
+        inProgressId: inProgress?.id ?? null,
+        summary: inProgress
+          ? `${completedCount}/${normalized.length} complete; current: ${inProgress.text}`
+          : `${completedCount}/${normalized.length} complete`,
       };
     },
   });
