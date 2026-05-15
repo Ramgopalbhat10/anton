@@ -69,6 +69,12 @@ export function createDelegateTaskTool({
           prompt: task,
           tools: readOnlyTools,
           stopWhen: stepCountIs(maxSteps ?? DEFAULT_MAX_STEPS),
+          providerOptions: {
+            openrouter: {
+              provider: { sort: "price" },
+              usage: { include: true },
+            },
+          },
         });
 
         return {

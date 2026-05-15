@@ -414,6 +414,7 @@ export async function runAgent({
     stopWhen: stepCountIs(MAX_STEPS),
     providerOptions: {
       openrouter: {
+        provider: { sort: "price" },
         reasoning: reasoningOptionsForProfile(profile),
         usage: { include: true },
       },
