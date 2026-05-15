@@ -75,6 +75,7 @@ function ChatSession({
     { listen: initialProjectId === null },
   );
   const [worklogOpen, setWorklogOpen] = useState(false);
+  const [worklogExpanded, setWorklogExpanded] = useState(false);
   const [mobileWorklogOpen, setMobileWorklogOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [restoreVersion, setRestoreVersion] = useState(0);
@@ -296,6 +297,9 @@ function ChatSession({
       typeof window !== "undefined" &&
       window.matchMedia("(min-width: 1280px)").matches
     ) {
+      if (worklogOpen) {
+        setWorklogExpanded(false);
+      }
       setWorklogOpen((open) => !open);
     } else {
       setMobileWorklogOpen((open) => !open);
@@ -389,9 +393,15 @@ function ChatSession({
         <Worklog
           messages={displayMessages}
           onApproval={addToolApprovalResponse}
+          expanded={worklogExpanded}
+          onExpandToggle={() => setWorklogExpanded((value) => !value)}
           className={cn(
-            "hidden shrink-0 overflow-hidden transition-[width] duration-200 ease-out xl:flex",
-            worklogOpen ? "xl:w-[420px]" : "xl:w-0 xl:border-l-0",
+            "hidden shrink-0 overflow-hidden transition-[width] duration-200 ease-in xl:flex",
+            worklogOpen
+              ? worklogExpanded
+                ? "xl:w-1/2"
+                : "xl:w-[420px]"
+              : "xl:w-0 xl:border-l-0",
           )}
         />
 
