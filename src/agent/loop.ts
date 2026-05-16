@@ -15,6 +15,11 @@ import {
 } from "@/src/lib/providers";
 import { buildTokenUsageMetrics } from "@/src/lib/token-usage";
 import { listMemories } from "@/src/db/queries";
+import {
+  budgetForProfile,
+  tokenBudgetStopCondition,
+  type RunBudget,
+} from "./run-budget";
 import { listSkills } from "./skills";
 import {
   createAntonTools,
@@ -30,9 +35,6 @@ import {
 } from "./sandbox";
 import type { PermissionMode } from "./permissions";
 
-const MAX_STEPS = 20;
-const CHAT_MAX_OUTPUT_TOKENS = 8_192;
-const PLAN_MAX_OUTPUT_TOKENS = 4_096;
 export type AgentRunMode = "chat" | "ask" | "plan" | "agent";
 export type AgentRunProfile =
   | "pure-chat"
@@ -56,9 +58,33 @@ export type TokenAudit = {
     totalCount: number;
     activeCount: number;
   };
+  budget: RunBudgetAudit;
   usage?: UsageAudit;
   steps: StepUsageAudit[];
 };
+
+export type ContextBudgetAudit = {
+  beforeBytes: number;
+  afterBytes: number;
+  maxInputBytes: number;
+  latestUserBytes: number;
+  preservedMessages: number;
+  droppedMessages: number;
+  prunedMessages: number;
+  requiredMessages: number;
+  contextDigestBytes: number;
+};
+
+type RunBudgetAudit = Pick<
+  RunBudget,
+  | "profile"
+  | "maxSteps"
+  | "maxOutputTokens"
+  | "maxInputTokens"
+  | "maxInputBytes"
+  | "maxTotalTokens"
+  | "priorRunContextChars"
+>;
 
 type UsageAudit = {
   inputTokens?: number;
@@ -323,6 +349,7 @@ export async function runAgent({
   enabledMcpServerIds,
   thinkingEnabled = false,
   requestBodyBytes,
+  contextBudget,
   onStepStart,
   onStepFinish,
   onToolCallStart,
@@ -341,6 +368,7 @@ export async function runAgent({
   enabledMcpServerIds?: string[];
   thinkingEnabled?: boolean;
   requestBodyBytes?: number;
+  contextBudget?: ContextBudgetAudit;
   onStepStart?: (event: { stepNumber: number }) => void;
   onStepFinish?: (event: { stepNumber: number }) => void;
   onToolCallStart?: (event: {
@@ -369,10 +397,13 @@ export async function runAgent({
     stepProviderMetadata: ProviderMetadata[];
     stepCount: number;
     maxSteps: number;
+    maxTotalTokens: number;
     maxStepLimitReached: boolean;
+    tokenBudgetReached: boolean;
     tokenAudit: TokenAudit;
   }) => void;
 }) {
+  const budget = budgetForProfile(profile);
   const nativeToolNames = PROFILE_NATIVE_TOOLS[profile];
   const allowMcpTools = profileAllowsMcp(profile);
   const mcpTools = allowMcpTools
@@ -423,17 +454,29 @@ export async function runAgent({
       totalCount: Object.keys(tools).length,
       activeCount: activeTools.length,
     },
+    budget: {
+      profile: budget.profile,
+      maxSteps: budget.maxSteps,
+      maxOutputTokens: budget.maxOutputTokens,
+      maxInputTokens: budget.maxInputTokens,
+      maxInputBytes: budget.maxInputBytes,
+      maxTotalTokens: budget.maxTotalTokens,
+      priorRunContextChars: budget.priorRunContextChars,
+    },
+    ...(contextBudget ? { contextBudget } : {}),
   };
 
   return streamText({
     model: openrouter(toOpenRouterModelId(selectedModel)),
     system,
     messages,
-    maxOutputTokens:
-      mode === "plan" ? PLAN_MAX_OUTPUT_TOKENS : CHAT_MAX_OUTPUT_TOKENS,
+    maxOutputTokens: budget.maxOutputTokens,
     tools,
     activeTools,
-    stopWhen: stepCountIs(MAX_STEPS),
+    stopWhen: [
+      stepCountIs(budget.maxSteps),
+      tokenBudgetStopCondition(budget.maxTotalTokens),
+    ],
     providerOptions: {
       openrouter: openRouterProviderOptions(profile, thinkingEnabled),
     },
@@ -519,9 +562,13 @@ export async function runAgent({
         providerMetadata,
         stepProviderMetadata,
         stepCount: observedStepCount,
-        maxSteps: MAX_STEPS,
+        maxSteps: budget.maxSteps,
+        maxTotalTokens: budget.maxTotalTokens,
         maxStepLimitReached:
-          observedStepCount >= MAX_STEPS && finishReason === "tool-calls",
+          observedStepCount >= budget.maxSteps && finishReason === "tool-calls",
+        tokenBudgetReached:
+          finiteNumber(totalUsage.totalTokens) !== undefined &&
+          (totalUsage.totalTokens ?? 0) >= budget.maxTotalTokens,
         tokenAudit,
       });
       await closeMcpTools();

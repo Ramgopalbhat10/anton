@@ -21,10 +21,15 @@ import {
   type TokenAudit,
 } from "@/src/agent/loop";
 import {
+  budgetMessagesForModel,
+  type ContextBudgetReport,
+} from "@/src/agent/context-budget";
+import {
   buildSessionContextDigest,
   RunContextCollector,
   type RunContextStatus,
 } from "@/src/agent/context";
+import { budgetForProfile } from "@/src/agent/run-budget";
 import {
   buildToolApprovalMetadata,
   getNativeToolPermissionMetadata,
@@ -184,6 +189,39 @@ export async function POST(req: Request) {
     }
   }
 
+  const budget = budgetForProfile(profile);
+  const preservation = modelContextPreservation(uiMessages, profile);
+  const preparedMessages = prepareMessagesForModel(
+    uiMessages,
+    profile,
+    preservation,
+  );
+  const sessionContextDigest = mode === "chat"
+    ? undefined
+    : buildSessionContextDigest({
+        sessionId,
+        latestUserText: latestUserText(uiMessages),
+        budgetChars: budget.priorRunContextChars,
+      });
+  const contextDigestBytes = byteLength(
+    priorRunContextMessageText(sessionContextDigest) ?? "",
+  );
+  const contextBudget = budgetMessagesForModel({
+    messages: preparedMessages,
+    budget,
+    ...preservation,
+    contextDigestBytes,
+  });
+  if (!contextBudget.ok) {
+    return Response.json(
+      {
+        error: contextBudget.error,
+        contextBudget: contextBudget.report,
+      },
+      { status: contextBudget.status },
+    );
+  }
+
   const runId = randomUUID();
   const startedAt = Date.now();
   createRun({
@@ -196,15 +234,8 @@ export async function POST(req: Request) {
     stepCount: 0,
   });
 
-  const preparedMessages = prepareMessagesForModel(uiMessages, profile);
-  const sessionContextDigest = mode === "chat"
-    ? undefined
-    : buildSessionContextDigest({
-        sessionId,
-        latestUserText: latestUserText(uiMessages),
-      });
   const modelMessages = addPriorRunContextMessage(
-    await convertMessagesForRun(preparedMessages, runId, startedAt),
+    await convertMessagesForRun(contextBudget.messages, runId, startedAt),
     sessionContextDigest,
   );
   const contextCollector = new RunContextCollector(runId, sessionId);
@@ -223,6 +254,7 @@ export async function POST(req: Request) {
         responseKind: mode === "plan" ? "plan" : undefined,
       });
       trace.writeRun("running");
+      trace.noteContextBudget(contextBudget.report);
 
       try {
         const result = await runAgent({
@@ -232,6 +264,7 @@ export async function POST(req: Request) {
           mode,
           profile,
           requestBodyBytes,
+          contextBudget: contextBudget.report,
           thinkingEnabled: parsed.data.thinkingEnabled ?? false,
           permissionMode: parsed.data.permissionMode as
             | PermissionMode
@@ -262,18 +295,23 @@ export async function POST(req: Request) {
             providerMetadata,
             stepProviderMetadata,
             maxSteps,
+            maxTotalTokens,
             maxStepLimitReached,
+            tokenBudgetReached,
             tokenAudit,
           }) => {
-            contextTerminalStatus = maxStepLimitReached ? "error" : "completed";
+            const budgetLimitReached = maxStepLimitReached || tokenBudgetReached;
+            contextTerminalStatus = budgetLimitReached ? "error" : "completed";
             trace.finalize(
-              maxStepLimitReached ? "error" : "completed",
+              budgetLimitReached ? "error" : "completed",
               totalUsage,
               providerMetadata,
               finishReason,
               {
                 maxSteps,
+                maxTotalTokens,
                 maxStepLimitReached,
+                tokenBudgetReached,
                 tokenAudit,
                 stepProviderMetadata,
               },
@@ -352,28 +390,39 @@ function finalAssistantText(messages: AntonUIMessage[]): string | undefined {
 function prepareMessagesForModel(
   messages: AntonUIMessage[],
   profile: AgentRunProfile,
+  preservation = modelContextPreservation(messages, profile),
 ): AntonUIMessage[] {
-  const approvalContinuationMessageId = isToolApprovalContinuation(messages)
-    ? messages.at(-1)?.id
-    : undefined;
-  const acceptedPlanMessageId = isAcceptedPlanProfile(profile)
-    ? messages.findLast(isPlanAssistantMessage)?.id
-    : undefined;
-
   return messages.flatMap((message) => {
     const source =
-      message.id === acceptedPlanMessageId
+      message.id === preservation.acceptedPlanMessageId
         ? compactAcceptedPlanMessage(message, profile)
         : message;
     const parts = compactMessagePartsForModel(
       source,
-      source.id === approvalContinuationMessageId,
+      source.id === preservation.approvalContinuationMessageId,
     )
       .filter(isModelContextPart)
       .map(stripProviderReplayMetadata);
     if (!parts.some(isSubstantiveModelContextPart)) return [];
     return [{ ...source, parts }];
   });
+}
+
+function modelContextPreservation(
+  messages: AntonUIMessage[],
+  profile: AgentRunProfile,
+): {
+  approvalContinuationMessageId?: string;
+  acceptedPlanMessageId?: string;
+} {
+  return {
+    ...(isToolApprovalContinuation(messages)
+      ? { approvalContinuationMessageId: messages.at(-1)?.id }
+      : {}),
+    ...(isAcceptedPlanProfile(profile)
+      ? { acceptedPlanMessageId: messages.findLast(isPlanAssistantMessage)?.id }
+      : {}),
+  };
 }
 
 function compactMessagePartsForModel(
@@ -807,7 +856,9 @@ function createTraceWriter({
     finishReason?: FinishReason,
     limits: {
       maxSteps?: number;
+      maxTotalTokens?: number;
       maxStepLimitReached?: boolean;
+      tokenBudgetReached?: boolean;
       tokenAudit?: TokenAudit;
       stepProviderMetadata?: ProviderMetadata[];
     } = {},
@@ -839,6 +890,8 @@ function createTraceWriter({
     );
     const storedFinishReason = limits.maxStepLimitReached
       ? "max_step_limit"
+      : limits.tokenBudgetReached
+        ? "token_budget_limit"
       : effectiveStatus === "error" && failedToolCount > 0
         ? "tool_error"
       : finishReason;
@@ -869,6 +922,20 @@ function createTraceWriter({
         },
       });
     }
+    if (limits.tokenBudgetReached) {
+      startEvent({
+        id: `${runId}:token-budget:${sequence + 1}`,
+        kind: "error",
+        status: "error",
+        label: "Token budget reached",
+        summary: `Stopped after reaching the per-run token budget of ${limits.maxTotalTokens ?? "unknown"} tokens.`,
+        details: {
+          finishReason,
+          stepCount,
+          maxTotalTokens: limits.maxTotalTokens,
+        },
+      });
+    }
     updateRun(runId, {
       status: effectiveStatus,
       finishedAt: new Date(finishedAt),
@@ -885,6 +952,17 @@ function createTraceWriter({
 
   return {
     writeRun,
+    noteContextBudget(report: ContextBudgetReport) {
+      if (report.droppedMessages <= 0) return;
+      startEvent({
+        id: `${runId}:context-budget:${sequence + 1}`,
+        kind: "progress",
+        status: "completed",
+        label: "Context budget applied",
+        summary: `Kept ${report.preservedMessages} message${report.preservedMessages === 1 ? "" : "s"} and dropped ${report.droppedMessages} older message${report.droppedMessages === 1 ? "" : "s"} before the model call.`,
+        details: { contextBudget: report },
+      });
+    },
     startStep(stepNumber: number) {
       stepCount = Math.max(stepCount, stepNumber + 1);
       startEvent({
