@@ -163,10 +163,8 @@ function MessageEvent({
     ? toolResultFallbackText(message)
     : "";
   const responseText = isUser ? userText : assistantText || fallbackText;
+  const responseTime = !isUser ? messageDisplayTime(message) : undefined;
   const metrics = !isUser ? messageMetrics(message) : undefined;
-  const responseTime = metrics?.durationMs !== undefined
-    ? formatMetricDuration(metrics.durationMs)
-    : undefined;
   const showActions =
     !isUser &&
     responseText.length > 0 &&
@@ -366,6 +364,18 @@ function bashOutputFallback(output: unknown): string {
   return "";
 }
 
+function messageDisplayTime(message: AntonUIMessage): string | undefined {
+  const metadata = message.metadata;
+  const run = getRunData(message);
+  const timestamp = run?.finishedAt ?? metadata?.finishedAt ?? run?.startedAt ?? metadata?.startedAt;
+  if (typeof timestamp !== "number") return undefined;
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(timestamp));
+}
+
 function MessageActions({
   text,
   responseTime,
@@ -376,7 +386,7 @@ function MessageActions({
   metrics?: ResponseMetrics;
 }) {
   return (
-    <div className="flex items-center gap-1 text-muted-foreground">
+    <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover/msg:opacity-100 focus-within:opacity-100">
       <CopyMessageButton text={text} />
       {metrics && <StatsHoverCard metrics={metrics} />}
       {responseTime && (
