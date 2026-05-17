@@ -147,7 +147,6 @@ export function getTraceRows(
   todoDisplay?: TodoTraceDisplay,
 ): TraceRow[] {
   const activities = getActivityEvents(message);
-  const running = (getRunData(message)?.status ?? message.metadata?.status) === "running";
   const reasoningActivities = activities.filter(
     (event) => event.kind === "reasoning",
   );
@@ -164,15 +163,6 @@ export function getTraceRows(
   const latestTodoPartIndexes = todoDisplay
     ? undefined
       : getLatestTodoPartIndexes(message);
-  const hasFinalTextAfterLastTool =
-    lastToolIndex !== -1 &&
-    message.parts.some(
-      (part, index) =>
-        index > lastToolIndex &&
-        part.type === "text" &&
-        part.text.trim().length > 0,
-    );
-
   message.parts.forEach((part, index) => {
     if (isReasoningPart(part)) {
       const text = part.text.trim();
@@ -192,7 +182,8 @@ export function getTraceRows(
     if (
       part.type === "text" &&
       !isPlanResponse &&
-      (running || (hasFinalTextAfterLastTool && index < lastToolIndex))
+      lastToolIndex !== -1 &&
+      index < lastToolIndex
     ) {
       const text = part.text.trim();
       if (!text) return;
