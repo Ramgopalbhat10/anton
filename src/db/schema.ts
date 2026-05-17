@@ -36,14 +36,14 @@ export const projects = sqliteTable(
   "projects",
   {
     id: text("id").primaryKey(),
-    provider: text("provider", { enum: ["github"] }).notNull(),
-    githubRepoId: integer("github_repo_id").notNull(),
-    githubInstallationId: integer("github_installation_id").notNull(),
+    provider: text("provider", { enum: ["github", "local"] }).notNull(),
+    githubRepoId: integer("github_repo_id"),
+    githubInstallationId: integer("github_installation_id"),
     owner: text("owner").notNull(),
     name: text("name").notNull(),
     fullName: text("full_name").notNull(),
     defaultBranch: text("default_branch").notNull(),
-    cloneUrl: text("clone_url").notNull(),
+    cloneUrl: text("clone_url"),
     localPath: text("local_path").notNull(),
     status: text("status", {
       enum: ["cloning", "ready", "error"],

@@ -249,6 +249,14 @@ export function getProjectByGithubRepoId(
     .get();
 }
 
+export function getProjectByLocalPath(localPath: string): Project | undefined {
+  return db
+    .select()
+    .from(projects)
+    .where(eq(projects.localPath, localPath))
+    .get();
+}
+
 export function upsertProject(input: {
   githubRepoId: number;
   githubInstallationId: number;
@@ -303,6 +311,38 @@ export function upsertProject(input: {
   return row;
 }
 
+export function createLocalProject(input: {
+  owner: string;
+  name: string;
+  fullName: string;
+  defaultBranch: string;
+  cloneUrl: string | null;
+  localPath: string;
+}): Project {
+  const existing = getProjectByLocalPath(input.localPath);
+  if (existing) return existing;
+
+  const now = new Date();
+  const row: Project = {
+    id: randomUUID(),
+    provider: "local",
+    githubRepoId: null,
+    githubInstallationId: null,
+    owner: input.owner,
+    name: input.name,
+    fullName: input.fullName,
+    defaultBranch: input.defaultBranch,
+    cloneUrl: input.cloneUrl,
+    localPath: input.localPath,
+    status: "ready",
+    lastError: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  db.insert(projects).values(row).run();
+  return row;
+}
+
 export function updateProjectStatus(
   id: string,
   status: Project["status"],
@@ -314,6 +354,18 @@ export function updateProjectStatus(
     .where(eq(projects.id, id))
     .run();
   return getProject(id);
+}
+
+export function deleteProject(id: string): boolean {
+  return db.transaction((tx) => {
+    tx
+      .update(sessions)
+      .set({ projectId: null, updatedAt: new Date() })
+      .where(eq(sessions.projectId, id))
+      .run();
+    const result = tx.delete(projects).where(eq(projects.id, id)).run();
+    return result.changes > 0;
+  });
 }
 
 export function listMemories(limit = 20): Memory[] {
