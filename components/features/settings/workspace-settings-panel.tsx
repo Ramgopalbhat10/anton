@@ -1,8 +1,27 @@
 "use client";
 
-import { Check, FolderGit2, GitBranch, Loader2, RefreshCw } from "lucide-react";
+import {
+  Check,
+  FolderGit2,
+  FolderPlus,
+  GitBranch,
+  Loader2,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
 
 import { EmptyState, ErrorBanner } from "@/components/shared/feedback-states";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -21,22 +40,28 @@ export function WorkspaceSettingsPanel({
     settings,
     rootDraft,
     setRootDraft,
+    localPathDraft,
+    setLocalPathDraft,
     repositories,
     readyProjects,
     loading,
     saving,
     cloningRepoId,
+    importingLocal,
+    removingProjectId,
     error,
     refresh,
     saveRoot,
     selectProject,
     cloneRepo,
+    importLocalProject,
+    removeProject,
   } = useWorkspaceSettings(onActiveProjectChange);
 
   return (
     <SettingsPageShell
       title="Workspaces"
-      description="Choose where Anton clones repositories and which workspace new sessions use."
+      description="Choose where Anton stores cloned repositories and which workspace new sessions use."
     >
       {error && <ErrorBanner message={error} />}
       <SettingsCard title="Local workspace root" icon={<FolderGit2 />}>
@@ -62,37 +87,105 @@ export function WorkspaceSettingsPanel({
           <p className="mt-2 text-[11px] text-muted-foreground">
             Current:{" "}
             <span className="font-mono">{settings.resolvedLocalWorkspacesRoot}</span>
-            {" · "}
+            {" - "}
             {settings.source}
-            {settings.exists ? " · ready" : " · will be created"}
+            {settings.exists ? " - ready" : " - will be created"}
           </p>
         )}
       </SettingsCard>
 
+      <SettingsCard title="Import local repository" icon={<FolderPlus />}>
+        <div className="grid gap-2 lg:grid-cols-[1fr_auto]">
+          <Input
+            value={localPathDraft}
+            onChange={(event) => setLocalPathDraft(event.target.value)}
+            className="font-mono"
+            placeholder="M:\\Projects\\example-repo"
+            aria-label="Local repository path"
+          />
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => void importLocalProject()}
+            disabled={importingLocal || localPathDraft.trim().length === 0}
+          >
+            {importingLocal ? <Loader2 className="animate-spin" /> : <FolderPlus />}
+            Import
+          </Button>
+        </div>
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          Adds an existing Git repository to Anton without copying or deleting files.
+        </p>
+      </SettingsCard>
+
       <SettingsCard title="Active project" icon={<GitBranch />}>
         {readyProjects.length === 0 ? (
-          <EmptyState message="No cloned projects yet." />
+          <EmptyState message="No projects yet." />
         ) : (
           <ul className="grid gap-2">
             {readyProjects.map((project) => (
-              <li key={project.id}>
+              <li
+                key={project.id}
+                className={cn(
+                  "flex items-start gap-2 rounded-md p-2.5 ring-1 transition-colors",
+                  activeProjectId === project.id
+                    ? "bg-primary/10 ring-primary/50"
+                    : "bg-background/45 ring-border",
+                )}
+              >
                 <button
                   type="button"
                   onClick={() => selectProject(project.id)}
-                  className={cn(
-                    "w-full rounded-md p-2.5 text-left ring-1 transition-colors",
-                    activeProjectId === project.id
-                      ? "bg-primary/10 ring-primary/50"
-                      : "bg-background/45 ring-border hover:bg-accent",
-                  )}
+                  className="min-w-0 flex-1 text-left"
                 >
-                  <span className="block text-xs font-medium">
+                  <span className="block truncate text-xs font-medium">
                     {project.fullName}
+                  </span>
+                  <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                    {project.provider === "local" ? "Local" : "GitHub"} -{" "}
+                    {project.defaultBranch}
                   </span>
                   <span className="mt-0.5 block truncate font-mono text-[11px] text-muted-foreground">
                     {project.localPath}
                   </span>
                 </button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      disabled={removingProjectId === project.id}
+                      aria-label={`Remove ${project.fullName}`}
+                    >
+                      {removingProjectId === project.id ? (
+                        <Loader2 className="animate-spin" />
+                      ) : (
+                        <Trash2 />
+                      )}
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Remove project?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This removes {project.fullName} from Anton. The local
+                        repository files stay on disk.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        variant="destructive"
+                        onClick={() =>
+                          void removeProject(project.id, activeProjectId)
+                        }
+                      >
+                        Remove
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </li>
             ))}
           </ul>
@@ -135,7 +228,7 @@ export function WorkspaceSettingsPanel({
                       {repo.fullName}
                     </div>
                     <div className="mt-0.5 text-[11px] text-muted-foreground">
-                      {repo.private ? "Private" : "Public"} · {repo.defaultBranch}
+                      {repo.private ? "Private" : "Public"} - {repo.defaultBranch}
                     </div>
                   </div>
                   {repo.clonedProjectId ? (

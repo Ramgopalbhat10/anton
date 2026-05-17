@@ -22,9 +22,12 @@ export function useWorkspaceSettings(
   const [rootDraft, setRootDraft] = useState("");
   const [repositories, setRepositories] = useState<GitHubRepositorySummary[]>([]);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [localPathDraft, setLocalPathDraft] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [cloningRepoId, setCloningRepoId] = useState<number | null>(null);
+  const [importingLocal, setImportingLocal] = useState(false);
+  const [removingProjectId, setRemovingProjectId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -106,20 +109,65 @@ export function useWorkspaceSettings(
     }
   };
 
+  const importLocalProject = async () => {
+    const localPath = localPathDraft.trim();
+    if (!localPath) return;
+
+    setImportingLocal(true);
+    try {
+      const data = await requestJson<{ project: ProjectSummary }>("/api/projects", {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ source: "local", localPath }),
+      });
+      setLocalPathDraft("");
+      selectProject(data.project.id);
+      await refresh();
+    } catch (err) {
+      setError(errorMessage(err, "Import failed"));
+    } finally {
+      setImportingLocal(false);
+    }
+  };
+
+  const removeProject = async (projectId: string, activeProjectId: string | null) => {
+    setRemovingProjectId(projectId);
+    try {
+      await requestJson<{ project: ProjectSummary }>(`/api/projects/${projectId}`, {
+        method: "DELETE",
+      });
+      if (activeProjectId === projectId) {
+        writeActiveProjectId(null);
+        onActiveProjectChange(null);
+      }
+      await refresh();
+    } catch (err) {
+      setError(errorMessage(err, "Project removal failed"));
+    } finally {
+      setRemovingProjectId(null);
+    }
+  };
+
   return {
     settings,
     rootDraft,
     setRootDraft,
+    localPathDraft,
+    setLocalPathDraft,
     repositories,
     projects,
     readyProjects: projects.filter((project) => project.status === "ready"),
     loading,
     saving,
     cloningRepoId,
+    importingLocal,
+    removingProjectId,
     error,
     refresh,
     saveRoot,
     selectProject,
     cloneRepo,
+    importLocalProject,
+    removeProject,
   };
 }

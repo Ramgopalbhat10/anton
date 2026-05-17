@@ -10,9 +10,13 @@ export function readActiveProjectId(): string | null {
   return localStorage.getItem(ACTIVE_PROJECT_KEY);
 }
 
-export function writeActiveProjectId(projectId: string): void {
+export function writeActiveProjectId(projectId: string | null): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(ACTIVE_PROJECT_KEY, projectId);
+  if (projectId) {
+    localStorage.setItem(ACTIVE_PROJECT_KEY, projectId);
+  } else {
+    localStorage.removeItem(ACTIVE_PROJECT_KEY);
+  }
   window.dispatchEvent(
     new CustomEvent(ACTIVE_PROJECT_EVENT, { detail: projectId }),
   );
@@ -20,8 +24,11 @@ export function writeActiveProjectId(projectId: string): void {
 
 export function isActiveProjectChangeEvent(
   event: Event,
-): event is CustomEvent<string> {
-  return event instanceof CustomEvent && typeof event.detail === "string";
+): event is CustomEvent<string | null> {
+  return (
+    event instanceof CustomEvent &&
+    (typeof event.detail === "string" || event.detail === null)
+  );
 }
 
 export function useActiveProjectIdState(

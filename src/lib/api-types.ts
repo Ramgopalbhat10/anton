@@ -20,14 +20,14 @@ export type GitHubRepositorySummary = {
 
 export type ProjectSummary = {
   id: string;
-  provider: "github";
-  githubRepoId: number;
-  githubInstallationId: number;
+  provider: "github" | "local";
+  githubRepoId: number | null;
+  githubInstallationId: number | null;
   owner: string;
   name: string;
   fullName: string;
   defaultBranch: string;
-  cloneUrl: string;
+  cloneUrl: string | null;
   localPath: string;
   status: "cloning" | "ready" | "error";
   lastError: string | null;
