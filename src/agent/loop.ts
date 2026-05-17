@@ -83,6 +83,7 @@ type RunBudgetAudit = Pick<
   | "maxInputBytes"
   | "maxTotalTokens"
   | "priorRunContextChars"
+  | "workspaceContextChars"
 >;
 
 type UsageAudit = {
@@ -461,6 +462,7 @@ export async function runAgent({
       maxInputBytes: budget.maxInputBytes,
       maxTotalTokens: budget.maxTotalTokens,
       priorRunContextChars: budget.priorRunContextChars,
+      workspaceContextChars: budget.workspaceContextChars,
     },
     ...(contextBudget ? { contextBudget } : {}),
   };

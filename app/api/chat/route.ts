@@ -29,6 +29,7 @@ import {
   RunContextCollector,
   type RunContextStatus,
 } from "@/src/agent/context";
+import { buildWorkspaceContextDigest } from "@/src/agent/workspace-context";
 import { budgetForProfile } from "@/src/agent/run-budget";
 import {
   buildToolApprovalMetadata,
@@ -196,15 +197,26 @@ export async function POST(req: Request) {
     profile,
     preservation,
   );
+  const userText = latestUserText(uiMessages);
   const sessionContextDigest = mode === "chat"
     ? undefined
     : buildSessionContextDigest({
         sessionId,
-        latestUserText: latestUserText(uiMessages),
+        latestUserText: userText,
         budgetChars: budget.priorRunContextChars,
       });
+  const workspaceContextDigest = mode === "chat"
+    ? undefined
+    : buildWorkspaceContextDigest({
+        workspaceRoot: project?.localPath,
+        latestUserText: userText,
+        budgetChars: budget.workspaceContextChars,
+      });
   const contextDigestBytes = byteLength(
-    priorRunContextMessageText(sessionContextDigest) ?? "",
+    modelOnlyContextMessageText({
+      sessionContextDigest,
+      workspaceContextDigest,
+    }) ?? "",
   );
   const contextBudget = budgetMessagesForModel({
     messages: preparedMessages,
@@ -234,9 +246,12 @@ export async function POST(req: Request) {
     stepCount: 0,
   });
 
-  const modelMessages = addPriorRunContextMessage(
+  const modelMessages = addModelOnlyContextMessage(
     await convertMessagesForRun(contextBudget.messages, runId, startedAt),
-    sessionContextDigest,
+    {
+      sessionContextDigest,
+      workspaceContextDigest,
+    },
   );
   const contextCollector = new RunContextCollector(runId, sessionId);
   let contextTerminalStatus: RunContextStatus = "completed";
@@ -528,11 +543,14 @@ async function convertMessagesForRun(
   }
 }
 
-function addPriorRunContextMessage(
+function addModelOnlyContextMessage(
   messages: ModelMessage[],
-  sessionContextDigest: string | undefined,
+  context: {
+    sessionContextDigest: string | undefined;
+    workspaceContextDigest: string | undefined;
+  },
 ): ModelMessage[] {
-  const text = priorRunContextMessageText(sessionContextDigest);
+  const text = modelOnlyContextMessageText(context);
   if (!text) return messages;
   const contextMessage: ModelMessage = {
     role: "assistant",
@@ -549,16 +567,22 @@ function addPriorRunContextMessage(
   ];
 }
 
-function priorRunContextMessageText(
-  sessionContextDigest: string | undefined,
-): string | undefined {
-  const digest = sessionContextDigest?.trim();
-  if (!digest) return undefined;
+function modelOnlyContextMessageText({
+  sessionContextDigest,
+  workspaceContextDigest,
+}: {
+  sessionContextDigest: string | undefined;
+  workspaceContextDigest: string | undefined;
+}): string | undefined {
+  const blocks = [workspaceContextDigest, sessionContextDigest]
+    .map((block) => block?.trim())
+    .filter((block): block is string => Boolean(block));
+  if (blocks.length === 0) return undefined;
   return [
-    "Prior run context (model-only, for continuity; may be stale):",
-    digest,
+    "Model-only context for this run:",
+    ...blocks,
     "",
-    "Use this when the user asks what happened earlier or what was previously identified. Re-read files or rerun commands when the user asks for exact current details.",
+    "Use this context for orientation and continuity. Re-read files or rerun commands when exact current state matters.",
   ].join("\n");
 }
 

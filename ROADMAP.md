@@ -99,7 +99,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Add stack/repo inspection summary before the first coding action in a project.
 - [✔️] Add token-audit metadata, run profiles, filtered tool definitions, MCP gating, and accepted-plan context compaction.
 - [✔️] Add profile-aware context budgeting and transcript pruning.
-- [] Add repo map, recent diff summary, and selected file summaries for richer context selection.
+- [✔️] Add repo map, recent diff summary, and selected file summaries for richer context selection.
 - [✔️] Add model selection validation on the server; reject unsupported or disabled model IDs.
 - [✔️] Add enforceable per-run token and step budgets.
 - [] Add enforceable dollar-cost budgets after reliable model pricing metadata is available.

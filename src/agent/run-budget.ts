@@ -10,6 +10,7 @@ export type RunBudget = {
   maxInputBytes: number;
   maxTotalTokens: number;
   priorRunContextChars: number;
+  workspaceContextChars: number;
   latestUserMaxBytes: number;
 };
 
@@ -22,6 +23,7 @@ const RUN_BUDGETS = {
     maxInputTokens: 24_000,
     maxTotalTokens: 32_000,
     priorRunContextChars: 0,
+    workspaceContextChars: 0,
   },
   ask: {
     maxSteps: 6,
@@ -29,6 +31,7 @@ const RUN_BUDGETS = {
     maxInputTokens: 32_000,
     maxTotalTokens: 48_000,
     priorRunContextChars: 4_000,
+    workspaceContextChars: 4_000,
   },
   plan: {
     maxSteps: 8,
@@ -36,6 +39,7 @@ const RUN_BUDGETS = {
     maxInputTokens: 48_000,
     maxTotalTokens: 64_000,
     priorRunContextChars: 5_000,
+    workspaceContextChars: 5_000,
   },
   "accepted-plan-simple": {
     maxSteps: 8,
@@ -43,6 +47,7 @@ const RUN_BUDGETS = {
     maxInputTokens: 32_000,
     maxTotalTokens: 48_000,
     priorRunContextChars: 3_000,
+    workspaceContextChars: 3_000,
   },
   "accepted-plan-general": {
     maxSteps: 16,
@@ -50,6 +55,7 @@ const RUN_BUDGETS = {
     maxInputTokens: 64_000,
     maxTotalTokens: 96_000,
     priorRunContextChars: 6_000,
+    workspaceContextChars: 6_000,
   },
   "command-run": {
     maxSteps: 6,
@@ -57,6 +63,7 @@ const RUN_BUDGETS = {
     maxInputTokens: 24_000,
     maxTotalTokens: 40_000,
     priorRunContextChars: 2_500,
+    workspaceContextChars: 2_500,
   },
   "general-chat": {
     maxSteps: 20,
@@ -64,6 +71,7 @@ const RUN_BUDGETS = {
     maxInputTokens: 64_000,
     maxTotalTokens: 96_000,
     priorRunContextChars: 6_000,
+    workspaceContextChars: 6_000,
   },
   "approval-continuation": {
     maxSteps: 20,
@@ -71,6 +79,7 @@ const RUN_BUDGETS = {
     maxInputTokens: 64_000,
     maxTotalTokens: 96_000,
     priorRunContextChars: 4_000,
+    workspaceContextChars: 4_000,
   },
 } as const satisfies Record<
   AgentRunProfile,
