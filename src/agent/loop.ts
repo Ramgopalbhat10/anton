@@ -83,6 +83,7 @@ type RunBudgetAudit = Pick<
   | "maxInputBytes"
   | "maxTotalTokens"
   | "priorRunContextChars"
+  | "workspaceContextChars"
 >;
 
 type UsageAudit = {
@@ -461,6 +462,7 @@ export async function runAgent({
       maxInputBytes: budget.maxInputBytes,
       maxTotalTokens: budget.maxTotalTokens,
       priorRunContextChars: budget.priorRunContextChars,
+      workspaceContextChars: budget.workspaceContextChars,
     },
     ...(contextBudget ? { contextBudget } : {}),
   };
@@ -479,9 +481,25 @@ export async function runAgent({
     providerOptions: {
       openrouter: openRouterProviderOptions(profile, thinkingEnabled),
     },
-    prepareStep: ({ messages: stepMessages }) => {
+    prepareStep: ({ messages: stepMessages, steps }) => {
       const compacted = dedupeToolReplayMessages(stepMessages);
-      return compacted === stepMessages ? undefined : { messages: compacted };
+      const forceFinalReason = forceFinalAnswerReason(steps);
+      if (!forceFinalReason && compacted === stepMessages) return undefined;
+      return {
+        ...(compacted === stepMessages ? {} : { messages: compacted }),
+        ...(forceFinalReason
+          ? {
+              activeTools: [],
+              system: [
+                system,
+                "",
+                "Loop guard:",
+                forceFinalReason,
+                "Write the final answer now without calling more tools.",
+              ].join("\n"),
+            }
+          : {}),
+      };
     },
     experimental_transform: onStreamPart
       ? () =>
@@ -726,6 +744,45 @@ function uniqueToolCallCount(
   return seen.size;
 }
 
+function forceFinalAnswerReason(
+  steps: readonly {
+    toolCalls?: readonly { toolName: string; input: unknown }[];
+    toolResults?: readonly { toolName: string; output: unknown }[];
+  }[],
+): string | undefined {
+  const latest = steps.at(-1);
+  if (!latest) return undefined;
+  if (isCleanGitStatusStep(latest)) {
+    return "The latest `git_status` result reported no changed files. The workspace is already clean.";
+  }
+  const latestToolKey = singleToolCallKey(latest);
+  const previousToolKey = singleToolCallKey(steps.at(-2));
+  if (latestToolKey && latestToolKey === previousToolKey) {
+    return `The last two steps repeated the same \`${latest.toolCalls?.[0]?.toolName ?? "tool"}\` call with the same input. Use the latest result instead of calling it again.`;
+  }
+  return undefined;
+}
+
+function isCleanGitStatusStep(step: {
+  toolResults?: readonly { toolName: string; output: unknown }[];
+}): boolean {
+  return (step.toolResults ?? []).some((result) => {
+    if (result.toolName !== "git_status" || !isRecord(result.output)) return false;
+    return result.output.ok === true && isEmptyArray(result.output.entries);
+  });
+}
+
+function singleToolCallKey(
+  step:
+    | {
+        toolCalls?: readonly { toolName: string; input: unknown }[];
+      }
+    | undefined,
+): string | undefined {
+  if (!step || step.toolCalls?.length !== 1) return undefined;
+  return toolCallSemanticKey(step.toolCalls[0]);
+}
+
 function isToolCallPart(
   value: unknown,
 ): value is { type: "tool-call"; toolCallId: string; toolName: string; input: unknown } {
@@ -756,6 +813,10 @@ function toolCallSemanticKey(toolCall: {
 
 function finiteNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function isEmptyArray(value: unknown): boolean {
+  return Array.isArray(value) && value.length === 0;
 }
 
 function utf8Bytes(value: string): number {
