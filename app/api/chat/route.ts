@@ -640,7 +640,6 @@ function createTraceWriter({
   let sequence = 0;
   let stepCount = 0;
   let finalized = false;
-  let failedToolCount = 0;
   const events = new Map<string, AntonActivityEvent>();
 
   const metadata = (
@@ -865,9 +864,7 @@ function createTraceWriter({
   ) => {
     if (finalized) return;
     finalized = true;
-    const effectiveStatus =
-      status === "completed" && failedToolCount > 0 ? "error" : status;
-    settleRunningEvents(effectiveStatus === "completed" ? "completed" : "error");
+    settleRunningEvents(status === "completed" ? "completed" : "error");
     const finishedAt = Date.now();
     const durationMs = Math.max(0, finishedAt - startedAt);
     const inputTokens = usage?.inputTokens;
@@ -892,10 +889,8 @@ function createTraceWriter({
       ? "max_step_limit"
       : limits.tokenBudgetReached
         ? "token_budget_limit"
-      : effectiveStatus === "error" && failedToolCount > 0
-        ? "tool_error"
       : finishReason;
-    writeRun(effectiveStatus, {
+    writeRun(status, {
       finishedAt,
       durationMs,
       inputTokens,
@@ -937,7 +932,7 @@ function createTraceWriter({
       });
     }
     updateRun(runId, {
-      status: effectiveStatus,
+      status,
       finishedAt: new Date(finishedAt),
       durationMs,
       inputTokens: inputTokens ?? null,
@@ -1072,7 +1067,6 @@ function createTraceWriter({
       const current = events.get(`${runId}:tool:${event.toolCallId}`);
       const error = toolError(event.success, event.output, event.error);
       const status = error ? "error" : "completed";
-      if (error) failedToolCount += 1;
       finishEvent(`${runId}:tool:${event.toolCallId}`, {
         status,
         label: toolLabel(event.toolName, event.input),
@@ -1309,18 +1303,7 @@ function runProfileForMessages(
   ) {
     return "accepted-plan-general";
   }
-  if (isCommandRunRequest(latestText)) return "command-run";
   return "general-chat";
-}
-
-function isCommandRunRequest(text: string): boolean {
-  if (/\b(fix|change|update|modify|implement|edit|write|delete|rename)\b/.test(text)) {
-    return false;
-  }
-  return (
-    /\b(run|execute|check|verify)\b/.test(text) &&
-    /\b(build|typecheck|type-check|lint|test|pnpm|npm|yarn|bun|next build|tsc|eslint)\b/.test(text)
-  );
 }
 
 function isAcceptedPlanProfile(profile: AgentRunProfile): boolean {

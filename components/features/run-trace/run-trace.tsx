@@ -14,7 +14,6 @@ import {
   getAssistantTextDisplay,
   getMessageRunDurationMs,
   getRunData,
-  hasFailedToolOutput,
   hasPendingToolApproval,
   type AntonUIMessage,
   type AntonRunStatus,
@@ -63,11 +62,9 @@ export function RunTraceAccordion({
   const run = getRunData(message);
   const metadata = message.metadata;
   const transportRunning = status === "submitted" || status === "streaming";
-  const hasToolFailure = hasFailedToolOutput(message);
   const runStatus = effectiveRunStatus(
     run?.status ?? metadata?.status,
     transportRunning,
-    hasToolFailure,
   );
   const isRunning = runStatus === "running";
 
@@ -162,10 +159,8 @@ export function RunTraceAccordion({
 function effectiveRunStatus(
   status: AntonRunStatus | undefined,
   transportRunning: boolean,
-  hasToolFailure: boolean,
 ): AntonRunStatus {
   if (status === "running" && !transportRunning) return "aborted";
-  if (hasToolFailure) return "error";
   return status ?? "completed";
 }
 

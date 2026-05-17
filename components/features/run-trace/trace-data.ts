@@ -163,7 +163,15 @@ export function getTraceRows(
   const latestToolPartIndexes = getLatestToolPartIndexes(message);
   const latestTodoPartIndexes = todoDisplay
     ? undefined
-    : getLatestTodoPartIndexes(message);
+      : getLatestTodoPartIndexes(message);
+  const hasFinalTextAfterLastTool =
+    lastToolIndex !== -1 &&
+    message.parts.some(
+      (part, index) =>
+        index > lastToolIndex &&
+        part.type === "text" &&
+        part.text.trim().length > 0,
+    );
 
   message.parts.forEach((part, index) => {
     if (isReasoningPart(part)) {
@@ -184,7 +192,7 @@ export function getTraceRows(
     if (
       part.type === "text" &&
       !isPlanResponse &&
-      (running || index < lastToolIndex)
+      (running || (hasFinalTextAfterLastTool && index < lastToolIndex))
     ) {
       const text = part.text.trim();
       if (!text) return;
