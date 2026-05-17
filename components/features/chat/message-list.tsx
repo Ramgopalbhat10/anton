@@ -169,7 +169,6 @@ function MessageEvent({
     !isUser &&
     responseText.length > 0 &&
     !pendingApproval &&
-    failedToolText.length === 0 &&
     assistantFinal &&
     responseKind !== "plan";
   const showToolFailure =
