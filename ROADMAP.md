@@ -10,7 +10,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Tailwind CSS v4 dark UI using shadcn-style primitives.
 - [✔️] OpenRouter provider integration through Vercel AI SDK v6.
 - [✔️] Streaming chat endpoint at `/api/chat` using `streamText`.
-- [✔️] Multi-step tool loop bounded by `stepCountIs(20)`.
+- [✔️] Multi-step tool loop bounded by profile-aware step budgets.
 - [✔️] SQLite persistence through `better-sqlite3` and Drizzle ORM.
 - [✔️] Session persistence with title, selected model, token total, and messages.
 - [✔️] Basic markdown rendering for assistant messages.
@@ -49,6 +49,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Updated Worklog and inline traces to share normalized trace helpers for consistent tool, approval, and timing UI.
 - [✔️] Added durable tool-call and approval audit rows tied to chat runs.
 - [✔️] Added provider, step-count, and cost metadata tracking for runs.
+- [✔️] Added profile-aware context budgeting, transcript pruning, and step/token run budgets.
 
 ## Phase 1: Trust Boundaries And Safety
 
@@ -97,9 +98,11 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Add automatic verification policy after edits: detect package manager, run typecheck, lint, and build when appropriate.
 - [✔️] Add stack/repo inspection summary before the first coding action in a project.
 - [✔️] Add token-audit metadata, run profiles, filtered tool definitions, MCP gating, and accepted-plan context compaction.
-- [] Add context budgeting with repo map, recent diff summary, selected file summaries, and transcript pruning.
+- [✔️] Add profile-aware context budgeting and transcript pruning.
+- [] Add repo map, recent diff summary, and selected file summaries for richer context selection.
 - [✔️] Add model selection validation on the server; reject unsupported or disabled model IDs.
-- [] Add enforceable per-run token, cost, and step budgets.
+- [✔️] Add enforceable per-run token and step budgets.
+- [] Add enforceable dollar-cost budgets after reliable model pricing metadata is available.
 - [] Add resumable runs after tool approval, refresh, or network interruption.
 - [✔️] Add better system prompts for coding workflow: inspect, plan, edit, verify, summarize.
 - [✔️] Add final response structure that reports changed files, verification, and unresolved risks.
