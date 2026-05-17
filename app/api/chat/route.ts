@@ -1327,7 +1327,18 @@ function runProfileForMessages(
   ) {
     return "accepted-plan-general";
   }
+  if (isCommandRunRequest(latestText)) return "command-run";
   return "general-chat";
+}
+
+function isCommandRunRequest(latestText: string): boolean {
+  return (
+    /^(run|execute|rerun|use bash|use terminal)\b/.test(latestText) ||
+    /`(?:git|pnpm|npm|yarn|bun|cat|ls|rg|grep|find)\b[^`]*`/.test(latestText) ||
+    /\b(?:discard|revert|restore)\b.*\b(?:changes|repo|repository|working tree|workspace)\b/.test(latestText) ||
+    /\b(?:clean|stash)\b.*\b(?:repo|repository|working tree|workspace)\b/.test(latestText) ||
+    /\bkeep\b.*\b(?:repo|repository|working tree|workspace)\b.*\bclean\b/.test(latestText)
+  );
 }
 
 function isAcceptedPlanProfile(profile: AgentRunProfile): boolean {
