@@ -88,7 +88,7 @@ function ExpandedSidebar({
   return (
     <div className="flex h-full w-[300px] shrink-0 flex-col">
       <div className="flex h-10 items-center justify-between px-2">
-        <div className="flex min-w-0 items-center gap-1.5 pl-2">
+        <div className="flex min-w-0 items-center gap-1.5">
           <BrandMark />
           <span className="truncate text-xs font-semibold tracking-tight">
             Anton
@@ -157,12 +157,12 @@ function CollapsedSidebar({
       <nav className="flex w-full flex-col items-center gap-1">
         <Button
           type="button"
-          size="icon-sm"
+          size="icon"
           variant="ghost"
           className="bg-sidebar-accent text-sidebar-accent-foreground"
           aria-label="Sessions"
         >
-          <MessageSquare className="size-3.5" />
+          <MessageSquare />
         </Button>
         <Button asChild size="icon-sm" variant="ghost" aria-label="New chat">
           <Link href="/">
