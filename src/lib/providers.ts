@@ -19,17 +19,9 @@ export const DEFAULT_MODEL = stripOpenRouterRoutingSuffix(
   process.env.DEFAULT_MODEL ?? DEFAULT_MODEL_ID,
 );
 
-export function toOpenRouterModelId(modelId: string): string {
-  return hasOpenRouterRoutingSuffix(modelId) ? modelId : `${modelId}:floor`;
-}
-
 export function stripOpenRouterRoutingSuffix(modelId: string): string {
   const suffix = openRouterRoutingSuffix(modelId);
   return suffix ? modelId.slice(0, -suffix.length - 1) : modelId;
-}
-
-function hasOpenRouterRoutingSuffix(modelId: string): boolean {
-  return openRouterRoutingSuffix(modelId) !== null;
 }
 
 function openRouterRoutingSuffix(modelId: string): string | null {

@@ -4,7 +4,6 @@ import { z } from "zod";
 import {
   DEFAULT_MODEL,
   openrouter,
-  toOpenRouterModelId,
 } from "@/src/lib/providers";
 import { listMemories } from "@/src/db/queries";
 import { listSkills } from "../skills";
@@ -64,14 +63,13 @@ export function createDelegateTaskTool({
     execute: async ({ task, maxSteps }) => {
       try {
         const result = await generateText({
-          model: openrouter(toOpenRouterModelId(model ?? DEFAULT_MODEL)),
+          model: openrouter(model ?? DEFAULT_MODEL),
           system: childSystemPrompt(workspaceRoot),
           prompt: task,
           tools: readOnlyTools,
           stopWhen: stepCountIs(maxSteps ?? DEFAULT_MAX_STEPS),
           providerOptions: {
             openrouter: {
-              provider: { sort: "price" },
               usage: { include: true },
             },
           },

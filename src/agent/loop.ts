@@ -11,7 +11,6 @@ import {
 import {
   openrouter,
   DEFAULT_MODEL,
-  toOpenRouterModelId,
 } from "@/src/lib/providers";
 import { buildTokenUsageMetrics } from "@/src/lib/token-usage";
 import { listMemories } from "@/src/db/queries";
@@ -467,7 +466,7 @@ export async function runAgent({
   };
 
   return streamText({
-    model: openrouter(toOpenRouterModelId(selectedModel)),
+    model: openrouter(selectedModel),
     system,
     messages,
     maxOutputTokens: budget.maxOutputTokens,
@@ -622,12 +621,10 @@ function openRouterProviderOptions(
   profile: AgentRunProfile,
   thinkingEnabled: boolean,
 ): {
-  provider: { sort: "price" };
   reasoning?: ReturnType<typeof reasoningOptionsForProfile>;
   usage: { include: true };
 } {
   return {
-    provider: { sort: "price" },
     ...(thinkingEnabled ? { reasoning: reasoningOptionsForProfile(profile) } : {}),
     usage: { include: true },
   };
