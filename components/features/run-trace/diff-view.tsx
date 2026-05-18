@@ -60,7 +60,7 @@ const COMPACT_DIFF_OPTIONS = {
       --diffs-selection-base: var(--primary);
       --diffs-gap-block: 0;
       --diffs-gap-inline: 0;
-      --diffs-scrollbar-gutter-override: 6px;
+      --diffs-scrollbar-gutter-override: 10px;
       --diffs-min-number-column-width: 4ch;
     }
 
@@ -69,30 +69,23 @@ const COMPACT_DIFF_OPTIONS = {
       background: transparent;
       overflow-x: auto;
       overflow-y: clip;
-      scrollbar-width: thin;
       scrollbar-color: color-mix(in oklch, var(--foreground) 16%, transparent) transparent;
     }
 
     [data-code]::-webkit-scrollbar {
-      width: 6px;
-      height: 6px;
-    }
-
-    [data-code]::-webkit-scrollbar-button {
-      width: 0;
-      height: 0;
-      display: none;
+      width: 10px;
+      height: 10px;
     }
 
     [data-code]::-webkit-scrollbar-thumb {
-      border: 2px solid transparent;
+      border: 3px solid transparent;
       border-radius: 999px;
       background: color-mix(in oklch, var(--foreground) 16%, transparent);
       background-clip: padding-box;
     }
 
     [data-code]::-webkit-scrollbar-thumb:hover {
-      border: 2px solid transparent;
+      border: 3px solid transparent;
       background: color-mix(in oklch, var(--foreground) 24%, transparent);
       background-clip: padding-box;
     }
@@ -120,7 +113,8 @@ const COMPACT_DIFF_OPTIONS = {
     }
 
     [data-separator="line-info-basic"] {
-      min-height: 1.5rem;
+      height: 1.125rem;
+      min-height: 1.125rem;
     }
 
     [data-separator="line-info-basic"] [data-separator-wrapper] {
@@ -128,6 +122,12 @@ const COMPACT_DIFF_OPTIONS = {
       color: var(--muted-foreground);
       background-color: color-mix(in oklch, var(--muted) 50%, transparent);
       font-size: 10px;
+      line-height: 1.125rem;
+    }
+
+    [data-separator="line-info-basic"] [data-separator-content] {
+      height: 1.125rem;
+      padding-inline: 0.5ch;
     }
   `,
 } satisfies NonNullable<DiffBasePropsReact<undefined>["options"]>;
