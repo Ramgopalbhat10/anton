@@ -356,6 +356,37 @@ export function updateProjectStatus(
   return getProject(id);
 }
 
+export function updateGithubProjectMetadata(input: {
+  id: string;
+  githubRepoId: number;
+  githubInstallationId: number;
+  owner: string;
+  name: string;
+  fullName: string;
+  defaultBranch: string;
+  cloneUrl: string;
+  status: Project["status"];
+  lastError?: string | null;
+}): Project | undefined {
+  db
+    .update(projects)
+    .set({
+      githubRepoId: input.githubRepoId,
+      githubInstallationId: input.githubInstallationId,
+      owner: input.owner,
+      name: input.name,
+      fullName: input.fullName,
+      defaultBranch: input.defaultBranch,
+      cloneUrl: input.cloneUrl,
+      status: input.status,
+      lastError: input.lastError ?? null,
+      updatedAt: new Date(),
+    })
+    .where(eq(projects.id, input.id))
+    .run();
+  return getProject(input.id);
+}
+
 export function deleteProject(id: string): boolean {
   return db.transaction((tx) => {
     tx

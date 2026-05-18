@@ -24,6 +24,14 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  SelectViewport,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 import { useWorkspaceSettings } from "./hooks";
@@ -42,13 +50,18 @@ export function WorkspaceSettingsPanel({
     setRootDraft,
     localPathDraft,
     setLocalPathDraft,
+    installations,
+    installationFilter,
+    setInstallationFilter,
     repositories,
+    filteredRepositories,
     readyProjects,
     loading,
     saving,
     cloningRepoId,
     importingLocal,
     removingProjectId,
+    refreshingProjectId,
     error,
     refresh,
     saveRoot,
@@ -56,7 +69,9 @@ export function WorkspaceSettingsPanel({
     cloneRepo,
     importLocalProject,
     removeProject,
+    refreshProject,
   } = useWorkspaceSettings(onActiveProjectChange);
+  const showAccountLabels = installations.length > 0;
 
   return (
     <SettingsPageShell
@@ -149,6 +164,32 @@ export function WorkspaceSettingsPanel({
                     {project.localPath}
                   </span>
                 </button>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => void refreshProject(project.id)}
+                  disabled={
+                    project.provider !== "github" ||
+                    refreshingProjectId === project.id
+                  }
+                  aria-label={
+                    project.provider === "github"
+                      ? `Refresh metadata for ${project.fullName}`
+                      : `Metadata refresh unavailable for ${project.fullName}`
+                  }
+                  title={
+                    project.provider === "github"
+                      ? "Refresh GitHub metadata"
+                      : "Local projects do not have GitHub metadata"
+                  }
+                >
+                  {refreshingProjectId === project.id ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    <RefreshCw />
+                  )}
+                </Button>
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button
@@ -216,53 +257,127 @@ export function WorkspaceSettingsPanel({
         {repositories.length === 0 ? (
           <EmptyState message="Connect GitHub and refresh to list repositories." />
         ) : (
-          <ul className="grid gap-2 lg:grid-cols-2">
-            {repositories.map((repo) => (
-              <li
-                key={`${repo.installationId}:${repo.id}`}
-                className="rounded-md bg-background/45 p-2.5 ring-1 ring-border"
-              >
-                <div className="flex items-start justify-between gap-3">
+          <div className="grid gap-3">
+            {installations.length > 0 && (
+              <div className="grid gap-2 border-b border-border pb-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <div className="truncate text-xs font-medium">
-                      {repo.fullName}
+                    <div className="text-xs font-medium">
+                      Connected GitHub accounts
                     </div>
-                    <div className="mt-0.5 text-[11px] text-muted-foreground">
-                      {repo.private ? "Private" : "Public"} - {repo.defaultBranch}
+                    <div className="text-[11px] text-muted-foreground">
+                      {installations.length}{" "}
+                      {installations.length === 1 ? "installation" : "installations"}
                     </div>
                   </div>
-                  {repo.clonedProjectId ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        if (repo.clonedProjectId) selectProject(repo.clonedProjectId);
-                      }}
+                  <Select
+                    value={installationFilter}
+                    onValueChange={setInstallationFilter}
+                  >
+                    <SelectTrigger
+                      className="w-[min(220px,70vw)]"
+                      aria-label="GitHub account filter"
                     >
-                      Select
-                    </Button>
-                  ) : (
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() => void cloneRepo(repo)}
-                      disabled={cloningRepoId === repo.id}
-                    >
-                      {cloningRepoId === repo.id ? (
-                        <Loader2 className="animate-spin" />
-                      ) : (
-                        <GitBranch />
-                      )}
-                      Clone
-                    </Button>
-                  )}
+                      <SelectValue placeholder="All accounts" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectViewport>
+                        <SelectItem value="all">All accounts</SelectItem>
+                        {installations.map((installation) => (
+                          <SelectItem
+                            key={installation.installationId}
+                            value={String(installation.installationId)}
+                          >
+                            {installation.accountLogin}
+                          </SelectItem>
+                        ))}
+                      </SelectViewport>
+                    </SelectContent>
+                  </Select>
                 </div>
-              </li>
-            ))}
-          </ul>
+                <ul className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                  {installations.map((installation) => (
+                    <li key={installation.installationId}>
+                      <span className="text-foreground/80">
+                        {installation.accountLogin}
+                      </span>{" "}
+                      - {installation.accountType} -{" "}
+                      {repositoryCountForInstallation(
+                        repositories,
+                        installation.installationId,
+                      )}{" "}
+                      repos
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {filteredRepositories.length === 0 ? (
+              <EmptyState message="No repositories for this account." />
+            ) : (
+              <ul className="grid gap-2 lg:grid-cols-2">
+                {filteredRepositories.map((repo) => (
+                  <li
+                    key={`${repo.installationId}:${repo.id}`}
+                    className="rounded-md bg-background/45 p-2.5 ring-1 ring-border"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-xs font-medium">
+                          {repo.fullName}
+                        </div>
+                        <div className="mt-0.5 text-[11px] text-muted-foreground">
+                          {repo.private ? "Private" : "Public"} -{" "}
+                          {repo.defaultBranch}
+                          {showAccountLabels
+                            ? ` - ${repo.accountLogin} (${repo.accountType})`
+                            : ""}
+                        </div>
+                      </div>
+                      {repo.clonedProjectId ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            if (repo.clonedProjectId) {
+                              selectProject(repo.clonedProjectId);
+                            }
+                          }}
+                        >
+                          Select
+                        </Button>
+                      ) : (
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => void cloneRepo(repo)}
+                          disabled={cloningRepoId === repo.id}
+                        >
+                          {cloningRepoId === repo.id ? (
+                            <Loader2 className="animate-spin" />
+                          ) : (
+                            <GitBranch />
+                          )}
+                          Clone
+                        </Button>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
       </SettingsCard>
     </SettingsPageShell>
   );
+}
+
+function repositoryCountForInstallation(
+  repositories: { installationId: number }[],
+  installationId: number,
+): number {
+  return repositories.filter((repo) => repo.installationId === installationId)
+    .length;
 }
