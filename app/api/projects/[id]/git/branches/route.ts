@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { ensureWorkspaceRootAt } from "@/src/agent/sandbox";
 import { getProject } from "@/src/db/queries";
+import { createInstallationToken } from "@/src/github/app";
 import type { ProjectBranchesSummary } from "@/src/lib/api-types";
 import { redactText } from "@/src/lib/redaction";
 
@@ -25,11 +26,15 @@ const mutationSchema = z.discriminatedUnion("action", [
   }),
 ]);
 
-export async function GET(_req: Request, { params }: Ctx) {
+export async function GET(req: Request, { params }: Ctx) {
   const project = await readyProject(params);
   if ("error" in project) return project.error;
 
   try {
+    const refresh = new URL(req.url).searchParams.get("refresh") === "1";
+    if (refresh) {
+      await fetchOrigin(project.project, project.root);
+    }
     return Response.json({
       branches: await branchSummary(project.project.id, project.project.defaultBranch, project.root),
     });
@@ -140,9 +145,42 @@ async function branchSummary(
   };
 }
 
-async function gitOutput(cwd: string, args: string[]): Promise<string> {
-  const result = await execFileAsync("git", args, { cwd });
+async function fetchOrigin(
+  project: { provider: string; githubInstallationId: number | null },
+  root: string,
+): Promise<void> {
+  const originUrl = await gitOutput(root, ["remote", "get-url", "origin"]).catch(() => "");
+  if (!originUrl) return;
+  const env = await gitAuthEnv(project);
+  await gitOutput(root, ["fetch", "--prune", "origin"], env);
+}
+
+async function gitOutput(
+  cwd: string,
+  args: string[],
+  extraEnv?: Record<string, string>,
+): Promise<string> {
+  const result = await execFileAsync("git", args, {
+    cwd,
+    env: extraEnv ? { ...process.env, ...extraEnv } : undefined,
+  });
   return result.stdout.trim();
+}
+
+async function gitAuthEnv(project: {
+  provider: string;
+  githubInstallationId: number | null;
+}): Promise<Record<string, string> | undefined> {
+  if (project.provider !== "github" || project.githubInstallationId === null) {
+    return undefined;
+  }
+  const { token } = await createInstallationToken(project.githubInstallationId);
+  const auth = Buffer.from(`x-access-token:${token}`, "utf8").toString("base64");
+  return {
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
+    GIT_CONFIG_VALUE_0: `Authorization: Basic ${auth}`,
+  };
 }
 
 async function assertValidBranchName(root: string, branch: string): Promise<void> {

@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   Check,
   ChevronDown,
   GitBranch,
   Loader2,
   Plus,
+  RefreshCw,
   Search,
   X,
 } from "lucide-react";
@@ -65,12 +66,13 @@ export function BranchSwitcher({
     return items.filter((branch) => branch.name.toLowerCase().includes(needle));
   }, [branches, query]);
 
-  const loadBranches = async () => {
+  const loadBranches = useCallback(async ({ refresh = false } = {}) => {
     if (!project) return;
     setLoading(true);
     try {
+      const queryString = refresh ? "?refresh=1" : "";
       const data = await getJson<{ branches: ProjectBranchesSummary }>(
-        `/api/projects/${project.id}/git/branches`,
+        `/api/projects/${project.id}/git/branches${queryString}`,
       );
       setBranches(data.branches);
       setError(null);
@@ -79,7 +81,7 @@ export function BranchSwitcher({
     } finally {
       setLoading(false);
     }
-  };
+  }, [project]);
 
   const mutateBranch = async (body: Record<string, unknown>, busyLabel: string) => {
     if (!project) return;
@@ -131,7 +133,7 @@ export function BranchSwitcher({
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (next) void loadBranches();
+        if (next) void loadBranches({ refresh: true });
       }}
     >
       <PopoverTrigger asChild>
@@ -175,9 +177,9 @@ export function BranchSwitcher({
         side="top"
         className="w-72 overflow-hidden p-0"
       >
-        <div className="border-b border-border p-2">
-          <div className="grid grid-cols-[0.875rem_1fr_auto] items-center gap-2 rounded-md bg-background/70 px-2 py-1.5 ring-1 ring-border">
-            <Search className="size-3.5 text-muted-foreground" />
+        <div className="border-b border-border p-1.5">
+          <div className="grid grid-cols-[0.75rem_1fr_auto] items-center gap-1.5 rounded-md bg-background/70 px-1.5 py-1 ring-1 ring-border">
+            <Search className="size-3 text-muted-foreground" />
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
@@ -185,19 +187,32 @@ export function BranchSwitcher({
               className="min-w-0 bg-transparent font-mono text-[11px] outline-none placeholder:text-muted-foreground"
               aria-label="Search branches"
             />
-            {loading ? <Loader2 className="size-3 animate-spin text-muted-foreground" /> : null}
+            <button
+              type="button"
+              onClick={() => void loadBranches({ refresh: true })}
+              disabled={loading || switching !== null}
+              className="inline-flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-60"
+              aria-label="Refresh branches"
+              title="Refresh branches"
+            >
+              {loading ? (
+                <Loader2 className="size-3 animate-spin" />
+              ) : (
+                <RefreshCw className="size-3" />
+              )}
+            </button>
           </div>
         </div>
-        <div className="max-h-56 overflow-y-auto p-1">
-          <div className="px-2 py-1 text-[10px] font-medium uppercase text-muted-foreground">
+        <div className="max-h-52 overflow-y-auto p-0.5">
+          <div className="px-1.5 py-1 text-[10px] font-medium uppercase text-muted-foreground">
             Branches
           </div>
           {error ? (
-            <div className="mx-1 rounded-md bg-destructive/10 px-2 py-1.5 text-[11px] text-destructive">
+            <div className="mx-1 rounded-md bg-destructive/10 px-1.5 py-1 text-[11px] text-destructive">
               {error}
             </div>
           ) : filteredBranches.length === 0 ? (
-            <div className="px-2 py-4 text-center text-[11px] text-muted-foreground">
+            <div className="px-2 py-3 text-center text-[11px] text-muted-foreground">
               {loading ? "Loading branches..." : "No branches found."}
             </div>
           ) : (
@@ -208,12 +223,12 @@ export function BranchSwitcher({
                     type="button"
                     onClick={() => selectBranch(branch)}
                     disabled={switching !== null}
-                    className="grid w-full grid-cols-[0.875rem_minmax(0,1fr)_0.875rem] items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11px] transition-colors hover:bg-accent disabled:opacity-60"
+                    className="grid w-full grid-cols-[0.75rem_minmax(0,1fr)_0.75rem] items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[11px] transition-colors hover:bg-accent disabled:opacity-60"
                   >
                     {switching === branch.name ? (
-                      <Loader2 className="size-3.5 animate-spin text-primary" />
+                      <Loader2 className="size-3 animate-spin text-primary" />
                     ) : (
-                      <GitBranch className="size-3.5 text-muted-foreground" />
+                      <GitBranch className="size-3 text-muted-foreground" />
                     )}
                     <span className="min-w-0">
                       <span className="block truncate font-mono font-medium">
@@ -226,7 +241,7 @@ export function BranchSwitcher({
                       ) : null}
                     </span>
                     {branch.current ? (
-                      <Check className="size-3.5 text-primary" />
+                      <Check className="size-3 text-primary" />
                     ) : null}
                   </button>
                 </li>
@@ -234,7 +249,7 @@ export function BranchSwitcher({
             </ul>
           )}
         </div>
-        <div className="border-t border-border p-1">
+        <div className="border-t border-border p-0.5">
           {createMode ? (
             <div className="grid grid-cols-[1fr_auto_auto] items-center gap-1">
               <Input
@@ -250,7 +265,7 @@ export function BranchSwitcher({
                     setNewBranch("");
                   }
                 }}
-                className="h-7 font-mono text-[11px]"
+                className="h-6 font-mono text-[11px]"
                 placeholder="codex/new-branch"
                 aria-label="New branch name"
                 autoFocus
@@ -283,9 +298,9 @@ export function BranchSwitcher({
             <button
               type="button"
               onClick={() => setCreateMode(true)}
-              className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="flex h-6 w-full items-center gap-1.5 rounded-md px-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
-              <Plus className="size-3.5" />
+              <Plus className="size-3" />
               Create and checkout new branch...
             </button>
           )}

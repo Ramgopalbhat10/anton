@@ -48,7 +48,7 @@ export function PullRequestPanel({
     null;
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
+    <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
       <section className="border-b border-border px-3 py-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -65,7 +65,7 @@ export function PullRequestPanel({
               <span className="rounded bg-secondary px-1.5 py-0.5">
                 {pullRequest.baseBranch}
               </span>
-              <span>←</span>
+              <span>&lt;-</span>
               <span className="rounded bg-secondary px-1.5 py-0.5">
                 {pullRequest.headBranch}
               </span>
@@ -115,7 +115,7 @@ export function PullRequestPanel({
         ) : null}
       </section>
 
-      <Tabs defaultValue="changes" className="gap-0">
+      <Tabs defaultValue="changes" className="min-w-0 gap-0">
         <div className="border-b border-border px-2 py-1.5">
           <TabsList className="gap-1">
             <TabsTrigger value="changes" className="h-6 px-2 py-0 text-[11px]">
@@ -132,7 +132,7 @@ export function PullRequestPanel({
             </TabsTrigger>
           </TabsList>
         </div>
-        <TabsContent value="changes" className="m-0">
+        <TabsContent value="changes" className="m-0 min-w-0">
           <ChangesView
             files={pullRequest.files}
             selected={selected}
@@ -255,8 +255,8 @@ function ChangesView({
   }
 
   return (
-    <div className="grid min-h-0 grid-rows-[auto_1fr]">
-      <ol className="max-h-56 overflow-y-auto border-b border-border px-2 py-2">
+    <div className="grid min-h-0 min-w-0 grid-rows-[auto_1fr] overflow-hidden">
+      <ol className="max-h-56 min-w-0 overflow-y-auto border-b border-border px-2 py-2">
         {files.map((file) => (
           <li key={file.filename}>
             <button
@@ -300,22 +300,24 @@ function PatchView({ file }: { file: ProjectPullRequestFileSummary }) {
     );
   }
   return (
-    <div className="overflow-x-auto p-2">
-      <pre className="rounded-md bg-background/70 py-2 font-mono text-[10px] leading-relaxed ring-1 ring-border">
-        {lines.map((line, index) => (
-          <div
-            key={`${index}:${line}`}
-            className={cn(
-              "min-w-max px-2 whitespace-pre",
-              line.startsWith("+") && "bg-emerald-500/10 text-emerald-300",
-              line.startsWith("-") && "bg-destructive/10 text-red-300",
-              line.startsWith("@@") && "bg-sky-500/10 text-sky-300",
-            )}
-          >
-            {line || " "}
-          </div>
-        ))}
-      </pre>
+    <div className="min-w-0 max-w-full overflow-hidden p-2">
+      <div className="max-w-full overflow-x-auto rounded-md bg-background/70 font-mono text-[10px] leading-relaxed ring-1 ring-border">
+        <pre className="m-0 w-max min-w-full py-2">
+          {lines.map((line, index) => (
+            <div
+              key={`${index}:${line}`}
+              className={cn(
+                "w-max min-w-full px-2 whitespace-pre",
+                line.startsWith("+") && "bg-emerald-500/10 text-emerald-300",
+                line.startsWith("-") && "bg-destructive/10 text-red-300",
+                line.startsWith("@@") && "bg-sky-500/10 text-sky-300",
+              )}
+            >
+              {line || " "}
+            </div>
+          ))}
+        </pre>
+      </div>
     </div>
   );
 }
@@ -340,7 +342,7 @@ function ChecksView({
         <meta.Icon className={cn("size-3.5", meta.className)} />
         <span className="font-medium">{meta.label}</span>
         <span className="text-muted-foreground">
-          {pullRequest.checks.passed} passed · {pullRequest.checks.pending} pending ·{" "}
+          {pullRequest.checks.passed} passed / {pullRequest.checks.pending} pending /{" "}
           {pullRequest.checks.failed} failed
         </span>
       </div>
