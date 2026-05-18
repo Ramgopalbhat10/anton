@@ -60,8 +60,8 @@ const COMPACT_DIFF_OPTIONS = {
       --diffs-selection-base: var(--primary);
       --diffs-gap-block: 0;
       --diffs-gap-inline: 0;
-      --diffs-scrollbar-gutter-override: 10px;
-      --diffs-min-number-column-width: 3ch;
+      --diffs-scrollbar-gutter-override: 6px;
+      --diffs-min-number-column-width: 4ch;
     }
 
     [data-code] {
@@ -69,23 +69,30 @@ const COMPACT_DIFF_OPTIONS = {
       background: transparent;
       overflow-x: auto;
       overflow-y: clip;
+      scrollbar-width: thin;
       scrollbar-color: color-mix(in oklch, var(--foreground) 16%, transparent) transparent;
     }
 
     [data-code]::-webkit-scrollbar {
-      width: 10px;
-      height: 10px;
+      width: 6px;
+      height: 6px;
+    }
+
+    [data-code]::-webkit-scrollbar-button {
+      width: 0;
+      height: 0;
+      display: none;
     }
 
     [data-code]::-webkit-scrollbar-thumb {
-      border: 3px solid transparent;
+      border: 2px solid transparent;
       border-radius: 999px;
       background: color-mix(in oklch, var(--foreground) 16%, transparent);
       background-clip: padding-box;
     }
 
     [data-code]::-webkit-scrollbar-thumb:hover {
-      border: 3px solid transparent;
+      border: 2px solid transparent;
       background: color-mix(in oklch, var(--foreground) 24%, transparent);
       background-clip: padding-box;
     }
@@ -103,13 +110,13 @@ const COMPACT_DIFF_OPTIONS = {
     }
 
     [data-column-number] {
-      min-width: 0;
-      padding-inline: 0.125rem 0.25rem;
+      min-width: 4ch;
+      padding-inline: 0.5rem 0.375rem;
       color: color-mix(in oklch, var(--muted-foreground) 72%, transparent);
     }
 
     [data-line-number-content] {
-      min-width: 3ch;
+      min-width: 4ch;
     }
 
     [data-separator="line-info-basic"] {
@@ -205,9 +212,7 @@ function DiffFrame({
         className,
       )}
     >
-      <div className="min-w-0 max-w-full overflow-x-auto overflow-y-hidden">
-        {children}
-      </div>
+      <div className="min-w-0 max-w-full overflow-hidden">{children}</div>
     </div>
   );
 }
