@@ -263,18 +263,20 @@ function ChangesView({
               type="button"
               onClick={() => onSelect(file.filename)}
               className={cn(
-                "grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors",
+                "grid w-full grid-cols-[1rem_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors",
                 selected?.filename === file.filename
                   ? "bg-accent/70"
                   : "hover:bg-accent/40",
               )}
             >
+              <FileStatusBadge status={file.status} />
               <span className="min-w-0">
                 <span className="block truncate font-medium">{file.filename}</span>
-                <span className="font-mono text-[10px] text-muted-foreground">
-                  {file.status}
-                  {file.previousFilename ? ` from ${file.previousFilename}` : ""}
-                </span>
+                {file.previousFilename ? (
+                  <span className="block truncate font-mono text-[10px] text-muted-foreground">
+                    from {file.previousFilename}
+                  </span>
+                ) : null}
               </span>
               <span className="font-mono text-[10px] tabular-nums">
                 <span className="text-emerald-500">+{file.additions}</span>
@@ -288,6 +290,63 @@ function ChangesView({
       {selected ? <PatchView file={selected} /> : null}
     </div>
   );
+}
+
+function FileStatusBadge({ status }: { status: string }) {
+  const meta = fileStatusMeta(status);
+  return (
+    <span
+      className={cn(
+        "inline-flex size-4 items-center justify-center rounded-sm font-mono text-[10px] font-semibold ring-1",
+        meta.className,
+      )}
+      title={meta.label}
+      aria-label={meta.label}
+    >
+      {meta.char}
+    </span>
+  );
+}
+
+function fileStatusMeta(status: string): {
+  char: string;
+  label: string;
+  className: string;
+} {
+  switch (status) {
+    case "added":
+      return {
+        char: "A",
+        label: "Added",
+        className: "bg-emerald-500/15 text-emerald-300 ring-emerald-500/30",
+      };
+    case "modified":
+    case "changed":
+      return {
+        char: "M",
+        label: "Modified",
+        className: "bg-amber-500/15 text-amber-300 ring-amber-500/30",
+      };
+    case "removed":
+    case "deleted":
+      return {
+        char: "D",
+        label: "Deleted",
+        className: "bg-destructive/15 text-red-300 ring-destructive/30",
+      };
+    case "renamed":
+      return {
+        char: "R",
+        label: "Renamed",
+        className: "bg-sky-500/15 text-sky-300 ring-sky-500/30",
+      };
+    default:
+      return {
+        char: status.slice(0, 1).toUpperCase() || "?",
+        label: status || "Unknown",
+        className: "bg-secondary text-muted-foreground ring-border",
+      };
+  }
 }
 
 function PatchView({ file }: { file: ProjectPullRequestFileSummary }) {

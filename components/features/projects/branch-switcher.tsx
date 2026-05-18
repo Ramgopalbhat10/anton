@@ -228,17 +228,20 @@ export function BranchSwitcher({
                     {switching === branch.name ? (
                       <Loader2 className="size-3 animate-spin text-primary" />
                     ) : (
-                      <GitBranch className="size-3 text-muted-foreground" />
+                      <GitBranch
+                        className={cn(
+                          "size-3",
+                          branch.kind === "remote"
+                            ? "text-sky-400"
+                            : "text-muted-foreground",
+                        )}
+                        aria-label={branch.kind === "remote" ? "Remote branch" : "Local branch"}
+                      />
                     )}
                     <span className="min-w-0">
                       <span className="block truncate font-mono font-medium">
                         {branch.name}
                       </span>
-                      {branch.kind === "remote" ? (
-                        <span className="text-[10px] text-muted-foreground">
-                          remote
-                        </span>
-                      ) : null}
                     </span>
                     {branch.current ? (
                       <Check className="size-3 text-primary" />
