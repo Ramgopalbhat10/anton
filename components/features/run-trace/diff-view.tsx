@@ -30,10 +30,10 @@ const COMPACT_DIFF_OPTIONS = {
   theme: { light: "pierre-light", dark: "pierre-dark" },
   themeType: "dark",
   diffStyle: "unified",
-  diffIndicators: "classic",
+  diffIndicators: "bars",
   disableFileHeader: true,
-  disableLineNumbers: true,
-  hunkSeparators: "metadata",
+  disableLineNumbers: false,
+  hunkSeparators: "line-info-basic",
   lineDiffType: "word",
   maxLineDiffLength: 500,
   overflow: "scroll",
@@ -52,8 +52,8 @@ const COMPACT_DIFF_OPTIONS = {
       --diffs-fg: var(--foreground);
       --diffs-fg-number: color-mix(in oklch, var(--muted-foreground) 72%, transparent);
       --diffs-bg-context: transparent;
-      --diffs-bg-context-gutter: color-mix(in oklch, var(--muted) 40%, transparent);
-      --diffs-bg-separator: color-mix(in oklch, var(--muted) 46%, transparent);
+      --diffs-bg-context-gutter: color-mix(in oklch, var(--muted) 34%, transparent);
+      --diffs-bg-separator: color-mix(in oklch, var(--muted) 42%, transparent);
       --diffs-bg-buffer: color-mix(in oklch, var(--muted-foreground) 12%, transparent);
       --diffs-addition-base: oklch(0.76 0.16 153);
       --diffs-deletion-base: var(--destructive);
@@ -71,20 +71,23 @@ const COMPACT_DIFF_OPTIONS = {
     [data-column-number],
     [data-no-newline] {
       min-height: 1.25rem;
-      padding-inline: 0.5rem;
+      padding-inline: 0.375rem;
     }
 
-    [data-indicators="classic"] [data-line] {
-      padding-inline-start: 1.5rem;
+    [data-column-number] {
+      min-width: 2.5rem;
+      padding-inline: 0.375rem;
+      color: color-mix(in oklch, var(--muted-foreground) 72%, transparent);
     }
 
-    [data-separator="metadata"] {
-      height: 1.5rem;
+    [data-separator="line-info-basic"] {
+      min-height: 1.5rem;
     }
 
-    [data-separator="metadata"] [data-separator-wrapper] {
+    [data-separator="line-info-basic"] [data-separator-wrapper] {
+      border-radius: 0.25rem;
       color: var(--muted-foreground);
-      background-color: color-mix(in oklch, var(--muted) 44%, transparent);
+      background-color: color-mix(in oklch, var(--muted) 50%, transparent);
       font-size: 10px;
     }
   `,
@@ -93,7 +96,6 @@ const COMPACT_DIFF_OPTIONS = {
 export function DiffView({
   previous,
   next,
-  newFile,
   filename = "diff.txt",
   className,
 }: DiffViewProps) {
@@ -111,15 +113,7 @@ export function DiffView({
   }
 
   return (
-    <DiffFrame
-      className={className}
-      header={
-        <>
-          <span>diff</span>
-          {newFile ? <span className="text-emerald-400">new file</span> : null}
-        </>
-      }
-    >
+    <DiffFrame className={className}>
       <MultiFileDiff
         oldFile={oldFile}
         newFile={newFileContents}
@@ -168,11 +162,9 @@ export function PatchDiffView({
 function DiffFrame({
   children,
   className,
-  header,
 }: {
   children: ReactNode;
   className?: string;
-  header?: ReactNode;
 }) {
   return (
     <div
@@ -181,11 +173,6 @@ function DiffFrame({
         className,
       )}
     >
-      {header ? (
-        <div className="flex items-center gap-3 border-b border-border px-2 py-1 text-[10px] uppercase text-muted-foreground">
-          {header}
-        </div>
-      ) : null}
       <div className="min-w-0 max-w-full overflow-hidden">{children}</div>
     </div>
   );
