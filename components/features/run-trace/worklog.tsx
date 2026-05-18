@@ -641,11 +641,13 @@ function WorklogDetail({
           previous={(entry.output as WriteFileOkOutput).previousContent ?? ""}
           next={pickString(entry.input, "content") ?? ""}
           newFile={(entry.output as WriteFileOkOutput).existed === false}
+          filename={pickString(entry.input, "path")}
         />
       ) : showEditDiff ? (
         <DiffView
           previous={editOutput?.previousContent ?? ""}
           next={editOutput?.nextContent ?? ""}
+          filename={pickString(entry.input, "path")}
         />
       ) : entry.name === "bash" && entry.activity?.status === "running" && entry.activity?.toolCallId ? (
         <LiveTerminalOutput

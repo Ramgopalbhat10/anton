@@ -1,100 +1,254 @@
 "use client";
 
-import { useMemo } from "react";
-import { diffLines } from "diff";
+import { useMemo, type ReactNode } from "react";
+import {
+  MultiFileDiff,
+  PatchDiff,
+  type DiffBasePropsReact,
+  type FileContents,
+} from "@pierre/diffs/react";
+
 import { cn } from "@/lib/utils";
 
 interface DiffViewProps {
   previous: string;
   next: string;
   newFile?: boolean;
+  filename?: string;
+  className?: string;
 }
 
-export function DiffView({ previous, next, newFile }: DiffViewProps) {
-  const rows = useMemo(() => buildRows(previous, next), [previous, next]);
-  const { added, removed } = useMemo(() => countChanges(rows), [rows]);
+interface PatchDiffViewProps {
+  patch: string | null;
+  filename: string;
+  previousFilename?: string | null;
+  status?: string;
+  className?: string;
+}
 
-  if (rows.length === 0) {
-    return (
-      <div className="rounded bg-background/60 px-3 py-2 text-[11px] text-muted-foreground ring-1 ring-border">
-        No changes.
-      </div>
-    );
+const COMPACT_DIFF_OPTIONS = {
+  theme: { light: "pierre-light", dark: "pierre-dark" },
+  themeType: "dark",
+  diffStyle: "unified",
+  diffIndicators: "classic",
+  disableFileHeader: true,
+  disableLineNumbers: true,
+  hunkSeparators: "metadata",
+  lineDiffType: "word",
+  maxLineDiffLength: 500,
+  overflow: "scroll",
+  tokenizeMaxLineLength: 500,
+  unsafeCSS: `
+    :host {
+      display: block;
+      min-width: 0;
+      max-width: 100%;
+      color: var(--foreground);
+      background: transparent;
+      font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 10px;
+      line-height: 1.45;
+      --diffs-bg: transparent;
+      --diffs-fg: var(--foreground);
+      --diffs-fg-number: color-mix(in oklch, var(--muted-foreground) 72%, transparent);
+      --diffs-bg-context: transparent;
+      --diffs-bg-context-gutter: color-mix(in oklch, var(--muted) 40%, transparent);
+      --diffs-bg-separator: color-mix(in oklch, var(--muted) 46%, transparent);
+      --diffs-bg-buffer: color-mix(in oklch, var(--muted-foreground) 12%, transparent);
+      --diffs-addition-base: oklch(0.76 0.16 153);
+      --diffs-deletion-base: var(--destructive);
+      --diffs-selection-base: var(--primary);
+      --diffs-gap-block: 0;
+      --diffs-gap-inline: 0;
+    }
+
+    [data-code] {
+      max-width: 100%;
+      background: transparent;
+    }
+
+    [data-line],
+    [data-column-number],
+    [data-no-newline] {
+      min-height: 1.25rem;
+      padding-inline: 0.5rem;
+    }
+
+    [data-indicators="classic"] [data-line] {
+      padding-inline-start: 1.5rem;
+    }
+
+    [data-separator="metadata"] {
+      height: 1.5rem;
+    }
+
+    [data-separator="metadata"] [data-separator-wrapper] {
+      color: var(--muted-foreground);
+      background-color: color-mix(in oklch, var(--muted) 44%, transparent);
+      font-size: 10px;
+    }
+  `,
+} satisfies NonNullable<DiffBasePropsReact<undefined>["options"]>;
+
+export function DiffView({
+  previous,
+  next,
+  newFile,
+  filename = "diff.txt",
+  className,
+}: DiffViewProps) {
+  const oldFile = useMemo(
+    () => fileContents(filename, previous, "old"),
+    [filename, previous],
+  );
+  const newFileContents = useMemo(
+    () => fileContents(filename, next, "new"),
+    [filename, next],
+  );
+
+  if (previous === next) {
+    return <DiffFallback>No changes.</DiffFallback>;
   }
 
   return (
-    <div className="rounded-md bg-background/60 font-mono text-[11px] leading-snug ring-1 ring-border">
-      <div className="flex items-center gap-3 border-b border-border px-3 py-1 text-[10px] uppercase text-muted-foreground">
-        <span>diff</span>
-        {newFile ? (
-          <span className="text-emerald-600 dark:text-emerald-400">
-            new file
-          </span>
-        ) : null}
-        <span className="ml-auto tabular-nums">
-          <span className="text-emerald-600 dark:text-emerald-400">+{added}</span>
-          <span className="mx-1 text-muted-foreground/50">/</span>
-          <span className="text-destructive">-{removed}</span>
-        </span>
-      </div>
-      <div className="overflow-x-auto">
-        <pre className="m-0 p-0">
-          {rows.map((row, i) => (
-            <div
-              key={i}
-              className={cn(
-                "flex gap-2 px-3 whitespace-pre",
-                row.kind === "add" && "bg-emerald-500/10",
-                row.kind === "remove" && "bg-destructive/10",
-              )}
-            >
-              <span
-                aria-hidden
-                className={cn(
-                  "w-3 shrink-0 select-none text-center",
-                  row.kind === "add" && "text-emerald-600 dark:text-emerald-400",
-                  row.kind === "remove" && "text-destructive",
-                  row.kind === "context" && "text-muted-foreground/50",
-                )}
-              >
-                {row.kind === "add" ? "+" : row.kind === "remove" ? "-" : " "}
-              </span>
-              <span className="flex-1">{row.text || " "}</span>
-            </div>
-          ))}
-        </pre>
-      </div>
+    <DiffFrame
+      className={className}
+      header={
+        <>
+          <span>diff</span>
+          {newFile ? <span className="text-emerald-400">new file</span> : null}
+        </>
+      }
+    >
+      <MultiFileDiff
+        oldFile={oldFile}
+        newFile={newFileContents}
+        options={COMPACT_DIFF_OPTIONS}
+        className="block min-w-0 max-w-full"
+      />
+    </DiffFrame>
+  );
+}
+
+export function PatchDiffView({
+  patch,
+  filename,
+  previousFilename,
+  status,
+  className,
+}: PatchDiffViewProps) {
+  const normalizedPatch = useMemo(
+    () =>
+      patch
+        ? normalizePatchForPierre({
+            patch,
+            filename,
+            previousFilename,
+            status,
+          })
+        : null,
+    [filename, patch, previousFilename, status],
+  );
+
+  if (!normalizedPatch) {
+    return <DiffFallback>Diff preview unavailable for this file.</DiffFallback>;
+  }
+
+  return (
+    <DiffFrame className={className}>
+      <PatchDiff
+        patch={normalizedPatch}
+        options={COMPACT_DIFF_OPTIONS}
+        className="block min-w-0 max-w-full"
+      />
+    </DiffFrame>
+  );
+}
+
+function DiffFrame({
+  children,
+  className,
+  header,
+}: {
+  children: ReactNode;
+  className?: string;
+  header?: ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        "min-w-0 max-w-full overflow-hidden rounded-md bg-background/70 font-mono text-[10px] leading-relaxed ring-1 ring-border",
+        className,
+      )}
+    >
+      {header ? (
+        <div className="flex items-center gap-3 border-b border-border px-2 py-1 text-[10px] uppercase text-muted-foreground">
+          {header}
+        </div>
+      ) : null}
+      <div className="min-w-0 max-w-full overflow-hidden">{children}</div>
     </div>
   );
 }
 
-type DiffRow = { kind: "add" | "remove" | "context"; text: string };
-
-function buildRows(previous: string, next: string): DiffRow[] {
-  const parts = diffLines(previous, next);
-  const rows: DiffRow[] = [];
-  for (const part of parts) {
-    const kind: DiffRow["kind"] = part.added
-      ? "add"
-      : part.removed
-        ? "remove"
-        : "context";
-    const lines = stripTrailingNewline(part.value).split("\n");
-    for (const line of lines) rows.push({ kind, text: line });
-  }
-  return rows;
+function DiffFallback({ children }: { children: ReactNode }) {
+  return (
+    <div className="rounded bg-background/60 px-3 py-2 text-[11px] text-muted-foreground ring-1 ring-border">
+      {children}
+    </div>
+  );
 }
 
-function stripTrailingNewline(s: string): string {
-  return s.endsWith("\n") ? s.slice(0, -1) : s;
+function fileContents(
+  filename: string,
+  contents: string,
+  side: "old" | "new",
+): FileContents {
+  return {
+    name: filename,
+    contents,
+    cacheKey: `${side}:${filename}:${contents.length}:${hashString(contents)}`,
+  };
 }
 
-function countChanges(rows: DiffRow[]): { added: number; removed: number } {
-  let added = 0;
-  let removed = 0;
-  for (const r of rows) {
-    if (r.kind === "add") added++;
-    else if (r.kind === "remove") removed++;
+function normalizePatchForPierre({
+  patch,
+  filename,
+  previousFilename,
+  status,
+}: {
+  patch: string;
+  filename: string;
+  previousFilename?: string | null;
+  status?: string;
+}): string {
+  if (/^diff --git /m.test(patch) || /^---\s/m.test(patch)) {
+    return patch;
   }
-  return { added, removed };
+
+  const currentPath = normalizePatchPath(filename);
+  const oldPath = normalizePatchPath(previousFilename ?? filename);
+  const isAdded = status === "added";
+  const isDeleted = status === "removed" || status === "deleted";
+  const oldHeader = isAdded ? "/dev/null" : `a/${oldPath}`;
+  const newHeader = isDeleted ? "/dev/null" : `b/${currentPath}`;
+
+  return [
+    `diff --git a/${oldPath} b/${currentPath}`,
+    `--- ${oldHeader}`,
+    `+++ ${newHeader}`,
+    patch,
+  ].join("\n");
+}
+
+function normalizePatchPath(path: string): string {
+  return path.replace(/\\/g, "/");
+}
+
+function hashString(value: string): string {
+  let hash = 0;
+  for (let i = 0; i < value.length; i++) {
+    hash = Math.imul(31, hash) + value.charCodeAt(i);
+  }
+  return String(hash >>> 0);
 }

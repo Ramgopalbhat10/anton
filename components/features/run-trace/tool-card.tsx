@@ -161,6 +161,7 @@ function EditFileBody({
         <DiffView
           previous={output.previousContent ?? ""}
           next={output.nextContent ?? ""}
+          filename={output.path ?? relPath ?? undefined}
         />
       </div>
     );
@@ -218,6 +219,7 @@ function WriteFileBody({
             previous={output.previousContent ?? ""}
             next={nextContent}
             newFile={output.existed === false}
+            filename={output.path ?? relPath ?? undefined}
           />
         )}
       </div>

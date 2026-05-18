@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
@@ -27,6 +27,7 @@ import type {
   ProjectPullRequestFileSummary,
   ProjectPullRequestSummary,
 } from "@/src/lib/api-types";
+import { PatchDiffView } from "./diff-view";
 
 export function PullRequestPanel({
   pullRequest,
@@ -350,33 +351,14 @@ function fileStatusMeta(status: string): {
 }
 
 function PatchView({ file }: { file: ProjectPullRequestFileSummary }) {
-  const lines = useMemo(() => file.patch?.split("\n") ?? [], [file.patch]);
-  if (!file.patch) {
-    return (
-      <div className="px-3 py-8 text-center text-xs text-muted-foreground">
-        Diff preview unavailable for this file.
-      </div>
-    );
-  }
   return (
     <div className="min-w-0 max-w-full overflow-hidden p-2">
-      <div className="max-w-full overflow-x-auto rounded-md bg-background/70 font-mono text-[10px] leading-relaxed ring-1 ring-border">
-        <pre className="m-0 w-max min-w-full py-2">
-          {lines.map((line, index) => (
-            <div
-              key={`${index}:${line}`}
-              className={cn(
-                "w-max min-w-full px-2 whitespace-pre",
-                line.startsWith("+") && "bg-emerald-500/10 text-emerald-300",
-                line.startsWith("-") && "bg-destructive/10 text-red-300",
-                line.startsWith("@@") && "bg-sky-500/10 text-sky-300",
-              )}
-            >
-              {line || " "}
-            </div>
-          ))}
-        </pre>
-      </div>
+      <PatchDiffView
+        patch={file.patch}
+        filename={file.filename}
+        previousFilename={file.previousFilename}
+        status={file.status}
+      />
     </div>
   );
 }
