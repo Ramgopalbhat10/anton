@@ -60,7 +60,8 @@ const COMPACT_DIFF_OPTIONS = {
       --diffs-selection-base: var(--primary);
       --diffs-gap-block: 0;
       --diffs-gap-inline: 0;
-      --diffs-scrollbar-gutter-override: 8px;
+      --diffs-scrollbar-gutter-override: 10px;
+      --diffs-min-number-column-width: 3ch;
     }
 
     [data-code] {
@@ -68,19 +69,25 @@ const COMPACT_DIFF_OPTIONS = {
       background: transparent;
       overflow-x: auto;
       overflow-y: clip;
-      scrollbar-color: color-mix(in oklch, var(--muted-foreground) 45%, transparent) transparent;
+      scrollbar-color: color-mix(in oklch, var(--foreground) 16%, transparent) transparent;
     }
 
     [data-code]::-webkit-scrollbar {
-      height: 8px;
-      width: 8px;
+      width: 10px;
+      height: 10px;
     }
 
     [data-code]::-webkit-scrollbar-thumb {
-      border: 2px solid transparent;
+      border: 3px solid transparent;
       border-radius: 999px;
-      background-color: color-mix(in oklch, var(--muted-foreground) 45%, transparent);
-      background-clip: content-box;
+      background: color-mix(in oklch, var(--foreground) 16%, transparent);
+      background-clip: padding-box;
+    }
+
+    [data-code]::-webkit-scrollbar-thumb:hover {
+      border: 3px solid transparent;
+      background: color-mix(in oklch, var(--foreground) 24%, transparent);
+      background-clip: padding-box;
     }
 
     [data-code]::-webkit-scrollbar-track,
@@ -96,9 +103,13 @@ const COMPACT_DIFF_OPTIONS = {
     }
 
     [data-column-number] {
-      min-width: 2.5rem;
-      padding-inline: 0.375rem;
+      min-width: 0;
+      padding-inline: 0.125rem 0.25rem;
       color: color-mix(in oklch, var(--muted-foreground) 72%, transparent);
+    }
+
+    [data-line-number-content] {
+      min-width: 3ch;
     }
 
     [data-separator="line-info-basic"] {
