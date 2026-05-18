@@ -60,10 +60,31 @@ const COMPACT_DIFF_OPTIONS = {
       --diffs-selection-base: var(--primary);
       --diffs-gap-block: 0;
       --diffs-gap-inline: 0;
+      --diffs-scrollbar-gutter-override: 8px;
     }
 
     [data-code] {
       max-width: 100%;
+      background: transparent;
+      overflow-x: auto;
+      overflow-y: clip;
+      scrollbar-color: color-mix(in oklch, var(--muted-foreground) 45%, transparent) transparent;
+    }
+
+    [data-code]::-webkit-scrollbar {
+      height: 8px;
+      width: 8px;
+    }
+
+    [data-code]::-webkit-scrollbar-thumb {
+      border: 2px solid transparent;
+      border-radius: 999px;
+      background-color: color-mix(in oklch, var(--muted-foreground) 45%, transparent);
+      background-clip: content-box;
+    }
+
+    [data-code]::-webkit-scrollbar-track,
+    [data-code]::-webkit-scrollbar-corner {
       background: transparent;
     }
 
@@ -173,7 +194,9 @@ function DiffFrame({
         className,
       )}
     >
-      <div className="min-w-0 max-w-full overflow-hidden">{children}</div>
+      <div className="min-w-0 max-w-full overflow-x-auto overflow-y-hidden">
+        {children}
+      </div>
     </div>
   );
 }
