@@ -48,7 +48,7 @@ const COMPACT_DIFF_OPTIONS = {
       font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
       font-size: 10px;
       line-height: 1.45;
-      --diffs-bg: transparent;
+      --diffs-bg: var(--background);
       --diffs-fg: var(--foreground);
       --diffs-fg-number: color-mix(in oklch, var(--muted-foreground) 72%, transparent);
       --diffs-bg-context: transparent;
@@ -77,22 +77,34 @@ const COMPACT_DIFF_OPTIONS = {
       height: 10px;
     }
 
+    [data-code]::-webkit-scrollbar-button {
+      width: 0;
+      height: 0;
+      display: none;
+    }
+
     [data-code]::-webkit-scrollbar-thumb {
       border: 3px solid transparent;
       border-radius: 999px;
-      background: color-mix(in oklch, var(--foreground) 16%, transparent);
+      background-color: color-mix(in oklch, var(--foreground) 16%, transparent);
       background-clip: padding-box;
     }
 
     [data-code]::-webkit-scrollbar-thumb:hover {
       border: 3px solid transparent;
-      background: color-mix(in oklch, var(--foreground) 24%, transparent);
+      background-color: color-mix(in oklch, var(--foreground) 24%, transparent);
       background-clip: padding-box;
     }
 
     [data-code]::-webkit-scrollbar-track,
     [data-code]::-webkit-scrollbar-corner {
       background: transparent;
+    }
+
+    [data-gutter] {
+      z-index: 5;
+      background-color: var(--diffs-bg);
+      box-shadow: 1px 0 0 var(--border);
     }
 
     [data-line],
