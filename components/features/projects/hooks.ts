@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import type { ProjectGitStatusSummary, ProjectSummary } from "@/src/lib/api-types";
 import { getJson } from "@/src/lib/client-fetch";
 
+export const PROJECT_GIT_CHANGED_EVENT = "anton-project-git-change";
+
 export function useProjectSummary(projectId: string | null): ProjectSummary | null {
   const [loadedProject, setLoadedProject] = useState<{
     projectId: string;
@@ -61,11 +63,26 @@ export function useProjectGitStatus(
     };
     void loadStatus();
     const interval = window.setInterval(() => void loadStatus(), 15000);
+    const onProjectGitChanged = (event: Event) => {
+      if (
+        event instanceof CustomEvent &&
+        typeof event.detail === "string" &&
+        event.detail === projectId
+      ) {
+        void loadStatus();
+      }
+    };
+    window.addEventListener(PROJECT_GIT_CHANGED_EVENT, onProjectGitChanged);
     return () => {
       cancelled = true;
       window.clearInterval(interval);
+      window.removeEventListener(PROJECT_GIT_CHANGED_EVENT, onProjectGitChanged);
     };
   }, [projectId]);
 
   return loadedStatus?.projectId === projectId ? loadedStatus.status : null;
+}
+
+export function notifyProjectGitChanged(projectId: string): void {
+  window.dispatchEvent(new CustomEvent(PROJECT_GIT_CHANGED_EVENT, { detail: projectId }));
 }

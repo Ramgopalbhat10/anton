@@ -12,7 +12,6 @@ import {
   ChevronDown,
   Code2,
   DatabaseZap,
-  GitBranch,
   MessageCircle,
   Monitor,
   Plus,
@@ -40,6 +39,7 @@ import type { ChatMode } from "@/src/lib/chat-modes";
 import type { PermissionMode } from "@/src/agent/permissions";
 import type { McpServerSummary, ProjectSummary } from "@/src/lib/api-types";
 import type { SessionTokenUsage } from "@/src/lib/token-usage";
+import { BranchSwitcher } from "@/components/features/projects/branch-switcher";
 import { ModelPicker } from "./model-picker";
 
 interface ComposerProps {
@@ -90,7 +90,6 @@ export function Composer({
   const [mcpOpen, setMcpOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const sendDisabled = disabled || (mode !== "chat" && !project);
-  const displayedProjectBranch = projectBranch ?? project?.defaultBranch ?? null;
 
   useLayoutEffect(() => {
     const el = textareaRef.current;
@@ -209,23 +208,12 @@ export function Composer({
             Work locally
             <ChevronDown className="size-3" />
           </button>
-          <button
-            type="button"
-            className="inline-flex min-w-0 items-center gap-1.5 hover:text-foreground"
-            title={
-              project && displayedProjectBranch
-                ? `${project.fullName} : ${displayedProjectBranch}`
-                : undefined
-            }
-          >
-            <GitBranch className="size-3.5 shrink-0" />
-            <span className="max-w-[20rem] truncate">
-              {project && displayedProjectBranch
-                ? `${project.fullName} : ${displayedProjectBranch}`
-                : "No codebase selected"}
-            </span>
-            <ChevronDown className="size-3 shrink-0" />
-          </button>
+          <BranchSwitcher
+            project={project}
+            currentBranch={projectBranch}
+            className="max-w-[20rem]"
+            contentAlign="start"
+          />
         </div>
       </div>
     </form>

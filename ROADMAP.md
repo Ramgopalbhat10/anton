@@ -53,6 +53,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Added GitHub project metadata refresh.
 - [✔️] Added GitHub installation/account filtering in Workspaces settings.
 - [✔️] Added right-sidebar PR view detection for active GitHub project branches.
+- [✔️] Added branch switch/create controls in the composer and workspace settings.
 
 ## Phase 1: Trust Boundaries And Safety
 
@@ -116,7 +117,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Support refreshing project metadata from GitHub.
 - [✔️] Support multiple installations and account filtering in the UI.
 - [✔️] Add project removal/archive behavior without deleting local files by default.
-- [] Add branch creation with default `codex/` prefix for agent work.
+- [✔️] Add branch creation with default `codex/` prefix for agent work.
 - [] Add PR creation flow after successful local changes.
 - [] Add issue selection and branch naming from GitHub issues.
 - [✔️] Add right-sidebar PR view for active GitHub project branches.

@@ -33,6 +33,7 @@ import {
   SelectViewport,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { BranchSwitcher } from "@/components/features/projects/branch-switcher";
 
 import { useWorkspaceSettings } from "./hooks";
 import { SettingsCard, SettingsPageShell } from "./settings-shell";
@@ -168,6 +169,13 @@ export function WorkspaceSettingsPanel({
                     {project.localPath}
                   </span>
                 </button>
+                <BranchSwitcher
+                  project={project}
+                  currentBranch={currentBranch}
+                  iconOnly
+                  contentAlign="end"
+                  onBranchChanged={() => void refresh()}
+                />
                 <Button
                   type="button"
                   size="icon"

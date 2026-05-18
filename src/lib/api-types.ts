@@ -55,6 +55,19 @@ export type ProjectGitStatusSummary = {
   remoteUrl: string | null;
 };
 
+export type ProjectBranchSummary = {
+  name: string;
+  kind: "local" | "remote";
+  current: boolean;
+};
+
+export type ProjectBranchesSummary = {
+  projectId: string;
+  currentBranch: string | null;
+  defaultBranch: string;
+  branches: ProjectBranchSummary[];
+};
+
 export type ProjectPullRequestFileSummary = {
   filename: string;
   status: string;

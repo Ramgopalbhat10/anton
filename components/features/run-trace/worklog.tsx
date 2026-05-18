@@ -45,6 +45,7 @@ import { TodoCard } from "./todo-card";
 import { getSessionTodoSnapshots } from "./trace-data";
 import { PullRequestEmptyPanel, PullRequestPanel } from "./pr-sidebar";
 import { getJson } from "@/src/lib/client-fetch";
+import { PROJECT_GIT_CHANGED_EVENT } from "@/components/features/projects/hooks";
 import type {
   ProjectGitStatusSummary,
   ProjectPullRequestSummary,
@@ -470,9 +471,20 @@ function useProjectPullRequest(project: ProjectSummary | null): {
 
     void load(true);
     const interval = window.setInterval(() => void load(false), 15000);
+    const onProjectGitChanged = (event: Event) => {
+      if (
+        event instanceof CustomEvent &&
+        typeof event.detail === "string" &&
+        event.detail === project.id
+      ) {
+        void load(true);
+      }
+    };
+    window.addEventListener(PROJECT_GIT_CHANGED_EVENT, onProjectGitChanged);
     return () => {
       cancelled = true;
       window.clearInterval(interval);
+      window.removeEventListener(PROJECT_GIT_CHANGED_EVENT, onProjectGitChanged);
     };
   }, [project, refreshKey]);
 
