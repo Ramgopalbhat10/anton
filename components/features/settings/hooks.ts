@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import type {
   GitHubInstallationSummary,
   GitHubRepositorySummary,
+  ProjectGitStatusSummary,
   ProjectSummary,
   WorkspaceSettingsSummary,
 } from "@/src/lib/api-types";
@@ -27,6 +28,9 @@ export function useWorkspaceSettings(
   const [installationFilter, setInstallationFilter] = useState("all");
   const [repositories, setRepositories] = useState<GitHubRepositorySummary[]>([]);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [projectGitStatuses, setProjectGitStatuses] = useState<
+    Record<string, ProjectGitStatusSummary>
+  >({});
   const [localPathDraft, setLocalPathDraft] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -59,6 +63,25 @@ export function useWorkspaceSettings(
           "",
       );
       setProjects(projectsData.projects);
+      const gitStatuses = await Promise.all(
+        projectsData.projects
+          .filter((project) => project.status === "ready")
+          .map((project) =>
+            getJson<{ status: ProjectGitStatusSummary }>(
+              `/api/projects/${project.id}/git/status`,
+            )
+              .then((data) => [project.id, data.status] as const)
+              .catch(() => null),
+          ),
+      );
+      setProjectGitStatuses(
+        Object.fromEntries(
+          gitStatuses.filter(
+            (entry): entry is readonly [string, ProjectGitStatusSummary] =>
+              entry !== null,
+          ),
+        ),
+      );
       setInstallations(reposData?.installations ?? []);
       setRepositories(reposData?.repositories ?? []);
       setInstallationFilter((current) => {
@@ -205,6 +228,7 @@ export function useWorkspaceSettings(
     repositories,
     filteredRepositories,
     projects,
+    projectGitStatuses,
     readyProjects: projects.filter((project) => project.status === "ready"),
     loading,
     saving,

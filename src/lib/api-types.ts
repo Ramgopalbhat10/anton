@@ -43,6 +43,72 @@ export type ProjectSummary = {
   updatedAt: number;
 };
 
+export type ProjectGitStatusSummary = {
+  projectId: string;
+  branch: string | null;
+  defaultBranch: string;
+  isDefaultBranch: boolean;
+  dirtyCount: number;
+  ahead: number | null;
+  behind: number | null;
+  upstream: string | null;
+  remoteUrl: string | null;
+};
+
+export type ProjectPullRequestFileSummary = {
+  filename: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  changes: number;
+  patch: string | null;
+  previousFilename: string | null;
+};
+
+export type ProjectPullRequestCheckSummary = {
+  name: string;
+  status: "queued" | "in_progress" | "completed" | "unknown";
+  conclusion:
+    | "success"
+    | "failure"
+    | "neutral"
+    | "cancelled"
+    | "skipped"
+    | "timed_out"
+    | "action_required"
+    | null;
+  htmlUrl: string | null;
+};
+
+export type ProjectPullRequestSummary = {
+  number: number;
+  state: "open" | "closed";
+  merged: boolean;
+  title: string;
+  htmlUrl: string;
+  authorLogin: string;
+  baseBranch: string;
+  headBranch: string;
+  headSha: string;
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+  commits: number;
+  comments: number;
+  reviewComments: number;
+  files: ProjectPullRequestFileSummary[];
+  checks: {
+    state: "unknown" | "pending" | "success" | "failure" | "error";
+    total: number;
+    passed: number;
+    failed: number;
+    pending: number;
+    runs: ProjectPullRequestCheckSummary[];
+  };
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type ProjectMemory = {
   id: string;
   content: string;

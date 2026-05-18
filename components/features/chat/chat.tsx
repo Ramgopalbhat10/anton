@@ -36,7 +36,10 @@ import { Worklog } from "@/components/features/run-trace/worklog";
 import { useSessionStore } from "@/components/features/sessions/session-store";
 import { useSidebar } from "@/components/features/sessions/session-sidebar";
 import { useActiveProjectIdState } from "@/src/lib/client-state/active-project";
-import { useProjectSummary } from "@/components/features/projects/hooks";
+import {
+  useProjectGitStatus,
+  useProjectSummary,
+} from "@/components/features/projects/hooks";
 import { SettingsDialog } from "@/components/features/settings/settings-dialog";
 
 interface ChatProps {
@@ -104,6 +107,7 @@ function ChatSession({
   );
   const effectiveProjectId = initialProjectId ?? activeProjectId;
   const project = useProjectSummary(effectiveProjectId);
+  const projectGitStatus = useProjectGitStatus(project ? effectiveProjectId : null);
 
   const transport = useMemo(
     () =>
@@ -382,6 +386,7 @@ function ChatSession({
             onThinkingEnabledChange={setThinkingEnabled}
             tokenUsage={tokenUsage}
             project={project}
+            projectBranch={projectGitStatus?.branch ?? null}
             permissionMode={permissionMode}
             onPermissionModeChange={setPermissionMode}
             mcpServers={mcpServers}
@@ -393,6 +398,8 @@ function ChatSession({
         <Worklog
           messages={displayMessages}
           onApproval={addToolApprovalResponse}
+          project={project}
+          visible={worklogOpen}
           expanded={worklogExpanded}
           onExpandToggle={() => setWorklogExpanded((value) => !value)}
           className={cn(
@@ -417,6 +424,8 @@ function ChatSession({
             <Worklog
               messages={displayMessages}
               onApproval={addToolApprovalResponse}
+              project={project}
+              visible
               className="ml-auto h-full w-[min(420px,100%)] border-l"
               onClose={() => setMobileWorklogOpen(false)}
             />

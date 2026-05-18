@@ -52,6 +52,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Added profile-aware context budgeting, transcript pruning, and step/token run budgets.
 - [✔️] Added GitHub project metadata refresh.
 - [✔️] Added GitHub installation/account filtering in Workspaces settings.
+- [✔️] Added right-sidebar PR view detection for active GitHub project branches.
 
 ## Phase 1: Trust Boundaries And Safety
 
@@ -118,6 +119,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [] Add branch creation with default `codex/` prefix for agent work.
 - [] Add PR creation flow after successful local changes.
 - [] Add issue selection and branch naming from GitHub issues.
+- [✔️] Add right-sidebar PR view for active GitHub project branches.
 - [] Add GitHub check/CI status display for pushed branches and PRs.
 - [] Add retry/debug workflow for failing GitHub Actions logs.
 - [] Store GitHub token expiry metadata and refresh tokens only when needed.

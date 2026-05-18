@@ -55,6 +55,7 @@ interface ComposerProps {
   onThinkingEnabledChange: (enabled: boolean) => void;
   tokenUsage: SessionTokenUsage;
   project: ProjectSummary | null;
+  projectBranch: string | null;
   permissionMode: PermissionMode;
   onPermissionModeChange: (mode: PermissionMode) => void;
   mcpServers: McpServerSummary[];
@@ -78,6 +79,7 @@ export function Composer({
   onThinkingEnabledChange,
   tokenUsage,
   project,
+  projectBranch,
   permissionMode,
   onPermissionModeChange,
   mcpServers,
@@ -88,6 +90,7 @@ export function Composer({
   const [mcpOpen, setMcpOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const sendDisabled = disabled || (mode !== "chat" && !project);
+  const displayedProjectBranch = projectBranch ?? project?.defaultBranch ?? null;
 
   useLayoutEffect(() => {
     const el = textareaRef.current;
@@ -209,12 +212,16 @@ export function Composer({
           <button
             type="button"
             className="inline-flex min-w-0 items-center gap-1.5 hover:text-foreground"
-            title={project ? `${project.fullName} : ${project.defaultBranch}` : undefined}
+            title={
+              project && displayedProjectBranch
+                ? `${project.fullName} : ${displayedProjectBranch}`
+                : undefined
+            }
           >
             <GitBranch className="size-3.5 shrink-0" />
             <span className="max-w-[20rem] truncate">
-              {project
-                ? `${project.fullName} : ${project.defaultBranch}`
+              {project && displayedProjectBranch
+                ? `${project.fullName} : ${displayedProjectBranch}`
                 : "No codebase selected"}
             </span>
             <ChevronDown className="size-3 shrink-0" />
