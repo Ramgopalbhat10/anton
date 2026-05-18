@@ -18,12 +18,13 @@ export async function GET() {
   }
 
   try {
+    const installations = listGithubInstallations();
     const projects = listProjects();
     const projectByRepoId = new Map(
       projects.map((project) => [project.githubRepoId, project]),
     );
     const repositories = [];
-    for (const installation of listGithubInstallations()) {
+    for (const installation of installations) {
       const repos = await listInstallationRepositories(
         installation.installationId,
       );
@@ -33,6 +34,8 @@ export async function GET() {
           return {
             id: repo.id,
             installationId: installation.installationId,
+            accountLogin: installation.accountLogin,
+            accountType: installation.accountType,
             name: repo.name,
             fullName: repo.full_name,
             owner: repo.owner.login,
@@ -45,7 +48,14 @@ export async function GET() {
         }),
       );
     }
-    return Response.json({ repositories });
+    return Response.json({
+      installations: installations.map((installation) => ({
+        installationId: installation.installationId,
+        accountLogin: installation.accountLogin,
+        accountType: installation.accountType,
+      })),
+      repositories,
+    });
   } catch (err) {
     return Response.json({ error: errorMessage(err) }, { status: 500 });
   }

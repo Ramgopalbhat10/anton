@@ -63,6 +63,14 @@ export async function listInstallationRepositories(
   return repositoriesResponseSchema.parse(json).repositories;
 }
 
+export async function findInstallationRepository(input: {
+  installationId: number;
+  repositoryId: number;
+}): Promise<GitHubRepository | undefined> {
+  const repos = await listInstallationRepositories(input.installationId);
+  return repos.find((repo) => repo.id === input.repositoryId);
+}
+
 export async function createInstallationToken(installationId: number): Promise<{
   token: string;
   expiresAt: Date;

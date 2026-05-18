@@ -50,6 +50,8 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Added durable tool-call and approval audit rows tied to chat runs.
 - [✔️] Added provider, step-count, and cost metadata tracking for runs.
 - [✔️] Added profile-aware context budgeting, transcript pruning, and step/token run budgets.
+- [✔️] Added GitHub project metadata refresh.
+- [✔️] Added GitHub installation/account filtering in Workspaces settings.
 
 ## Phase 1: Trust Boundaries And Safety
 
@@ -110,8 +112,8 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 ## Phase 5: GitHub And Project Workflow
 
 - [✔️] Support importing existing local repositories without cloning from GitHub.
-- [] Support refreshing project metadata from GitHub.
-- [] Support multiple installations and account filtering in the UI.
+- [✔️] Support refreshing project metadata from GitHub.
+- [✔️] Support multiple installations and account filtering in the UI.
 - [✔️] Add project removal/archive behavior without deleting local files by default.
 - [] Add branch creation with default `codex/` prefix for agent work.
 - [] Add PR creation flow after successful local changes.

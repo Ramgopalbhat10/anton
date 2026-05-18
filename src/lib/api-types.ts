@@ -8,6 +8,8 @@ export type WorkspaceSettingsSummary = {
 export type GitHubRepositorySummary = {
   id: number;
   installationId: number;
+  accountLogin: string;
+  accountType: string;
   name?: string;
   fullName: string;
   owner?: string;
@@ -16,6 +18,12 @@ export type GitHubRepositorySummary = {
   htmlUrl?: string;
   clonedProjectId: string | null;
   cloneStatus?: "cloning" | "ready" | "error" | null;
+};
+
+export type GitHubInstallationSummary = {
+  installationId: number;
+  accountLogin: string;
+  accountType: string;
 };
 
 export type ProjectSummary = {

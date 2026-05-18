@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import type {
+  GitHubInstallationSummary,
   GitHubRepositorySummary,
   ProjectSummary,
   WorkspaceSettingsSummary,
@@ -20,6 +21,10 @@ export function useWorkspaceSettings(
 ) {
   const [settings, setSettings] = useState<WorkspaceSettingsSummary | null>(null);
   const [rootDraft, setRootDraft] = useState("");
+  const [installations, setInstallations] = useState<GitHubInstallationSummary[]>(
+    [],
+  );
+  const [installationFilter, setInstallationFilter] = useState("all");
   const [repositories, setRepositories] = useState<GitHubRepositorySummary[]>([]);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [localPathDraft, setLocalPathDraft] = useState("");
@@ -28,6 +33,9 @@ export function useWorkspaceSettings(
   const [cloningRepoId, setCloningRepoId] = useState<number | null>(null);
   const [importingLocal, setImportingLocal] = useState(false);
   const [removingProjectId, setRemovingProjectId] = useState<string | null>(null);
+  const [refreshingProjectId, setRefreshingProjectId] = useState<string | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -38,9 +46,10 @@ export function useWorkspaceSettings(
           "/api/workspace-settings",
         ),
         getJson<{ projects: ProjectSummary[] }>("/api/projects"),
-        getJson<{ repositories: GitHubRepositorySummary[] }>(
-          "/api/github/repositories",
-        ).catch(() => null),
+        getJson<{
+          installations: GitHubInstallationSummary[];
+          repositories: GitHubRepositorySummary[];
+        }>("/api/github/repositories").catch(() => null),
       ]);
 
       setSettings(settingsData.settings);
@@ -50,7 +59,16 @@ export function useWorkspaceSettings(
           "",
       );
       setProjects(projectsData.projects);
+      setInstallations(reposData?.installations ?? []);
       setRepositories(reposData?.repositories ?? []);
+      setInstallationFilter((current) => {
+        if (current === "all") return current;
+        return reposData?.installations.some(
+          (installation) => String(installation.installationId) === current,
+        )
+          ? current
+          : "all";
+      });
       setError(null);
     } catch (err) {
       setError(errorMessage(err, "Failed to load workspaces"));
@@ -148,13 +166,44 @@ export function useWorkspaceSettings(
     }
   };
 
+  const refreshProject = async (projectId: string) => {
+    setRefreshingProjectId(projectId);
+    try {
+      const data = await requestJson<{ project: ProjectSummary }>(
+        `/api/projects/${projectId}/refresh`,
+        { method: "POST" },
+      );
+      setProjects((current) =>
+        current.map((project) =>
+          project.id === data.project.id ? data.project : project,
+        ),
+      );
+      await refresh();
+    } catch (err) {
+      setError(errorMessage(err, "Project refresh failed"));
+    } finally {
+      setRefreshingProjectId(null);
+    }
+  };
+
+  const filteredRepositories =
+    installationFilter === "all"
+      ? repositories
+      : repositories.filter(
+          (repo) => String(repo.installationId) === installationFilter,
+        );
+
   return {
     settings,
     rootDraft,
     setRootDraft,
     localPathDraft,
     setLocalPathDraft,
+    installations,
+    installationFilter,
+    setInstallationFilter,
     repositories,
+    filteredRepositories,
     projects,
     readyProjects: projects.filter((project) => project.status === "ready"),
     loading,
@@ -162,6 +211,7 @@ export function useWorkspaceSettings(
     cloningRepoId,
     importingLocal,
     removingProjectId,
+    refreshingProjectId,
     error,
     refresh,
     saveRoot,
@@ -169,5 +219,6 @@ export function useWorkspaceSettings(
     cloneRepo,
     importLocalProject,
     removeProject,
+    refreshProject,
   };
 }
