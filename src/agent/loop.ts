@@ -185,6 +185,7 @@ function systemPrompt(
     "Use `bash` by default for shell-native work when that tool is available: package scripts, build/lint/typecheck/test commands, git commands, file listing/searching, and simple file operations such as rm/mv/cp/mkdir.",
     "Prefer one `bash` command over many single-file tool calls for glob-based operations such as deleting `MIGRATION*` files, listing files, or inspecting command output.",
     "Use structured read/edit tools for exact file content inspection, guarded patches, or when a tool's typed output is materially safer than shell output.",
+    "Do not use `delegate_task` for current package versions, network lookups, shell output, or any task that requires command execution; use `bash` directly when command access is available.",
     "For existing-file edits, read the file first, then use `edit_file` with the returned `sha256` as `expectedHash`.",
     "- Mutating file tools refuse lockfiles, migrations, generated output, binary files, and large files unless `allowGuarded: true` is intentionally set.",
     "Do not write test cases, add test files, or introduce test scripts. Verify changes with typecheck, lint, build, and focused manual checks as appropriate.",
