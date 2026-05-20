@@ -33,6 +33,7 @@ import {
   SelectViewport,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { BranchSwitcher } from "@/components/features/projects/branch-switcher";
 
 import { useWorkspaceSettings } from "./hooks";
 import { SettingsCard, SettingsPageShell } from "./settings-shell";
@@ -56,6 +57,7 @@ export function WorkspaceSettingsPanel({
     repositories,
     filteredRepositories,
     readyProjects,
+    projectGitStatuses,
     loading,
     saving,
     cloningRepoId,
@@ -138,16 +140,19 @@ export function WorkspaceSettingsPanel({
           <EmptyState message="No projects yet." />
         ) : (
           <ul className="grid gap-2">
-            {readyProjects.map((project) => (
-              <li
-                key={project.id}
-                className={cn(
-                  "flex items-start gap-2 rounded-md p-2.5 ring-1 transition-colors",
-                  activeProjectId === project.id
-                    ? "bg-primary/10 ring-primary/50"
-                    : "bg-background/45 ring-border",
-                )}
-              >
+            {readyProjects.map((project) => {
+              const currentBranch =
+                projectGitStatuses[project.id]?.branch ?? project.defaultBranch;
+              return (
+                <li
+                  key={project.id}
+                  className={cn(
+                    "flex items-start gap-2 rounded-md p-2.5 ring-1 transition-colors",
+                    activeProjectId === project.id
+                      ? "bg-primary/10 ring-primary/50"
+                      : "bg-background/45 ring-border",
+                  )}
+                >
                 <button
                   type="button"
                   onClick={() => selectProject(project.id)}
@@ -158,12 +163,19 @@ export function WorkspaceSettingsPanel({
                   </span>
                   <span className="mt-0.5 block text-[11px] text-muted-foreground">
                     {project.provider === "local" ? "Local" : "GitHub"} -{" "}
-                    {project.defaultBranch}
+                    {currentBranch}
                   </span>
                   <span className="mt-0.5 block truncate font-mono text-[11px] text-muted-foreground">
                     {project.localPath}
                   </span>
                 </button>
+                <BranchSwitcher
+                  project={project}
+                  currentBranch={currentBranch}
+                  iconOnly
+                  contentAlign="end"
+                  onBranchChanged={() => void refresh()}
+                />
                 <Button
                   type="button"
                   size="icon"
@@ -228,7 +240,8 @@ export function WorkspaceSettingsPanel({
                   </AlertDialogContent>
                 </AlertDialog>
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
       </SettingsCard>

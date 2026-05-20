@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ChatAddToolApproveResponseFunction } from "ai";
 import {
   CheckCircle2,
   FileText,
+  GitBranch,
   ListTodo,
   Maximize2,
   Minimize2,
@@ -42,15 +43,25 @@ import { LiveTerminalOutput } from "./live-terminal";
 import { ApprovalDetails } from "./approval-details";
 import { TodoCard } from "./todo-card";
 import { getSessionTodoSnapshots } from "./trace-data";
+import { PullRequestEmptyPanel, PullRequestPanel } from "./pr-sidebar";
+import { getJson } from "@/src/lib/client-fetch";
+import { PROJECT_GIT_CHANGED_EVENT } from "@/components/features/projects/hooks";
+import type {
+  ProjectGitStatusSummary,
+  ProjectPullRequestSummary,
+  ProjectSummary,
+} from "@/src/lib/api-types";
 
 export type WorklogEntry = ToolTraceEntry;
-type SidebarTab = "worklog" | "plans" | "todos";
+type SidebarTab = "worklog" | "plans" | "todos" | "pr";
 
 interface WorklogProps {
   messages: AntonUIMessage[];
   onApproval: ChatAddToolApproveResponseFunction;
+  project: ProjectSummary | null;
   className?: string;
   onClose?: () => void;
+  visible?: boolean;
   expanded?: boolean;
   onExpandToggle?: () => void;
 }
@@ -58,14 +69,20 @@ interface WorklogProps {
 export function Worklog({
   messages,
   onApproval,
+  project,
   className,
   onClose,
+  visible = true,
   expanded = false,
   onExpandToggle,
 }: WorklogProps) {
   const [tabs, setTabs] = useState<SidebarTab[]>(["worklog"]);
   const [activeTab, setActiveTab] = useState<SidebarTab | null>("worklog");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [lastAutoPr, setLastAutoPr] = useState<number | null>(null);
+  const prState = useProjectPullRequest(project);
+  const hasGithubProject = project?.provider === "github" && project.status === "ready";
+  const pullRequestNumber = prState.pullRequest?.number ?? null;
 
   const addTab = (tab: SidebarTab) => {
     setTabs((current) => (current.includes(tab) ? current : [...current, tab]));
@@ -84,7 +101,30 @@ export function Worklog({
     setMenuOpen(false);
   };
 
-  const availableTabs = SIDEBAR_TABS.filter((tab) => !tabs.includes(tab.id));
+  useEffect(() => {
+    if (pullRequestNumber === null && !hasGithubProject) {
+      queueMicrotask(() => {
+        setTabs((current) => current.filter((tab) => tab !== "pr"));
+        setActiveTab((current) => (current === "pr" ? "worklog" : current));
+        setLastAutoPr(null);
+      });
+      return;
+    }
+    if (pullRequestNumber === null || !visible || lastAutoPr === pullRequestNumber) {
+      return;
+    }
+    queueMicrotask(() => {
+      setTabs((current) => (current.includes("pr") ? current : [...current, "pr"]));
+      setActiveTab("pr");
+      setLastAutoPr(pullRequestNumber);
+    });
+  }, [hasGithubProject, lastAutoPr, pullRequestNumber, visible]);
+
+  const availableTabs = SIDEBAR_TABS.filter(
+    (tab) =>
+      !tabs.includes(tab.id) &&
+      (tab.id !== "pr" || hasGithubProject || prState.pullRequest !== null),
+  );
 
   return (
     <aside
@@ -98,7 +138,7 @@ export function Worklog({
         <header className="flex h-10 shrink-0 items-center justify-between border-b border-border px-2">
           <div className="flex min-w-0 items-center gap-1">
             {tabs.map((tab) => {
-              const meta = tabMeta(tab);
+              const meta = tabMeta(tab, prState.pullRequest);
               return (
                 <div
                   key={tab}
@@ -150,7 +190,7 @@ export function Worklog({
               {menuOpen && availableTabs.length > 0 && (
                 <div className="absolute right-0 top-full z-50 mt-1 w-36 rounded-md bg-popover p-1 text-xs text-popover-foreground shadow-lg ring-1 ring-border">
                   {availableTabs.map((tab) => {
-                    const meta = tabMeta(tab.id);
+                    const meta = tabMeta(tab.id, prState.pullRequest);
                     return (
                       <button
                         key={tab.id}
@@ -198,6 +238,21 @@ export function Worklog({
           <PlansPanel messages={messages} />
         ) : activeTab === "todos" ? (
           <TodosPanel messages={messages} />
+        ) : activeTab === "pr" && prState.pullRequest ? (
+          <PullRequestPanel
+            pullRequest={prState.pullRequest}
+            gitStatus={prState.gitStatus}
+            loading={prState.loading}
+            error={prState.error}
+            onRefresh={prState.refresh}
+          />
+        ) : activeTab === "pr" && hasGithubProject ? (
+          <PullRequestEmptyPanel
+            gitStatus={prState.gitStatus}
+            loading={prState.loading}
+            error={prState.error}
+            onRefresh={prState.refresh}
+          />
         ) : (
           <EmptyTabsPanel />
         )}
@@ -210,14 +265,20 @@ const SIDEBAR_TABS = [
   { id: "worklog", label: "Worklog", Icon: TerminalSquare },
   { id: "plans", label: "Plans", Icon: FileText },
   { id: "todos", label: "Todos", Icon: ListTodo },
+  { id: "pr", label: "PR", Icon: GitBranch },
 ] as const satisfies readonly {
   id: SidebarTab;
   label: string;
   Icon: typeof TerminalSquare;
 }[];
 
-function tabMeta(tab: SidebarTab) {
-  return SIDEBAR_TABS.find((item) => item.id === tab) ?? SIDEBAR_TABS[0];
+function tabMeta(
+  tab: SidebarTab,
+  pullRequest: ProjectPullRequestSummary | null,
+) {
+  const meta = SIDEBAR_TABS.find((item) => item.id === tab) ?? SIDEBAR_TABS[0];
+  if (tab !== "pr" || !pullRequest) return meta;
+  return { ...meta, label: `PR #${pullRequest.number}` };
 }
 
 function EmptyTabsPanel() {
@@ -344,6 +405,96 @@ function TodosPanel({ messages }: { messages: AntonUIMessage[] }) {
 
 function firstLine(value: string): string {
   return value.split(/\r?\n/).find((line) => line.trim().length > 0)?.trim() ?? "Markdown plan";
+}
+
+function useProjectPullRequest(project: ProjectSummary | null): {
+  gitStatus: ProjectGitStatusSummary | null;
+  pullRequest: ProjectPullRequestSummary | null;
+  loading: boolean;
+  error: string | null;
+  refresh: () => void;
+} {
+  const [gitStatus, setGitStatus] = useState<ProjectGitStatusSummary | null>(null);
+  const [pullRequest, setPullRequest] = useState<ProjectPullRequestSummary | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    if (
+      !project ||
+      project.provider !== "github" ||
+      project.status !== "ready"
+    ) {
+      queueMicrotask(() => {
+        setGitStatus(null);
+        setPullRequest(null);
+        setError(null);
+        setLoading(false);
+      });
+      return;
+    }
+
+    let cancelled = false;
+    const load = async (showLoading: boolean) => {
+      if (showLoading) setLoading(true);
+      try {
+        const statusData = await getJson<{ status: ProjectGitStatusSummary }>(
+          `/api/projects/${project.id}/git/status`,
+        );
+        if (cancelled) return;
+        setGitStatus(statusData.status);
+        if (!statusData.status.branch || statusData.status.isDefaultBranch) {
+          setPullRequest(null);
+          setError(null);
+          return;
+        }
+        const prData = await getJson<{
+          pullRequest: ProjectPullRequestSummary | null;
+        }>(
+          `/api/projects/${project.id}/github/pull-request?branch=${encodeURIComponent(
+            statusData.status.branch,
+          )}`,
+        );
+        if (cancelled) return;
+        setPullRequest(prData.pullRequest);
+        setError(null);
+      } catch (err) {
+        if (!cancelled) {
+          setPullRequest(null);
+          setError(err instanceof Error ? err.message : "Failed to load PR");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void load(true);
+    const interval = window.setInterval(() => void load(false), 15000);
+    const onProjectGitChanged = (event: Event) => {
+      if (
+        event instanceof CustomEvent &&
+        typeof event.detail === "string" &&
+        event.detail === project.id
+      ) {
+        void load(true);
+      }
+    };
+    window.addEventListener(PROJECT_GIT_CHANGED_EVENT, onProjectGitChanged);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener(PROJECT_GIT_CHANGED_EVENT, onProjectGitChanged);
+    };
+  }, [project, refreshKey]);
+
+  return {
+    gitStatus,
+    pullRequest,
+    loading,
+    error,
+    refresh: () => setRefreshKey((current) => current + 1),
+  };
 }
 
 function WorklogRow({
@@ -490,11 +641,13 @@ function WorklogDetail({
           previous={(entry.output as WriteFileOkOutput).previousContent ?? ""}
           next={pickString(entry.input, "content") ?? ""}
           newFile={(entry.output as WriteFileOkOutput).existed === false}
+          filename={pickString(entry.input, "path")}
         />
       ) : showEditDiff ? (
         <DiffView
           previous={editOutput?.previousContent ?? ""}
           next={editOutput?.nextContent ?? ""}
+          filename={pickString(entry.input, "path")}
         />
       ) : entry.name === "bash" && entry.activity?.status === "running" && entry.activity?.toolCallId ? (
         <LiveTerminalOutput

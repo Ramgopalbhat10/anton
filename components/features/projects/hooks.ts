@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 
-import type { ProjectSummary } from "@/src/lib/api-types";
+import type { ProjectGitStatusSummary, ProjectSummary } from "@/src/lib/api-types";
 import { getJson } from "@/src/lib/client-fetch";
+
+export const PROJECT_GIT_CHANGED_EVENT = "anton-project-git-change";
 
 export function useProjectSummary(projectId: string | null): ProjectSummary | null {
   const [loadedProject, setLoadedProject] = useState<{
@@ -28,4 +30,59 @@ export function useProjectSummary(projectId: string | null): ProjectSummary | nu
   }, [projectId]);
 
   return loadedProject?.projectId === projectId ? loadedProject.project : null;
+}
+
+export function useProjectGitStatus(
+  projectId: string | null,
+): ProjectGitStatusSummary | null {
+  const [loadedStatus, setLoadedStatus] = useState<{
+    projectId: string;
+    status: ProjectGitStatusSummary | null;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!projectId) {
+      queueMicrotask(() => setLoadedStatus(null));
+      return;
+    }
+
+    let cancelled = false;
+    const loadStatus = async () => {
+      try {
+        const data = await getJson<{ status: ProjectGitStatusSummary }>(
+          `/api/projects/${projectId}/git/status`,
+        );
+        if (!cancelled) {
+          setLoadedStatus({ projectId, status: data.status });
+        }
+      } catch {
+        if (!cancelled) {
+          setLoadedStatus({ projectId, status: null });
+        }
+      }
+    };
+    void loadStatus();
+    const interval = window.setInterval(() => void loadStatus(), 15000);
+    const onProjectGitChanged = (event: Event) => {
+      if (
+        event instanceof CustomEvent &&
+        typeof event.detail === "string" &&
+        event.detail === projectId
+      ) {
+        void loadStatus();
+      }
+    };
+    window.addEventListener(PROJECT_GIT_CHANGED_EVENT, onProjectGitChanged);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener(PROJECT_GIT_CHANGED_EVENT, onProjectGitChanged);
+    };
+  }, [projectId]);
+
+  return loadedStatus?.projectId === projectId ? loadedStatus.status : null;
+}
+
+export function notifyProjectGitChanged(projectId: string): void {
+  window.dispatchEvent(new CustomEvent(PROJECT_GIT_CHANGED_EVENT, { detail: projectId }));
 }
