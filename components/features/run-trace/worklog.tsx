@@ -44,7 +44,7 @@ import { ApprovalDetails } from "./approval-details";
 import { TodoCard } from "./todo-card";
 import { getSessionTodoSnapshots } from "./trace-data";
 import { PullRequestEmptyPanel, PullRequestPanel } from "./pr-sidebar";
-import { getJson } from "@/src/lib/client-fetch";
+import { getJson, jsonHeaders, requestJson } from "@/src/lib/client-fetch";
 import { PROJECT_GIT_CHANGED_EVENT } from "@/components/features/projects/hooks";
 import type {
   ProjectGitStatusSummary,
@@ -250,8 +250,10 @@ export function Worklog({
           <PullRequestEmptyPanel
             gitStatus={prState.gitStatus}
             loading={prState.loading}
+            creating={prState.creating}
             error={prState.error}
             onRefresh={prState.refresh}
+            onCreatePullRequest={prState.createPullRequest}
           />
         ) : (
           <EmptyTabsPanel />
@@ -411,12 +413,15 @@ function useProjectPullRequest(project: ProjectSummary | null): {
   gitStatus: ProjectGitStatusSummary | null;
   pullRequest: ProjectPullRequestSummary | null;
   loading: boolean;
+  creating: boolean;
   error: string | null;
   refresh: () => void;
+  createPullRequest: () => void;
 } {
   const [gitStatus, setGitStatus] = useState<ProjectGitStatusSummary | null>(null);
   const [pullRequest, setPullRequest] = useState<ProjectPullRequestSummary | null>(null);
   const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -431,6 +436,7 @@ function useProjectPullRequest(project: ProjectSummary | null): {
         setPullRequest(null);
         setError(null);
         setLoading(false);
+        setCreating(false);
       });
       return;
     }
@@ -492,8 +498,29 @@ function useProjectPullRequest(project: ProjectSummary | null): {
     gitStatus,
     pullRequest,
     loading,
+    creating,
     error,
     refresh: () => setRefreshKey((current) => current + 1),
+    createPullRequest: () => {
+      if (!project || !gitStatus?.branch || creating) return;
+      setCreating(true);
+      requestJson<{ pullRequest: ProjectPullRequestSummary }>(
+        `/api/projects/${project.id}/github/pull-request`,
+        {
+          method: "POST",
+          headers: jsonHeaders(),
+          body: JSON.stringify({ branch: gitStatus.branch }),
+        },
+      )
+        .then((data) => {
+          setPullRequest(data.pullRequest);
+          setError(null);
+        })
+        .catch((err: unknown) => {
+          setError(err instanceof Error ? err.message : "Failed to create PR");
+        })
+        .finally(() => setCreating(false));
+    },
   };
 }
 

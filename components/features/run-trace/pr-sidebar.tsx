@@ -179,14 +179,19 @@ export function PullRequestPanel({
 export function PullRequestEmptyPanel({
   gitStatus,
   loading,
+  creating,
   error,
   onRefresh,
+  onCreatePullRequest,
 }: {
   gitStatus: ProjectGitStatusSummary | null;
   loading: boolean;
+  creating: boolean;
   error: string | null;
   onRefresh: () => void;
+  onCreatePullRequest: () => void;
 }) {
+  const createReady = canCreatePullRequest(gitStatus);
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <section className="border-b border-border px-3 py-3">
@@ -219,6 +224,26 @@ export function PullRequestEmptyPanel({
             <Metric label="Dirty" value={gitStatus.dirtyCount} />
           </div>
         ) : null}
+        {createReady ? (
+          <Button
+            type="button"
+            size="sm"
+            className="mt-3"
+            onClick={onCreatePullRequest}
+            disabled={loading || creating}
+          >
+            {creating ? (
+              <RefreshCw className="animate-spin" />
+            ) : (
+              <GitPullRequest />
+            )}
+            Create PR
+          </Button>
+        ) : gitStatus?.branch && !gitStatus.isDefaultBranch ? (
+          <p className="mt-3 text-[11px] text-muted-foreground">
+            {pullRequestCreateBlocker(gitStatus)}
+          </p>
+        ) : null}
         {error ? (
           <div className="mt-2 rounded-md bg-destructive/10 px-2 py-1.5 text-[11px] text-destructive">
             {error}
@@ -227,6 +252,31 @@ export function PullRequestEmptyPanel({
       </section>
     </div>
   );
+}
+
+function canCreatePullRequest(gitStatus: ProjectGitStatusSummary | null): boolean {
+  return Boolean(
+    gitStatus?.branch &&
+      !gitStatus.isDefaultBranch &&
+      gitStatus.upstream?.startsWith("origin/") &&
+      gitStatus.upstreamAhead === 0 &&
+      gitStatus.dirtyCount === 0,
+  );
+}
+
+function pullRequestCreateBlocker(
+  gitStatus: ProjectGitStatusSummary,
+): string {
+  if (gitStatus.dirtyCount > 0) {
+    return "Commit or discard local changes before creating a PR.";
+  }
+  if (!gitStatus.upstream?.startsWith("origin/")) {
+    return "Push this branch to origin before creating a PR.";
+  }
+  if (gitStatus.upstreamAhead !== null && gitStatus.upstreamAhead > 0) {
+    return "Push local commits before creating a PR.";
+  }
+  return "Create a PR after the branch is available on origin.";
 }
 
 function emptyPullRequestMessage(gitStatus: ProjectGitStatusSummary | null): string {
