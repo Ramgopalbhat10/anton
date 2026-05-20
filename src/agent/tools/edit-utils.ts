@@ -49,9 +49,10 @@ export function exactHunkPatchAlreadyApplied({
 }): boolean {
   const blocks = exactHunkBlocks(source, patch);
   if (!blocks) return false;
-  return (
-    !blocks.normalizedSource.includes(blocks.oldBlock) &&
-    blocks.normalizedSource.includes(blocks.newBlock)
+  return blocks.blocks.every(
+    (block) =>
+      !blocks.normalizedSource.includes(block.oldBlock) &&
+      blocks.normalizedSource.includes(block.newBlock),
   );
 }
 
@@ -61,19 +62,20 @@ function applyExactHunkPatch(
 ): string | undefined {
   const blocks = exactHunkBlocks(source, patch);
   if (!blocks) return undefined;
-  if (!blocks.oldBlock) return undefined;
-
-  const first = blocks.normalizedSource.indexOf(blocks.oldBlock);
-  if (first === -1) return undefined;
-  if (blocks.normalizedSource.indexOf(blocks.oldBlock, first + blocks.oldBlock.length) !== -1) {
-    return undefined;
+  let next = blocks.normalizedSource;
+  for (const block of blocks.blocks) {
+    if (!block.oldBlock) return undefined;
+    const first = next.indexOf(block.oldBlock);
+    if (first === -1) return undefined;
+    if (next.indexOf(block.oldBlock, first + block.oldBlock.length) !== -1) {
+      return undefined;
+    }
+    next =
+      next.slice(0, first) +
+      block.newBlock +
+      next.slice(first + block.oldBlock.length);
   }
-
-  return (
-    blocks.normalizedSource.slice(0, first) +
-    blocks.newBlock +
-    blocks.normalizedSource.slice(first + blocks.oldBlock.length)
-  ).replace(/\n/g, blocks.newline);
+  return next.replace(/\n/g, blocks.newline);
 }
 
 function exactHunkBlocks(
@@ -82,21 +84,36 @@ function exactHunkBlocks(
 ):
   | {
       normalizedSource: string;
-      oldBlock: string;
-      newBlock: string;
+      blocks: { oldBlock: string; newBlock: string }[];
       newline: string;
     }
   | undefined {
   const rawLines = patch.replace(/\r\n/g, "\n").split("\n");
-  const hunkStart = rawLines.findIndex((line) => line.startsWith("@@"));
-  if (hunkStart === -1) return undefined;
+  const hunkStarts = rawLines.flatMap((line, index) =>
+    line.startsWith("@@") ? [index] : [],
+  );
+  if (hunkStarts.length === 0) return undefined;
 
-  const hunkLines = rawLines
-    .slice(hunkStart + 1)
-    .filter((line) => line.length > 0 && !line.startsWith("\\ No newline"));
+  const blocks: { oldBlock: string; newBlock: string }[] = [];
+  for (const [index, hunkStart] of hunkStarts.entries()) {
+    const nextHunkStart = hunkStarts[index + 1] ?? rawLines.length;
+    const hunkLines = rawLines
+      .slice(hunkStart + 1, nextHunkStart)
+      .filter((line) => line.length > 0 && !line.startsWith("\\ No newline"));
+    const block = exactHunkBlock(hunkLines);
+    if (!block) return undefined;
+    blocks.push(block);
+  }
+  const newline = source.includes("\r\n") ? "\r\n" : "\n";
+  const normalizedSource = source.replace(/\r\n/g, "\n");
+  return { normalizedSource, blocks, newline };
+}
+
+function exactHunkBlock(
+  hunkLines: string[],
+): { oldBlock: string; newBlock: string } | undefined {
   if (hunkLines.length === 0) return undefined;
   if (hunkLines.some((line) => !/^[-+ ]/.test(line))) return undefined;
-
   const oldLines: string[] = [];
   const newLines: string[] = [];
   let removed = 0;
@@ -117,11 +134,9 @@ function exactHunkBlocks(
   }
 
   if (removed === 0 && added === 0) return undefined;
-  const newline = source.includes("\r\n") ? "\r\n" : "\n";
-  const normalizedSource = source.replace(/\r\n/g, "\n");
   const oldBlock = oldLines.join("\n");
   const newBlock = newLines.join("\n");
-  return { normalizedSource, oldBlock, newBlock, newline };
+  return { oldBlock, newBlock };
 }
 
 function parseSingleFilePatch(

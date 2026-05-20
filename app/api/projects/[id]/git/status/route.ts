@@ -24,7 +24,7 @@ export async function GET(_req: Request, { params }: Ctx) {
 
   try {
     const root = ensureWorkspaceRootAt(project.localPath);
-    const [branch, status, upstream, remoteUrl, aheadBehind] = await Promise.all([
+    const [branch, status, upstream, remoteUrl, aheadBehind, upstreamAheadBehind] = await Promise.all([
       gitOutput(root, ["branch", "--show-current"]).catch(() => ""),
       gitOutput(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
       gitOutput(root, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]).catch(
@@ -37,8 +37,15 @@ export async function GET(_req: Request, { params }: Ctx) {
         "--count",
         `origin/${project.defaultBranch}...HEAD`,
       ]).catch(() => ""),
+      gitOutput(root, [
+        "rev-list",
+        "--left-right",
+        "--count",
+        "@{upstream}...HEAD",
+      ]).catch(() => ""),
     ]);
     const counts = parseAheadBehind(aheadBehind);
+    const upstreamCounts = parseAheadBehind(upstreamAheadBehind);
     const currentBranch = branch.trim() || null;
     const summary: ProjectGitStatusSummary = {
       projectId: project.id,
@@ -48,6 +55,8 @@ export async function GET(_req: Request, { params }: Ctx) {
       dirtyCount: status.split("\0").filter(Boolean).length,
       ahead: counts?.ahead ?? null,
       behind: counts?.behind ?? null,
+      upstreamAhead: upstreamCounts?.ahead ?? null,
+      upstreamBehind: upstreamCounts?.behind ?? null,
       upstream: upstream.trim() || null,
       remoteUrl: remoteUrl.trim() ? redactText(remoteUrl.trim()) : null,
     };

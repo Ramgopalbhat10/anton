@@ -2,6 +2,7 @@ import { createSign } from "node:crypto";
 import { z } from "zod";
 
 import type {
+  ProjectIssueSummary,
   ProjectPullRequestCheckSummary,
   ProjectPullRequestSummary,
 } from "@/src/lib/api-types";
@@ -63,6 +64,16 @@ const pullRequestSchema = z.object({
   updated_at: z.string(),
 });
 
+const issueSchema = z.object({
+  number: z.number().int(),
+  state: z.literal("open"),
+  title: z.string(),
+  html_url: z.string().url(),
+  user: accountSchema,
+  updated_at: z.string(),
+  pull_request: z.unknown().optional(),
+});
+
 const pullRequestFileSchema = z.object({
   filename: z.string(),
   status: z.string(),
@@ -107,6 +118,7 @@ const checkRunsResponseSchema = z.object({
 
 export type GitHubRepository = z.infer<typeof repositorySchema>;
 type GitHubPullRequest = z.infer<typeof pullRequestSchema>;
+type GitHubIssue = z.infer<typeof issueSchema>;
 type GitHubPullRequestFile = z.infer<typeof pullRequestFileSchema>;
 type GitHubCombinedStatus = z.infer<typeof combinedStatusSchema>;
 type GitHubCheckRun = z.infer<typeof checkRunSchema>;
@@ -190,6 +202,75 @@ export async function findPullRequestForBranch(input: {
     }),
   ]);
 
+  return serializePullRequest(details, files, checks);
+}
+
+export async function listOpenIssuesForRepository(input: {
+  installationId: number;
+  owner: string;
+  repo: string;
+}): Promise<ProjectIssueSummary[]> {
+  const token = await createInstallationToken(input.installationId);
+  const searchParams = new URLSearchParams({
+    state: "open",
+    sort: "updated",
+    direction: "desc",
+    per_page: "50",
+  });
+  const issues = z.array(issueSchema).parse(
+    await githubFetch(
+      `/repos/${repoPath(input.owner, input.repo)}/issues?${searchParams}`,
+      { token: token.token },
+    ),
+  );
+  return issues
+    .filter((issue) => issue.pull_request === undefined)
+    .map(serializeIssue);
+}
+
+export async function createPullRequestForBranch(input: {
+  installationId: number;
+  owner: string;
+  repo: string;
+  branch: string;
+  baseBranch: string;
+  title: string;
+  body: string | null;
+}): Promise<ProjectPullRequestSummary> {
+  const token = await createInstallationToken(input.installationId);
+  const created = pullRequestSchema.parse(
+    await githubFetch(`/repos/${repoPath(input.owner, input.repo)}/pulls`, {
+      method: "POST",
+      token: token.token,
+      body: {
+        title: input.title,
+        head: input.branch,
+        base: input.baseBranch,
+        body: input.body ?? undefined,
+        maintainer_can_modify: true,
+      },
+    }),
+  );
+  const [details, files, checks] = await Promise.all([
+    fetchPullRequest({
+      token: token.token,
+      owner: input.owner,
+      repo: input.repo,
+      number: created.number,
+    }),
+    fetchPullRequestFiles({
+      token: token.token,
+      owner: input.owner,
+      repo: input.repo,
+      number: created.number,
+    }),
+    fetchPullRequestChecks({
+      token: token.token,
+      owner: input.owner,
+      repo: input.repo,
+      ref: created.head.sha,
+    }),
+  ]);
   return serializePullRequest(details, files, checks);
 }
 
@@ -299,6 +380,28 @@ function serializePullRequest(
   };
 }
 
+function serializeIssue(issue: GitHubIssue): ProjectIssueSummary {
+  return {
+    number: issue.number,
+    state: issue.state,
+    title: issue.title,
+    htmlUrl: issue.html_url,
+    authorLogin: issue.user.login,
+    suggestedBranchName: issueBranchName(issue),
+    updatedAt: Date.parse(issue.updated_at),
+  };
+}
+
+function issueBranchName(issue: Pick<GitHubIssue, "number" | "title">): string {
+  const slug = issue.title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48)
+    .replace(/-+$/g, "");
+  return `codex/${issue.number}${slug ? `-${slug}` : ""}`;
+}
+
 function summarizeChecks(input: {
   status: GitHubCombinedStatus;
   checkRuns: GitHubCheckRun[];
@@ -362,16 +465,18 @@ function createAppJwt(): string {
 
 async function githubFetch(
   path: string,
-  options: { method?: string; token: string },
+  options: { method?: string; token: string; body?: unknown },
 ): Promise<unknown> {
   const res = await fetch(`${GITHUB_API}${path}`, {
     method: options.method ?? "GET",
     headers: {
       accept: "application/vnd.github+json",
       authorization: `Bearer ${options.token}`,
+      ...(options.body === undefined ? {} : { "content-type": "application/json" }),
       "x-github-api-version": API_VERSION,
       "user-agent": "anton-local-agent",
     },
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
   const json = await res.json().catch(() => null);
   if (!res.ok) {

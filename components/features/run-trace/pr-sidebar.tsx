@@ -178,15 +178,32 @@ export function PullRequestPanel({
 
 export function PullRequestEmptyPanel({
   gitStatus,
+  localFiles,
   loading,
+  creating,
   error,
   onRefresh,
+  onCreatePullRequest,
 }: {
   gitStatus: ProjectGitStatusSummary | null;
+  localFiles: ProjectPullRequestFileSummary[];
   loading: boolean;
+  creating: boolean;
   error: string | null;
   onRefresh: () => void;
+  onCreatePullRequest: () => void;
 }) {
+  const createReady = canCreatePullRequest(gitStatus);
+  const canShowCreateAction = Boolean(gitStatus?.branch && !gitStatus.isDefaultBranch);
+  const createBlocker =
+    gitStatus && canShowCreateAction && !createReady
+      ? pullRequestCreateBlocker(gitStatus)
+      : null;
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const selected =
+    localFiles.find((file) => file.filename === selectedFile) ??
+    localFiles[0] ??
+    null;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <section className="border-b border-border px-3 py-3">
@@ -219,14 +236,73 @@ export function PullRequestEmptyPanel({
             <Metric label="Dirty" value={gitStatus.dirtyCount} />
           </div>
         ) : null}
+        {canShowCreateAction ? (
+          <Button
+            type="button"
+            size="sm"
+            className="mt-3"
+            onClick={onCreatePullRequest}
+            disabled={!createReady || loading || creating}
+            title={createBlocker ?? "Create pull request"}
+          >
+            {creating ? (
+              <RefreshCw className="animate-spin" />
+            ) : (
+              <GitPullRequest />
+            )}
+            Create PR
+          </Button>
+        ) : null}
+        {createBlocker ? (
+          <p className="mt-3 text-[11px] text-muted-foreground">
+            {createBlocker}
+          </p>
+        ) : null}
         {error ? (
           <div className="mt-2 rounded-md bg-destructive/10 px-2 py-1.5 text-[11px] text-destructive">
             {error}
           </div>
         ) : null}
       </section>
+      {localFiles.length > 0 ? (
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+          <div className="border-b border-border px-3 py-2 text-[11px] font-medium text-muted-foreground">
+            Local changes
+          </div>
+          <ChangesView
+            files={localFiles}
+            selected={selected}
+            onSelect={setSelectedFile}
+          />
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function canCreatePullRequest(gitStatus: ProjectGitStatusSummary | null): boolean {
+  return Boolean(
+    gitStatus?.branch &&
+      !gitStatus.isDefaultBranch &&
+      gitStatus.upstream?.startsWith("origin/") &&
+      gitStatus.upstreamAhead === 0 &&
+      gitStatus.dirtyCount === 0,
+  );
+}
+
+function pullRequestCreateBlocker(
+  gitStatus: ProjectGitStatusSummary,
+): string {
+  if (gitStatus.dirtyCount > 0) {
+    return "Commit or discard local changes before creating a PR.";
+  }
+  if (!gitStatus.upstream?.startsWith("origin/")) {
+    return "Push this branch to origin before creating a PR.";
+  }
+  if (gitStatus.upstreamAhead !== null && gitStatus.upstreamAhead > 0) {
+    return "Push local commits before creating a PR.";
+  }
+  return "Create a PR after the branch is available on origin.";
 }
 
 function emptyPullRequestMessage(gitStatus: ProjectGitStatusSummary | null): string {

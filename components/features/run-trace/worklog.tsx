@@ -44,10 +44,11 @@ import { ApprovalDetails } from "./approval-details";
 import { TodoCard } from "./todo-card";
 import { getSessionTodoSnapshots } from "./trace-data";
 import { PullRequestEmptyPanel, PullRequestPanel } from "./pr-sidebar";
-import { getJson } from "@/src/lib/client-fetch";
+import { getJson, jsonHeaders, requestJson } from "@/src/lib/client-fetch";
 import { PROJECT_GIT_CHANGED_EVENT } from "@/components/features/projects/hooks";
 import type {
   ProjectGitStatusSummary,
+  ProjectLocalDiffSummary,
   ProjectPullRequestSummary,
   ProjectSummary,
 } from "@/src/lib/api-types";
@@ -249,9 +250,12 @@ export function Worklog({
         ) : activeTab === "pr" && hasGithubProject ? (
           <PullRequestEmptyPanel
             gitStatus={prState.gitStatus}
+            localFiles={prState.localDiff?.files ?? []}
             loading={prState.loading}
+            creating={prState.creating}
             error={prState.error}
             onRefresh={prState.refresh}
+            onCreatePullRequest={prState.createPullRequest}
           />
         ) : (
           <EmptyTabsPanel />
@@ -409,14 +413,19 @@ function firstLine(value: string): string {
 
 function useProjectPullRequest(project: ProjectSummary | null): {
   gitStatus: ProjectGitStatusSummary | null;
+  localDiff: ProjectLocalDiffSummary | null;
   pullRequest: ProjectPullRequestSummary | null;
   loading: boolean;
+  creating: boolean;
   error: string | null;
   refresh: () => void;
+  createPullRequest: () => void;
 } {
   const [gitStatus, setGitStatus] = useState<ProjectGitStatusSummary | null>(null);
+  const [localDiff, setLocalDiff] = useState<ProjectLocalDiffSummary | null>(null);
   const [pullRequest, setPullRequest] = useState<ProjectPullRequestSummary | null>(null);
   const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -428,9 +437,11 @@ function useProjectPullRequest(project: ProjectSummary | null): {
     ) {
       queueMicrotask(() => {
         setGitStatus(null);
+        setLocalDiff(null);
         setPullRequest(null);
         setError(null);
         setLoading(false);
+        setCreating(false);
       });
       return;
     }
@@ -444,9 +455,26 @@ function useProjectPullRequest(project: ProjectSummary | null): {
         );
         if (cancelled) return;
         setGitStatus(statusData.status);
+        let localDiffError: string | null = null;
+        if (statusData.status.dirtyCount > 0) {
+          try {
+            const diffData = await getJson<{ diff: ProjectLocalDiffSummary }>(
+              `/api/projects/${project.id}/git/diff`,
+            );
+            if (cancelled) return;
+            setLocalDiff(diffData.diff);
+          } catch (err) {
+            if (cancelled) return;
+            setLocalDiff(null);
+            localDiffError =
+              err instanceof Error ? err.message : "Failed to load local diff";
+          }
+        } else {
+          setLocalDiff(null);
+        }
         if (!statusData.status.branch || statusData.status.isDefaultBranch) {
           setPullRequest(null);
-          setError(null);
+          setError(localDiffError);
           return;
         }
         const prData = await getJson<{
@@ -458,9 +486,10 @@ function useProjectPullRequest(project: ProjectSummary | null): {
         );
         if (cancelled) return;
         setPullRequest(prData.pullRequest);
-        setError(null);
+        setError(localDiffError);
       } catch (err) {
         if (!cancelled) {
+          setLocalDiff(null);
           setPullRequest(null);
           setError(err instanceof Error ? err.message : "Failed to load PR");
         }
@@ -490,10 +519,32 @@ function useProjectPullRequest(project: ProjectSummary | null): {
 
   return {
     gitStatus,
+    localDiff,
     pullRequest,
     loading,
+    creating,
     error,
     refresh: () => setRefreshKey((current) => current + 1),
+    createPullRequest: () => {
+      if (!project || !gitStatus?.branch || creating) return;
+      setCreating(true);
+      requestJson<{ pullRequest: ProjectPullRequestSummary }>(
+        `/api/projects/${project.id}/github/pull-request`,
+        {
+          method: "POST",
+          headers: jsonHeaders(),
+          body: JSON.stringify({ branch: gitStatus.branch }),
+        },
+      )
+        .then((data) => {
+          setPullRequest(data.pullRequest);
+          setError(null);
+        })
+        .catch((err: unknown) => {
+          setError(err instanceof Error ? err.message : "Failed to create PR");
+        })
+        .finally(() => setCreating(false));
+    },
   };
 }
 

@@ -51,6 +51,8 @@ export type ProjectGitStatusSummary = {
   dirtyCount: number;
   ahead: number | null;
   behind: number | null;
+  upstreamAhead: number | null;
+  upstreamBehind: number | null;
   upstream: string | null;
   remoteUrl: string | null;
 };
@@ -68,6 +70,16 @@ export type ProjectBranchesSummary = {
   branches: ProjectBranchSummary[];
 };
 
+export type ProjectIssueSummary = {
+  number: number;
+  title: string;
+  state: "open";
+  htmlUrl: string;
+  authorLogin: string;
+  suggestedBranchName: string;
+  updatedAt: number;
+};
+
 export type ProjectPullRequestFileSummary = {
   filename: string;
   status: string;
@@ -76,6 +88,11 @@ export type ProjectPullRequestFileSummary = {
   changes: number;
   patch: string | null;
   previousFilename: string | null;
+};
+
+export type ProjectLocalDiffSummary = {
+  projectId: string;
+  files: ProjectPullRequestFileSummary[];
 };
 
 export type ProjectPullRequestCheckSummary = {

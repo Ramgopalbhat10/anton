@@ -55,6 +55,16 @@ export function Chat(props: ChatProps) {
   return <ChatSession key={props.sessionId ?? "new-chat"} {...props} />;
 }
 
+type ComposerControlState = {
+  mode: ChatMode;
+  model: ModelId;
+  permissionMode: PermissionMode;
+  thinkingEnabled: boolean;
+  selectedMcpServerIds?: string[];
+};
+
+const composerControlStateBySession = new Map<string, ComposerControlState>();
+
 function ChatSession({
   sessionId: sessionIdProp,
   initialMessages,
@@ -89,14 +99,23 @@ function ChatSession({
     sessionIdProp !== undefined &&
       (initialMessages?.filter(hasVisibleMessageParts).length ?? 0) === 0,
   );
+  const cachedControls = composerControlStateBySession.get(sessionId);
   const [model, setModel] = useState<ModelId>(
-    (initialModel ?? DEFAULT_MODEL_ID) as ModelId,
+    cachedControls?.model ?? ((initialModel ?? DEFAULT_MODEL_ID) as ModelId),
   );
-  const [permissionMode, setPermissionMode] = useState<PermissionMode>("auto-review");
-  const [mode, setMode] = useState<ChatMode>(DEFAULT_CHAT_MODE);
-  const [thinkingEnabled, setThinkingEnabled] = useState(false);
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>(
+    cachedControls?.permissionMode ?? "auto-review",
+  );
+  const [mode, setMode] = useState<ChatMode>(
+    cachedControls?.mode ?? DEFAULT_CHAT_MODE,
+  );
+  const [thinkingEnabled, setThinkingEnabled] = useState(
+    cachedControls?.thinkingEnabled ?? false,
+  );
   const [mcpServers, setMcpServers] = useState<McpServerSummary[]>([]);
-  const [selectedMcpServerIds, setSelectedMcpServerIds] = useState<string[]>([]);
+  const [selectedMcpServerIds, setSelectedMcpServerIds] = useState<string[]>(
+    cachedControls?.selectedMcpServerIds ?? [],
+  );
   const [pendingMcpSend, setPendingMcpSend] = useState<{
     text: string;
     mode: ChatMode;
@@ -206,6 +225,12 @@ function ChatSession({
         setMcpServers(data.servers);
         setSelectedMcpServerIds((current) => {
           if (current.length > 0) return current;
+          const cachedIds = composerControlStateBySession.get(sessionId)?.selectedMcpServerIds;
+          if (cachedIds !== undefined) {
+            return cachedIds.filter((id) =>
+              data.servers.some((server) => server.id === id && server.enabled),
+            );
+          }
           return data.servers
             .filter((server) => server.enabled)
             .map((server) => server.id);
@@ -218,7 +243,17 @@ function ChatSession({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [sessionId]);
+
+  useEffect(() => {
+    composerControlStateBySession.set(sessionId, {
+      mode,
+      model,
+      permissionMode,
+      thinkingEnabled,
+      selectedMcpServerIds,
+    });
+  }, [mode, model, permissionMode, selectedMcpServerIds, sessionId, thinkingEnabled]);
 
   const sendWithMcp = async (
     text: string,

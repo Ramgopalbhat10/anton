@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 import {
   Check,
   ChevronDown,
+  CircleDot,
   GitBranch,
   Loader2,
   Plus,
@@ -23,6 +24,7 @@ import { cn } from "@/lib/utils";
 import type {
   ProjectBranchesSummary,
   ProjectBranchSummary,
+  ProjectIssueSummary,
   ProjectSummary,
 } from "@/src/lib/api-types";
 import { errorMessage, getJson, jsonHeaders, requestJson } from "@/src/lib/client-fetch";
@@ -51,12 +53,14 @@ export function BranchSwitcher({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [branches, setBranches] = useState<ProjectBranchesSummary | null>(null);
+  const [issues, setIssues] = useState<ProjectIssueSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [switching, setSwitching] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [createMode, setCreateMode] = useState(false);
   const [newBranch, setNewBranch] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [issueError, setIssueError] = useState<string | null>(null);
   const displayedBranch = currentBranch ?? project?.defaultBranch ?? null;
 
   const filteredBranches = useMemo(() => {
@@ -66,16 +70,43 @@ export function BranchSwitcher({
     return items.filter((branch) => branch.name.toLowerCase().includes(needle));
   }, [branches, query]);
 
+  const filteredIssues = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return issues;
+    return issues.filter((issue) =>
+      [
+        `#${issue.number}`,
+        issue.title,
+        issue.suggestedBranchName,
+      ].some((value) => value.toLowerCase().includes(needle)),
+    );
+  }, [issues, query]);
+
   const loadBranches = useCallback(async ({ refresh = false } = {}) => {
     if (!project) return;
     setLoading(true);
     try {
       const queryString = refresh ? "?refresh=1" : "";
-      const data = await getJson<{ branches: ProjectBranchesSummary }>(
+      const branchData = await getJson<{ branches: ProjectBranchesSummary }>(
         `/api/projects/${project.id}/git/branches${queryString}`,
       );
-      setBranches(data.branches);
+      setBranches(branchData.branches);
       setError(null);
+      if (project.provider === "github" && project.status === "ready") {
+        try {
+          const issueData = await getJson<{ issues: ProjectIssueSummary[] }>(
+            `/api/projects/${project.id}/github/issues`,
+          );
+          setIssues(issueData.issues);
+          setIssueError(null);
+        } catch (err) {
+          setIssues([]);
+          setIssueError(errorMessage(err, "Failed to load issues"));
+        }
+      } else {
+        setIssues([]);
+        setIssueError(null);
+      }
     } catch (err) {
       setError(errorMessage(err, "Failed to load branches"));
     } finally {
@@ -126,6 +157,27 @@ export function BranchSwitcher({
     const trimmed = newBranch.trim();
     if (!trimmed) return;
     void mutateBranch({ action: "create", branch: trimmed }, trimmed);
+  };
+
+  const selectIssue = (issue: ProjectIssueSummary) => {
+    const local = branches?.branches.find(
+      (branch) => branch.name === issue.suggestedBranchName,
+    );
+    if (local) {
+      selectBranch(local);
+      return;
+    }
+    const remote = branches?.branches.find(
+      (branch) => branch.name === `origin/${issue.suggestedBranchName}`,
+    );
+    if (remote) {
+      selectBranch(remote);
+      return;
+    }
+    void mutateBranch(
+      { action: "create", branch: issue.suggestedBranchName },
+      issue.suggestedBranchName,
+    );
   };
 
   return (
@@ -203,7 +255,7 @@ export function BranchSwitcher({
             </button>
           </div>
         </div>
-        <div className="max-h-52 overflow-y-auto p-0.5">
+        <div className="max-h-72 overflow-y-auto p-0.5">
           <div className="px-1.5 py-1 text-[10px] font-medium uppercase text-muted-foreground">
             Branches
           </div>
@@ -251,6 +303,49 @@ export function BranchSwitcher({
               ))}
             </ul>
           )}
+          {project?.provider === "github" ? (
+            <>
+              <div className="mt-1 border-t border-border px-1.5 py-1 text-[10px] font-medium uppercase text-muted-foreground">
+                Issues
+              </div>
+              {issueError ? (
+                <div className="mx-1 rounded-md bg-destructive/10 px-1.5 py-1 text-[11px] text-destructive">
+                  {issueError}
+                </div>
+              ) : filteredIssues.length === 0 ? (
+                <div className="px-2 py-3 text-center text-[11px] text-muted-foreground">
+                  {loading ? "Loading issues..." : "No open issues found."}
+                </div>
+              ) : (
+                <ul className="grid gap-0.5">
+                  {filteredIssues.map((issue) => (
+                    <li key={issue.number}>
+                      <button
+                        type="button"
+                        onClick={() => selectIssue(issue)}
+                        disabled={switching !== null}
+                        className="grid w-full grid-cols-[0.75rem_minmax(0,1fr)] items-start gap-1.5 rounded-md px-1.5 py-1 text-left text-[11px] transition-colors hover:bg-accent disabled:opacity-60"
+                      >
+                        {switching === issue.suggestedBranchName ? (
+                          <Loader2 className="mt-0.5 size-3 animate-spin text-primary" />
+                        ) : (
+                          <CircleDot className="mt-0.5 size-3 text-emerald-400" />
+                        )}
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium">
+                            #{issue.number} {issue.title}
+                          </span>
+                          <span className="block truncate font-mono text-[10px] text-muted-foreground">
+                            {issue.suggestedBranchName}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          ) : null}
         </div>
         <div className="border-t border-border p-0.5">
           {createMode ? (
