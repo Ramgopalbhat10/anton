@@ -90,6 +90,11 @@ export type ProjectPullRequestFileSummary = {
   previousFilename: string | null;
 };
 
+export type ProjectLocalDiffSummary = {
+  projectId: string;
+  files: ProjectPullRequestFileSummary[];
+};
+
 export type ProjectPullRequestCheckSummary = {
   name: string;
   status: "queued" | "in_progress" | "completed" | "unknown";

@@ -178,6 +178,7 @@ export function PullRequestPanel({
 
 export function PullRequestEmptyPanel({
   gitStatus,
+  localFiles,
   loading,
   creating,
   error,
@@ -185,6 +186,7 @@ export function PullRequestEmptyPanel({
   onCreatePullRequest,
 }: {
   gitStatus: ProjectGitStatusSummary | null;
+  localFiles: ProjectPullRequestFileSummary[];
   loading: boolean;
   creating: boolean;
   error: string | null;
@@ -192,6 +194,16 @@ export function PullRequestEmptyPanel({
   onCreatePullRequest: () => void;
 }) {
   const createReady = canCreatePullRequest(gitStatus);
+  const canShowCreateAction = Boolean(gitStatus?.branch && !gitStatus.isDefaultBranch);
+  const createBlocker =
+    gitStatus && canShowCreateAction && !createReady
+      ? pullRequestCreateBlocker(gitStatus)
+      : null;
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const selected =
+    localFiles.find((file) => file.filename === selectedFile) ??
+    localFiles[0] ??
+    null;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <section className="border-b border-border px-3 py-3">
@@ -224,13 +236,14 @@ export function PullRequestEmptyPanel({
             <Metric label="Dirty" value={gitStatus.dirtyCount} />
           </div>
         ) : null}
-        {createReady ? (
+        {canShowCreateAction ? (
           <Button
             type="button"
             size="sm"
             className="mt-3"
             onClick={onCreatePullRequest}
-            disabled={loading || creating}
+            disabled={!createReady || loading || creating}
+            title={createBlocker ?? "Create pull request"}
           >
             {creating ? (
               <RefreshCw className="animate-spin" />
@@ -239,9 +252,10 @@ export function PullRequestEmptyPanel({
             )}
             Create PR
           </Button>
-        ) : gitStatus?.branch && !gitStatus.isDefaultBranch ? (
+        ) : null}
+        {createBlocker ? (
           <p className="mt-3 text-[11px] text-muted-foreground">
-            {pullRequestCreateBlocker(gitStatus)}
+            {createBlocker}
           </p>
         ) : null}
         {error ? (
@@ -250,6 +264,18 @@ export function PullRequestEmptyPanel({
           </div>
         ) : null}
       </section>
+      {localFiles.length > 0 ? (
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+          <div className="border-b border-border px-3 py-2 text-[11px] font-medium text-muted-foreground">
+            Local changes
+          </div>
+          <ChangesView
+            files={localFiles}
+            selected={selected}
+            onSelect={setSelectedFile}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
