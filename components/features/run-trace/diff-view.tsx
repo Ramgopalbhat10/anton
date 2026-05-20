@@ -42,7 +42,9 @@ const COMPACT_DIFF_OPTIONS = {
     :host {
       display: block;
       min-width: 0;
-      max-width: 100%;
+      width: 100%;
+      min-width: max-content;
+      max-width: none;
       color: var(--foreground);
       background: transparent;
       font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
@@ -65,46 +67,29 @@ const COMPACT_DIFF_OPTIONS = {
     }
 
     [data-code] {
-      max-width: 100%;
+      width: 100%;
+      min-width: max-content;
+      max-width: none;
       background: transparent;
-      overflow-x: auto;
-      overflow-y: clip;
-      scrollbar-color: color-mix(in oklch, var(--foreground) 16%, transparent) transparent;
+      overflow: visible;
+      padding-bottom: 0;
     }
 
     [data-code]::-webkit-scrollbar {
-      width: 10px;
-      height: 10px;
-    }
-
-    [data-code]::-webkit-scrollbar-button {
+      display: none;
       width: 0;
       height: 0;
-      display: none;
-    }
-
-    [data-code]::-webkit-scrollbar-thumb {
-      border: 3px solid transparent;
-      border-radius: 999px;
-      background-color: color-mix(in oklch, var(--foreground) 16%, transparent);
-      background-clip: padding-box;
-    }
-
-    [data-code]::-webkit-scrollbar-thumb:hover {
-      border: 3px solid transparent;
-      background-color: color-mix(in oklch, var(--foreground) 24%, transparent);
-      background-clip: padding-box;
-    }
-
-    [data-code]::-webkit-scrollbar-track,
-    [data-code]::-webkit-scrollbar-corner {
-      background: transparent;
     }
 
     [data-gutter] {
       z-index: 5;
       background-color: var(--diffs-bg);
       box-shadow: 1px 0 0 var(--border);
+    }
+
+    [data-overflow="scroll"] [data-gutter] {
+      position: relative;
+      left: auto;
     }
 
     [data-line],
@@ -224,7 +209,9 @@ function DiffFrame({
         className,
       )}
     >
-      <div className="min-w-0 max-w-full overflow-hidden">{children}</div>
+      <div className="anton-diff-scrollbar min-w-0 max-w-full overflow-x-auto overflow-y-hidden">
+        {children}
+      </div>
     </div>
   );
 }
