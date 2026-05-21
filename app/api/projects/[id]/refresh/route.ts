@@ -1,5 +1,6 @@
 import { getProject, updateGithubProjectMetadata } from "@/src/db/queries";
 import { findInstallationRepository } from "@/src/github/app";
+import { attemptLinkLocalProject } from "@/src/github/link";
 import { serializeProject } from "@/src/lib/api-serializers";
 import { redactText } from "@/src/lib/redaction";
 
@@ -18,8 +19,15 @@ export async function POST(_req: Request, { params }: Ctx) {
     project.githubRepoId === null ||
     project.githubInstallationId === null
   ) {
+    if (project.cloneUrl) {
+      const linked = await attemptLinkLocalProject(project.id);
+      if (linked) {
+        const updated = getProject(project.id);
+        return Response.json({ project: serializeProject(updated!) });
+      }
+    }
     return Response.json(
-      { error: "project is not backed by GitHub" },
+      { error: "project is not backed by GitHub and could not be linked to any active GitHub installation" },
       { status: 400 },
     );
   }

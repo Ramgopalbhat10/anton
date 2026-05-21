@@ -4,7 +4,11 @@ import { z } from "zod";
 
 import { ensureWorkspaceRootAt } from "@/src/agent/sandbox";
 import { getProject } from "@/src/db/queries";
-import { createPullRequestForBranch, findPullRequestForBranch } from "@/src/github/app";
+import {
+  createPullRequestForBranch,
+  findPullRequestForBranch,
+  getPullRequestByNumber,
+} from "@/src/github/app";
 import { redactText } from "@/src/lib/redaction";
 
 export const runtime = "nodejs";
@@ -14,7 +18,10 @@ type Ctx = { params: Promise<{ id: string }> };
 const execFileAsync = promisify(execFile);
 
 const querySchema = z.object({
-  branch: z.string().trim().min(1),
+  branch: z.string().trim().min(1).nullable(),
+  number: z.coerce.number().int().positive().nullable(),
+}).refine((value) => value.branch !== null || value.number !== null, {
+  message: "branch or number is required",
 });
 
 const createSchema = z.object({
@@ -40,6 +47,7 @@ export async function GET(req: Request, { params }: Ctx) {
   const url = new URL(req.url);
   const parsed = querySchema.safeParse({
     branch: url.searchParams.get("branch"),
+    number: url.searchParams.get("number"),
   });
   if (!parsed.success) {
     return Response.json(
@@ -47,7 +55,25 @@ export async function GET(req: Request, { params }: Ctx) {
       { status: 400 },
     );
   }
-  if (parsed.data.branch === project.defaultBranch) {
+  if (parsed.data.number !== null) {
+    try {
+      const pullRequest = await getPullRequestByNumber({
+        installationId: project.githubInstallationId,
+        owner: project.owner,
+        repo: project.name,
+        number: parsed.data.number,
+      });
+      return Response.json({ pullRequest });
+    } catch (err) {
+      return Response.json(
+        { error: redactText(errorMessage(err)) },
+        { status: 502 },
+      );
+    }
+  }
+
+  const branch = parsed.data.branch;
+  if (branch === null || branch === project.defaultBranch) {
     return Response.json({ pullRequest: null });
   }
 
@@ -56,7 +82,7 @@ export async function GET(req: Request, { params }: Ctx) {
       installationId: project.githubInstallationId,
       owner: project.owner,
       repo: project.name,
-      branch: parsed.data.branch,
+      branch,
     });
     return Response.json({ pullRequest });
   } catch (err) {

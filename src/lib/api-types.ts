@@ -96,6 +96,7 @@ export type ProjectLocalDiffSummary = {
 };
 
 export type ProjectPullRequestCheckSummary = {
+  id: number | null;
   name: string;
   status: "queued" | "in_progress" | "completed" | "unknown";
   conclusion:
@@ -110,11 +111,49 @@ export type ProjectPullRequestCheckSummary = {
   htmlUrl: string | null;
 };
 
+export type ProjectPullRequestDiscussionItem = {
+  id: number;
+  kind: "comment" | "review_comment";
+  inReplyToId: number | null;
+  authorLogin: string;
+  body: string;
+  htmlUrl: string;
+  path: string | null;
+  line: number | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type ProjectPullRequestCommitSummary = {
+  sha: string;
+  shortSha: string;
+  title: string;
+  message: string;
+  htmlUrl: string;
+  authorName: string;
+  authorLogin: string | null;
+  committedAt: number;
+};
+
+export type ProjectPullRequestListItem = {
+  number: number;
+  state: "open" | "closed";
+  merged: boolean;
+  title: string;
+  htmlUrl: string;
+  authorLogin: string;
+  baseBranch: string;
+  headBranch: string;
+  updatedAt: number;
+  createdAt: number;
+};
+
 export type ProjectPullRequestSummary = {
   number: number;
   state: "open" | "closed";
   merged: boolean;
   title: string;
+  description: string | null;
   htmlUrl: string;
   authorLogin: string;
   baseBranch: string;
@@ -127,6 +166,8 @@ export type ProjectPullRequestSummary = {
   comments: number;
   reviewComments: number;
   files: ProjectPullRequestFileSummary[];
+  discussion: ProjectPullRequestDiscussionItem[];
+  commitItems: ProjectPullRequestCommitSummary[];
   checks: {
     state: "unknown" | "pending" | "success" | "failure" | "error";
     total: number;
