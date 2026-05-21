@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatAddToolApproveResponseFunction } from "ai";
 import {
   Check,
@@ -299,6 +299,8 @@ const SIDEBAR_TABS = [
   label: string;
   Icon: typeof TerminalSquare;
 }[];
+
+const PR_POLL_INTERVAL_MS = 120_000;
 
 function tabMeta(
   tab: SidebarTab,
@@ -652,6 +654,7 @@ function useProjectPullRequest(
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const latestPullRequestRef = useRef<ProjectPullRequestSummary | null>(null);
   const [selectedPullRequest, setSelectedPullRequest] = useState<{
     projectId: string;
     number: number;
@@ -660,6 +663,13 @@ function useProjectPullRequest(
     selectedPullRequest !== null && selectedPullRequest.projectId === project?.id
       ? selectedPullRequest.number
       : null;
+  const setCurrentPullRequest = useCallback(
+    (nextPullRequest: ProjectPullRequestSummary | null) => {
+      latestPullRequestRef.current = nextPullRequest;
+      setPullRequest(nextPullRequest);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (
@@ -671,7 +681,7 @@ function useProjectPullRequest(
       queueMicrotask(() => {
         setGitStatus(null);
         setLocalDiff(null);
-        setPullRequest(null);
+        setCurrentPullRequest(null);
         setError(null);
         setLoading(false);
         setCreating(false);
@@ -723,12 +733,12 @@ function useProjectPullRequest(
             return;
           }
           if (cancelled) return;
-          setPullRequest(prData.pullRequest);
+          setCurrentPullRequest(prData.pullRequest);
           setError(localDiffError);
           return;
         }
         if (!statusData.status.branch || statusData.status.isDefaultBranch) {
-          setPullRequest(null);
+          setCurrentPullRequest(null);
           setError(localDiffError);
           return;
         }
@@ -747,7 +757,7 @@ function useProjectPullRequest(
           return;
         }
         if (cancelled) return;
-        setPullRequest(prData.pullRequest);
+        setCurrentPullRequest(prData.pullRequest);
         setError(localDiffError);
       } catch (err) {
         if (!cancelled) {
@@ -760,9 +770,11 @@ function useProjectPullRequest(
     };
     const schedulePoll = () => {
       if (cancelled || !options.poll) return;
+      const currentPullRequest = latestPullRequestRef.current;
+      if (currentPullRequest === null || currentPullRequest.merged) return;
       pollTimeout = window.setTimeout(() => {
         void load(false).finally(schedulePoll);
-      }, 15000);
+      }, PR_POLL_INTERVAL_MS);
     };
 
     void load(true).finally(schedulePoll);
@@ -783,7 +795,14 @@ function useProjectPullRequest(
       }
       window.removeEventListener(PROJECT_GIT_CHANGED_EVENT, onProjectGitChanged);
     };
-  }, [options.enabled, options.poll, project, refreshKey, selectedPullRequestNumber]);
+  }, [
+    options.enabled,
+    options.poll,
+    project,
+    refreshKey,
+    selectedPullRequestNumber,
+    setCurrentPullRequest,
+  ]);
 
   return {
     gitStatus,
@@ -814,7 +833,7 @@ function useProjectPullRequest(
             projectId: project.id,
             number: data.pullRequest.number,
           });
-          setPullRequest(data.pullRequest);
+          setCurrentPullRequest(data.pullRequest);
           setError(null);
         })
         .catch((err: unknown) => {
