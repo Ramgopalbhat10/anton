@@ -12,10 +12,12 @@ interface MarkdownProps {
 }
 
 function MarkdownImpl({ children, className }: MarkdownProps) {
+  const normalized = normalizeGithubMarkdown(children);
+
   return (
     <div className={cn("anton-md space-y-1.5 leading-normal", className)}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={COMPONENTS}>
-        {children}
+        {normalized}
       </ReactMarkdown>
     </div>
   );
@@ -24,7 +26,7 @@ function MarkdownImpl({ children, className }: MarkdownProps) {
 export const Markdown = memo(MarkdownImpl);
 
 const COMPONENTS: Components = {
-  p: ({ children }) => <p className="whitespace-pre-wrap">{children}</p>,
+  p: ({ children }) => <p>{children}</p>,
   a: ({ href, children, ...rest }) => (
     <a
       {...rest}
@@ -59,6 +61,14 @@ const COMPONENTS: Components = {
     <blockquote className="border-l-2 border-border pl-2.5 text-muted-foreground">
       {children}
     </blockquote>
+  ),
+  img: ({ alt, ...rest }) => (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      {...rest}
+      alt={alt ?? ""}
+      className="inline-block max-h-[1.2em] w-auto align-[-0.15em]"
+    />
   ),
   hr: () => <hr className="border-border" />,
   table: ({ children }) => (
@@ -155,4 +165,17 @@ function asText(node: ReactNode): string {
     return asText(props?.children);
   }
   return "";
+}
+
+function normalizeGithubMarkdown(value: string): string {
+  return value
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/?(?:sub|sup)>/gi, "")
+    .replace(/<summary>/gi, "")
+    .replace(/<\/summary>/gi, "\n\n")
+    .replace(/<\/?details>/gi, "")
+    .replace(
+      /(^|\n)((?:P[0-3])|(?:✅|✓|✔️?|☑️?|⚠️?|❌))\s*\n+(?=\S)/g,
+      "$1$2 ",
+    );
 }

@@ -3,7 +3,10 @@ import { z } from "zod";
 
 import type {
   ProjectIssueSummary,
+  ProjectPullRequestCommitSummary,
   ProjectPullRequestCheckSummary,
+  ProjectPullRequestDiscussionItem,
+  ProjectPullRequestListItem,
   ProjectPullRequestSummary,
 } from "@/src/lib/api-types";
 
@@ -44,8 +47,10 @@ const pullRequestSchema = z.object({
   number: z.number().int(),
   state: z.enum(["open", "closed"]),
   title: z.string(),
+  body: z.string().nullable().default(null),
   html_url: z.string().url(),
   merged: z.boolean().default(false),
+  merged_at: z.string().nullable().optional(),
   user: accountSchema,
   head: z.object({
     ref: z.string(),
@@ -84,6 +89,45 @@ const pullRequestFileSchema = z.object({
   previous_filename: z.string().nullable().optional(),
 });
 
+const issueCommentSchema = z.object({
+  id: z.number().int(),
+  body: z.string().default(""),
+  html_url: z.string().url(),
+  user: accountSchema.nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+const pullRequestReviewCommentSchema = z.object({
+  id: z.number().int(),
+  body: z.string().default(""),
+  html_url: z.string().url(),
+  user: accountSchema.nullable(),
+  path: z.string().nullable().optional(),
+  line: z.number().int().nullable().optional(),
+  original_line: z.number().int().nullable().optional(),
+  in_reply_to_id: z.number().int().nullable().optional(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+const pullRequestCommitSchema = z.object({
+  sha: z.string(),
+  html_url: z.string().url(),
+  author: accountSchema.nullable().optional(),
+  commit: z.object({
+    message: z.string(),
+    author: z.object({
+      name: z.string(),
+      date: z.string(),
+    }).nullable(),
+    committer: z.object({
+      name: z.string(),
+      date: z.string(),
+    }).nullable(),
+  }),
+});
+
 const combinedStatusSchema = z.object({
   state: z.enum(["error", "failure", "pending", "success"]),
   statuses: z.array(
@@ -94,6 +138,7 @@ const combinedStatusSchema = z.object({
 });
 
 const checkRunSchema = z.object({
+  id: z.number().int(),
   name: z.string(),
   status: z.enum(["queued", "in_progress", "completed", "unknown"]).catch("unknown"),
   conclusion: z
@@ -120,6 +165,9 @@ export type GitHubRepository = z.infer<typeof repositorySchema>;
 type GitHubPullRequest = z.infer<typeof pullRequestSchema>;
 type GitHubIssue = z.infer<typeof issueSchema>;
 type GitHubPullRequestFile = z.infer<typeof pullRequestFileSchema>;
+type GitHubIssueComment = z.infer<typeof issueCommentSchema>;
+type GitHubPullRequestReviewComment = z.infer<typeof pullRequestReviewCommentSchema>;
+type GitHubPullRequestCommit = z.infer<typeof pullRequestCommitSchema>;
 type GitHubCombinedStatus = z.infer<typeof combinedStatusSchema>;
 type GitHubCheckRun = z.infer<typeof checkRunSchema>;
 
@@ -181,28 +229,102 @@ export async function findPullRequestForBranch(input: {
   const match = matches[0];
   if (!match) return null;
 
-  const [details, files, checks] = await Promise.all([
-    fetchPullRequest({
-      token: token.token,
-      owner: input.owner,
-      repo: input.repo,
-      number: match.number,
-    }),
+  return fetchPullRequestSummary({
+    token: token.token,
+    owner: input.owner,
+    repo: input.repo,
+    number: match.number,
+  });
+}
+
+export async function getPullRequestByNumber(input: {
+  installationId: number;
+  owner: string;
+  repo: string;
+  number: number;
+}): Promise<ProjectPullRequestSummary> {
+  const token = await createInstallationToken(input.installationId);
+  return fetchPullRequestSummary({
+    token: token.token,
+    owner: input.owner,
+    repo: input.repo,
+    number: input.number,
+  });
+}
+
+export async function listPullRequestsForRepository(input: {
+  installationId: number;
+  owner: string;
+  repo: string;
+}): Promise<ProjectPullRequestListItem[]> {
+  const token = await createInstallationToken(input.installationId);
+  const searchParams = new URLSearchParams({
+    state: "all",
+    sort: "updated",
+    direction: "desc",
+    per_page: "50",
+  });
+  const pullRequests = z.array(pullRequestSchema).parse(
+    await githubFetch(
+      `/repos/${repoPath(input.owner, input.repo)}/pulls?${searchParams}`,
+      { token: token.token },
+    ),
+  );
+  return pullRequests.map(serializePullRequestListItem);
+}
+
+async function fetchPullRequestSummary(input: {
+  token: string;
+  owner: string;
+  repo: string;
+  number: number;
+}): Promise<ProjectPullRequestSummary> {
+  const details = await fetchPullRequest({
+    token: input.token,
+    owner: input.owner,
+    repo: input.repo,
+    number: input.number,
+  });
+  const [files, checks, issueComments, reviewComments, commits] = await Promise.all([
     fetchPullRequestFiles({
-      token: token.token,
+      token: input.token,
       owner: input.owner,
       repo: input.repo,
-      number: match.number,
+      number: input.number,
     }),
     fetchPullRequestChecks({
-      token: token.token,
+      token: input.token,
       owner: input.owner,
       repo: input.repo,
-      ref: match.head.sha,
+      ref: details.head.sha,
+    }),
+    fetchPullRequestIssueComments({
+      token: input.token,
+      owner: input.owner,
+      repo: input.repo,
+      number: input.number,
+    }),
+    fetchPullRequestReviewComments({
+      token: input.token,
+      owner: input.owner,
+      repo: input.repo,
+      number: input.number,
+    }),
+    fetchPullRequestCommits({
+      token: input.token,
+      owner: input.owner,
+      repo: input.repo,
+      number: input.number,
     }),
   ]);
-
-  return serializePullRequest(details, files, checks);
+  return serializePullRequest(
+    details,
+    files,
+    checks,
+    issueComments,
+    reviewComments,
+    commits,
+  );
 }
 
 export async function listOpenIssuesForRepository(input: {
@@ -251,7 +373,7 @@ export async function createPullRequestForBranch(input: {
       },
     }),
   );
-  const [details, files, checks] = await Promise.all([
+  const [details, files, checks, issueComments, reviewComments, commits] = await Promise.all([
     fetchPullRequest({
       token: token.token,
       owner: input.owner,
@@ -270,14 +392,46 @@ export async function createPullRequestForBranch(input: {
       repo: input.repo,
       ref: created.head.sha,
     }),
+    fetchPullRequestIssueComments({
+      token: token.token,
+      owner: input.owner,
+      repo: input.repo,
+      number: created.number,
+    }),
+    fetchPullRequestReviewComments({
+      token: token.token,
+      owner: input.owner,
+      repo: input.repo,
+      number: created.number,
+    }),
+    fetchPullRequestCommits({
+      token: token.token,
+      owner: input.owner,
+      repo: input.repo,
+      number: created.number,
+    }),
   ]);
-  return serializePullRequest(details, files, checks);
+  return serializePullRequest(
+    details,
+    files,
+    checks,
+    issueComments,
+    reviewComments,
+    commits,
+  );
 }
+
+const tokenCache = new Map<number, { token: string; expiresAt: Date }>();
 
 export async function createInstallationToken(installationId: number): Promise<{
   token: string;
   expiresAt: Date;
 }> {
+  const cached = tokenCache.get(installationId);
+  if (cached && cached.expiresAt.getTime() > Date.now() + 120000) {
+    return cached;
+  }
+
   const jwt = createAppJwt();
   const json = await githubFetch(
     `/app/installations/${installationId}/access_tokens`,
@@ -287,10 +441,50 @@ export async function createInstallationToken(installationId: number): Promise<{
     },
   );
   const parsed = installationTokenSchema.parse(json);
-  return {
+  const result = {
     token: parsed.token,
     expiresAt: new Date(parsed.expires_at),
   };
+  tokenCache.set(installationId, result);
+  return result;
+}
+
+export async function getCheckRunLogs(input: {
+  installationId: number;
+  owner: string;
+  repo: string;
+  checkRunId: number;
+}): Promise<string> {
+  const token = await createInstallationToken(input.installationId);
+  const url = `${GITHUB_API}/repos/${repoPath(input.owner, input.repo)}/actions/jobs/${input.checkRunId}/logs`;
+
+  const res = await fetch(url, {
+    redirect: "manual",
+    headers: {
+      accept: "application/vnd.github+json",
+      authorization: `Bearer ${token.token}`,
+      "x-github-api-version": API_VERSION,
+      "user-agent": "anton-local-agent",
+    },
+  });
+
+  if (res.status >= 300 && res.status < 400 && res.headers.has("location")) {
+    const redirectUrl = res.headers.get("location")!;
+    const logRes = await fetch(redirectUrl, {
+      headers: {
+        "user-agent": "anton-local-agent",
+      },
+    });
+    if (!logRes.ok) {
+      throw new GitHubAppError(`Failed to fetch logs from redirect target (${logRes.status})`);
+    }
+    return logRes.text();
+  }
+
+  if (!res.ok) {
+    throw new GitHubAppError(`Failed to fetch check run logs (${res.status})`);
+  }
+  return res.text();
 }
 
 async function fetchPullRequest(input: {
@@ -316,6 +510,48 @@ async function fetchPullRequestFiles(input: {
   return z.array(pullRequestFileSchema).parse(
     await githubFetch(
       `/repos/${repoPath(input.owner, input.repo)}/pulls/${input.number}/files?per_page=100`,
+      { token: input.token },
+    ),
+  );
+}
+
+async function fetchPullRequestIssueComments(input: {
+  token: string;
+  owner: string;
+  repo: string;
+  number: number;
+}): Promise<GitHubIssueComment[]> {
+  return z.array(issueCommentSchema).parse(
+    await githubFetch(
+      `/repos/${repoPath(input.owner, input.repo)}/issues/${input.number}/comments?per_page=100`,
+      { token: input.token },
+    ),
+  );
+}
+
+async function fetchPullRequestReviewComments(input: {
+  token: string;
+  owner: string;
+  repo: string;
+  number: number;
+}): Promise<GitHubPullRequestReviewComment[]> {
+  return z.array(pullRequestReviewCommentSchema).parse(
+    await githubFetch(
+      `/repos/${repoPath(input.owner, input.repo)}/pulls/${input.number}/comments?per_page=100`,
+      { token: input.token },
+    ),
+  );
+}
+
+async function fetchPullRequestCommits(input: {
+  token: string;
+  owner: string;
+  repo: string;
+  number: number;
+}): Promise<GitHubPullRequestCommit[]> {
+  return z.array(pullRequestCommitSchema).parse(
+    await githubFetch(
+      `/repos/${repoPath(input.owner, input.repo)}/pulls/${input.number}/commits?per_page=100`,
       { token: input.token },
     ),
   );
@@ -347,13 +583,18 @@ function serializePullRequest(
   pr: GitHubPullRequest,
   files: GitHubPullRequestFile[],
   checks: { status: GitHubCombinedStatus; checkRuns: GitHubCheckRun[] },
+  issueComments: GitHubIssueComment[],
+  reviewComments: GitHubPullRequestReviewComment[],
+  commits: GitHubPullRequestCommit[],
 ): ProjectPullRequestSummary {
   const checkSummary = summarizeChecks(checks);
+  const discussion = serializeDiscussion(issueComments, reviewComments);
   return {
     number: pr.number,
     state: pr.state,
-    merged: pr.merged,
+    merged: pr.merged || pr.merged_at != null,
     title: pr.title,
+    description: pr.body,
     htmlUrl: pr.html_url,
     authorLogin: pr.user.login,
     baseBranch: pr.base.ref,
@@ -374,9 +615,78 @@ function serializePullRequest(
       patch: file.patch ?? null,
       previousFilename: file.previous_filename ?? null,
     })),
+    discussion,
+    commitItems: commits.map(serializeCommit),
     checks: checkSummary,
     createdAt: Date.parse(pr.created_at),
     updatedAt: Date.parse(pr.updated_at),
+  };
+}
+
+function serializePullRequestListItem(
+  pr: GitHubPullRequest,
+): ProjectPullRequestListItem {
+  return {
+    number: pr.number,
+    state: pr.state,
+    merged: pr.merged || pr.merged_at != null,
+    title: pr.title,
+    htmlUrl: pr.html_url,
+    authorLogin: pr.user.login,
+    baseBranch: pr.base.ref,
+    headBranch: pr.head.ref,
+    updatedAt: Date.parse(pr.updated_at),
+    createdAt: Date.parse(pr.created_at),
+  };
+}
+
+function serializeDiscussion(
+  issueComments: GitHubIssueComment[],
+  reviewComments: GitHubPullRequestReviewComment[],
+): ProjectPullRequestDiscussionItem[] {
+  return [
+    ...issueComments.map((comment) => ({
+      id: comment.id,
+      kind: "comment" as const,
+      inReplyToId: null,
+      authorLogin: comment.user?.login ?? "ghost",
+      body: comment.body,
+      htmlUrl: comment.html_url,
+      path: null,
+      line: null,
+      createdAt: Date.parse(comment.created_at),
+      updatedAt: Date.parse(comment.updated_at),
+    })),
+    ...reviewComments.map((comment) => ({
+      id: comment.id,
+      kind: "review_comment" as const,
+      inReplyToId: comment.in_reply_to_id ?? null,
+      authorLogin: comment.user?.login ?? "ghost",
+      body: comment.body,
+      htmlUrl: comment.html_url,
+      path: comment.path ?? null,
+      line: comment.line ?? comment.original_line ?? null,
+      createdAt: Date.parse(comment.created_at),
+      updatedAt: Date.parse(comment.updated_at),
+    })),
+  ].sort((left, right) => left.createdAt - right.createdAt);
+}
+
+function serializeCommit(
+  commit: GitHubPullRequestCommit,
+): ProjectPullRequestCommitSummary {
+  const message = commit.commit.message;
+  const title = message.split(/\r?\n/, 1)[0]?.trim() || commit.sha.slice(0, 7);
+  const gitAuthor = commit.commit.author ?? commit.commit.committer;
+  return {
+    sha: commit.sha,
+    shortSha: commit.sha.slice(0, 7),
+    title,
+    message,
+    htmlUrl: commit.html_url,
+    authorName: gitAuthor?.name ?? commit.author?.login ?? "Unknown author",
+    authorLogin: commit.author?.login ?? null,
+    committedAt: Date.parse(gitAuthor?.date ?? new Date().toISOString()),
   };
 }
 
@@ -408,6 +718,7 @@ function summarizeChecks(input: {
 }): ProjectPullRequestSummary["checks"] {
   const statusContexts = input.status.statuses;
   const runs: ProjectPullRequestCheckSummary[] = input.checkRuns.map((run) => ({
+    id: run.id,
     name: run.name,
     status: run.status,
     conclusion: run.conclusion,

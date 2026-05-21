@@ -4,7 +4,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 import { ensureWorkspaceRootAt } from "@/src/agent/sandbox";
-import { createLocalProject } from "@/src/db/queries";
+import { createLocalProject, getProject } from "@/src/db/queries";
+import { attemptLinkLocalProject } from "@/src/github/link";
 
 const execFileAsync = promisify(execFile);
 
@@ -39,7 +40,7 @@ export async function importLocalRepository(input: { localPath: string }) {
       () => "",
     )) || null;
 
-  return createLocalProject({
+  const project = createLocalProject({
     owner,
     name,
     fullName: `${owner}/${name}`,
@@ -47,6 +48,10 @@ export async function importLocalRepository(input: { localPath: string }) {
     cloneUrl,
     localPath,
   });
+
+  await attemptLinkLocalProject(project.id).catch(() => null);
+
+  return getProject(project.id) || project;
 }
 
 async function gitOutput(cwd: string, args: string[]): Promise<string> {

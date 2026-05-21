@@ -9,6 +9,7 @@ import {
   FileText,
   GitCommit,
   GitPullRequest,
+  Loader2,
   MessageSquare,
   RefreshCw,
   XCircle,
@@ -24,22 +25,27 @@ import {
 import { cn } from "@/lib/utils";
 import type {
   ProjectGitStatusSummary,
+  ProjectPullRequestCommitSummary,
+  ProjectPullRequestDiscussionItem,
   ProjectPullRequestFileSummary,
   ProjectPullRequestSummary,
+  ProjectPullRequestCheckSummary,
 } from "@/src/lib/api-types";
+import { Markdown } from "@/components/features/chat/markdown";
 import { PatchDiffView } from "./diff-view";
 
 export function PullRequestPanel({
   pullRequest,
-  gitStatus,
   loading,
   error,
+  projectId,
   onRefresh,
 }: {
   pullRequest: ProjectPullRequestSummary;
   gitStatus: ProjectGitStatusSummary | null;
   loading: boolean;
   error: string | null;
+  projectId: string | null;
   onRefresh: () => void;
 }) {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
@@ -70,11 +76,10 @@ export function PullRequestPanel({
               <span className="rounded bg-secondary px-1.5 py-0.5">
                 {pullRequest.headBranch}
               </span>
-              {gitStatus?.dirtyCount ? (
-                <span className="text-amber-500">
-                  {gitStatus.dirtyCount} dirty
-                </span>
-              ) : null}
+              <span className="text-muted-foreground/50">|</span>
+              <InlineStat value={pullRequest.changedFiles} label="files" />
+              <InlineStat value={`+${pullRequest.additions}`} tone="add" />
+              <InlineStat value={`-${pullRequest.deletions}`} tone="delete" />
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
@@ -104,11 +109,6 @@ export function PullRequestPanel({
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-3 gap-2 text-[11px]">
-          <Metric label="Files" value={pullRequest.changedFiles} />
-          <Metric label="Add" value={`+${pullRequest.additions}`} tone="add" />
-          <Metric label="Del" value={`-${pullRequest.deletions}`} tone="delete" />
-        </div>
         {error ? (
           <div className="mt-2 rounded-md bg-destructive/10 px-2 py-1.5 text-[11px] text-destructive">
             {error}
@@ -122,11 +122,14 @@ export function PullRequestPanel({
             <TabsTrigger value="changes" className="h-6 px-2 py-0 text-[11px]">
               Changes
             </TabsTrigger>
+            <TabsTrigger value="description" className="h-6 px-2 py-0 text-[11px]">
+              Description
+            </TabsTrigger>
             <TabsTrigger value="discussion" className="h-6 px-2 py-0 text-[11px]">
-              Discussion
+              Discussion {pullRequest.discussion.length}
             </TabsTrigger>
             <TabsTrigger value="commits" className="h-6 px-2 py-0 text-[11px]">
-              Commits
+              Commits {pullRequest.commitItems.length}
             </TabsTrigger>
             <TabsTrigger value="checks" className="h-6 px-2 py-0 text-[11px]">
               Checks
@@ -140,36 +143,20 @@ export function PullRequestPanel({
             onSelect={setSelectedFile}
           />
         </TabsContent>
+        <TabsContent value="description" className="m-0">
+          <DescriptionView description={pullRequest.description} />
+        </TabsContent>
         <TabsContent value="discussion" className="m-0">
-          <SummaryList
-            rows={[
-              {
-                icon: MessageSquare,
-                label: "Comments",
-                value: pullRequest.comments,
-              },
-              {
-                icon: FileText,
-                label: "Review comments",
-                value: pullRequest.reviewComments,
-              },
-            ]}
-          />
+          <DiscussionView items={pullRequest.discussion} />
         </TabsContent>
         <TabsContent value="commits" className="m-0">
-          <SummaryList
-            rows={[
-              { icon: GitCommit, label: "Commits", value: pullRequest.commits },
-              {
-                icon: GitCommit,
-                label: "Head",
-                value: pullRequest.headSha.slice(0, 7),
-              },
-            ]}
-          />
+          <CommitsView commits={pullRequest.commitItems} />
         </TabsContent>
         <TabsContent value="checks" className="m-0">
-          <ChecksView pullRequest={pullRequest} />
+          <ChecksView
+            pullRequest={pullRequest}
+            projectId={projectId}
+          />
         </TabsContent>
       </Tabs>
     </div>
@@ -441,8 +428,10 @@ function PatchView({ file }: { file: ProjectPullRequestFileSummary }) {
 
 function ChecksView({
   pullRequest,
+  projectId,
 }: {
   pullRequest: ProjectPullRequestSummary;
+  projectId: string | null;
 }) {
   const meta = checkStateMeta(pullRequest.checks.state);
   if (pullRequest.checks.total === 0) {
@@ -454,8 +443,8 @@ function ChecksView({
   }
 
   return (
-    <div className="px-3 py-3">
-      <div className="mb-3 flex items-center gap-2 text-xs">
+    <div className="min-w-0 max-w-full px-2 py-2">
+      <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2 text-xs">
         <meta.Icon className={cn("size-3.5", meta.className)} />
         <span className="font-medium">{meta.label}</span>
         <span className="text-muted-foreground">
@@ -463,54 +452,428 @@ function ChecksView({
           {pullRequest.checks.failed} failed
         </span>
       </div>
-      <ol className="grid gap-1.5">
-        {pullRequest.checks.runs.map((run) => {
-          const runMeta = runStateMeta(run);
-          return (
-            <li key={`${run.name}:${run.htmlUrl ?? ""}`}>
-              <a
-                href={run.htmlUrl ?? pullRequest.htmlUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="grid grid-cols-[0.875rem_1fr] gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-accent/50"
-              >
-                <runMeta.Icon className={cn("mt-0.5 size-3.5", runMeta.className)} />
-                <span className="min-w-0">
-                  <span className="block truncate font-medium">{run.name}</span>
-                  <span className="font-mono text-[10px] text-muted-foreground">
-                    {run.conclusion ?? run.status}
-                  </span>
-                </span>
-              </a>
-            </li>
-          );
-        })}
+      <ol className="grid min-w-0 max-w-full gap-1">
+        {pullRequest.checks.runs.map((run) => (
+          <li key={`${run.name}:${run.id ?? ""}`} className="min-w-0 max-w-full">
+            <CheckRunRow
+              run={run}
+              projectId={projectId}
+            />
+          </li>
+        ))}
       </ol>
     </div>
   );
 }
 
-function SummaryList({
-  rows,
+function CheckRunRow({
+  run,
+  projectId,
 }: {
-  rows: { icon: typeof MessageSquare; label: string; value: string | number }[];
+  run: ProjectPullRequestCheckSummary;
+  projectId: string | null;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const [logs, setLogs] = useState<string | null>(null);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchLogs = async () => {
+    if (!projectId || !run.id) return;
+    setLoadingLogs(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/github/check-runs/${run.id}/logs`);
+      if (!res.ok) {
+        throw new Error(await responseError(res, "Failed to load logs"));
+      }
+      const data = await res.text();
+      setLogs(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load logs");
+    } finally {
+      setLoadingLogs(false);
+    }
+  };
+
+  const toggleExpand = () => {
+    const next = !expanded;
+    setExpanded(next);
+    if (next && !logs) {
+      void fetchLogs();
+    }
+  };
+
+  const runMeta = runStateMeta(run);
+
   return (
-    <div className="px-3 py-3">
-      <dl className="grid gap-2">
-        {rows.map((row) => (
-          <div
-            key={row.label}
-            className="grid grid-cols-[0.875rem_1fr_auto] items-center gap-2 rounded-md bg-background/45 px-2 py-2 text-xs ring-1 ring-border"
-          >
-            <row.icon className="size-3.5 text-muted-foreground" />
-            <dt className="text-muted-foreground">{row.label}</dt>
-            <dd className="font-mono text-foreground">{row.value}</dd>
-          </div>
-        ))}
-      </dl>
+    <div className="min-w-0 max-w-full overflow-hidden rounded-md border border-border/40 bg-background/20">
+      <div className="flex min-w-0 items-center justify-between gap-2 px-2 py-1.5 text-xs hover:bg-accent/15">
+        <button
+          type="button"
+          onClick={toggleExpand}
+          className="grid min-w-0 flex-1 grid-cols-[0.875rem_1fr] items-center gap-2 text-left"
+        >
+          <runMeta.Icon className={cn("size-3.5 shrink-0", runMeta.className)} />
+          <span className="min-w-0 truncate font-medium">{run.name}</span>
+        </button>
+
+        <div className="flex shrink-0 items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+          {run.htmlUrl ? (
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="ghost"
+              asChild
+              title="Open check on GitHub"
+            >
+              <a href={run.htmlUrl} target="_blank" rel="noreferrer">
+                <ExternalLink className="size-3" />
+              </a>
+            </Button>
+          ) : null}
+          {projectId && run.id ? (
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="ghost"
+              onClick={toggleExpand}
+              title="View logs"
+            >
+              <FileText className="size-3" />
+            </Button>
+          ) : null}
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="min-w-0 max-w-full border-t border-border/40 bg-background/50 p-2 font-mono text-[10px]">
+          {loadingLogs ? (
+            <div className="flex items-center gap-2 text-muted-foreground py-2 justify-center">
+              <Loader2 className="size-3.5 animate-spin" />
+              <span>Loading logs from GitHub...</span>
+            </div>
+          ) : error ? (
+            <div className="flex min-w-0 items-center justify-between gap-2 py-1 text-destructive">
+              <span className="min-w-0 whitespace-pre-wrap break-words">{error}</span>
+              <Button
+                type="button"
+                size="xs"
+                variant="outline"
+                className="h-5 px-1.5 text-[9px]"
+                onClick={fetchLogs}
+              >
+                Retry
+              </Button>
+            </div>
+          ) : logs ? (
+            <div className="relative min-w-0 max-w-full">
+              <pre className="block max-h-72 w-full max-w-full overflow-auto whitespace-pre-wrap break-words rounded bg-background/70 p-2 font-mono text-[10px] leading-normal text-foreground/90 wrap-break-word">
+                {logs}
+              </pre>
+              <div className="mt-1.5 flex justify-end">
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="outline"
+                  className="h-5 px-2 text-[9px]"
+                  onClick={fetchLogs}
+                  disabled={loadingLogs}
+                >
+                  <RefreshCw className="mr-1 size-2.5" />
+                  Reload Logs
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="py-1 text-center font-sans text-muted-foreground">No logs available.</div>
+          )}
+        </div>
+      )}
     </div>
   );
+}
+
+async function responseError(res: Response, fallback: string): Promise<string> {
+  const json = (await res.clone().json().catch(() => null)) as { error?: unknown } | null;
+  if (typeof json?.error === "string") {
+    return json.error;
+  }
+  const text = await res.text().catch(() => "");
+  return text || fallback;
+}
+
+function DescriptionView({ description }: { description: string | null }) {
+  const body = description?.trim();
+
+  if (!body) {
+    return (
+      <div className="px-3 py-8 text-center text-xs text-muted-foreground">
+        No PR description provided.
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-2 py-2">
+      <article className="min-w-0 rounded-md bg-background/45 px-2.5 py-2 ring-1 ring-border">
+        <Markdown className="min-w-0 space-y-1 text-xs leading-snug wrap-break-word [&_h1]:mt-1 [&_h1]:text-sm [&_h1]:leading-tight [&_h2]:mt-1 [&_h2]:text-sm [&_h2]:leading-tight [&_h3]:mt-1 [&_h3]:leading-tight [&_li]:leading-snug [&_ol]:space-y-0 [&_p]:leading-snug [&_table]:text-[11px] [&_td]:px-1.5 [&_td]:py-0.5 [&_th]:px-1.5 [&_th]:py-0.5 [&_ul]:space-y-0">
+          {body}
+        </Markdown>
+      </article>
+    </div>
+  );
+}
+
+function DiscussionView({ items }: { items: ProjectPullRequestDiscussionItem[] }) {
+  if (items.length === 0) {
+    return (
+      <div className="px-3 py-8 text-center text-xs text-muted-foreground">
+        No discussion comments reported.
+      </div>
+    );
+  }
+
+  const orderedItems = orderDiscussionItems(items);
+  const depthById = getDiscussionDepths(items);
+
+  return (
+    <ol className="grid min-w-0 gap-1.5 px-2 py-2">
+      {orderedItems.map((item) => {
+        const depth = depthById.get(item.id) ?? 0;
+        const isReply = depth > 0;
+
+        return (
+          <li
+            key={`${item.kind}:${item.id}`}
+            className={cn(
+              "min-w-0",
+              isReply && "ml-3 border-l border-border pl-2",
+            )}
+          >
+            <article className="min-w-0 rounded-md bg-background/45 px-2.5 py-2 ring-1 ring-border">
+              <div className="mb-1.5 flex min-w-0 items-start justify-between gap-2">
+                <div className="grid min-w-0 grid-cols-[0.875rem_minmax(0,1fr)] items-start gap-2">
+                  <MessageSquare
+                    className={cn(
+                      "mt-0.5 size-3.5 text-muted-foreground",
+                      isReply && "text-foreground/70",
+                    )}
+                  />
+                  <div className="min-w-0">
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">
+                      <span className="truncate font-semibold">{item.authorLogin}</span>
+                      <span className="font-mono text-[10px] text-muted-foreground">
+                        {relativeTime(item.createdAt)}
+                      </span>
+                      <span className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                        {item.kind === "review_comment" ? "Review" : "Comment"}
+                      </span>
+                    </div>
+                    {item.path ? (
+                      <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+                        {item.path}
+                        {item.line ? `:${item.line}` : ""}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  size="icon-xs"
+                  variant="ghost"
+                  asChild
+                  title="Open comment on GitHub"
+                >
+                  <a href={item.htmlUrl} target="_blank" rel="noreferrer">
+                    <ExternalLink className="size-3" />
+                  </a>
+                </Button>
+              </div>
+              <Markdown className="min-w-0 space-y-1 text-xs leading-snug wrap-break-word [&_h1]:mt-1 [&_h1]:text-sm [&_h1]:leading-tight [&_h2]:mt-1 [&_h2]:text-sm [&_h2]:leading-tight [&_h3]:mt-1 [&_h3]:leading-tight [&_li]:leading-snug [&_ol]:space-y-0 [&_p]:leading-snug [&_table]:text-[11px] [&_td]:px-1.5 [&_td]:py-0.5 [&_th]:px-1.5 [&_th]:py-0.5 [&_ul]:space-y-0">
+                {item.body}
+              </Markdown>
+            </article>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function getDiscussionDepths(
+  items: ProjectPullRequestDiscussionItem[],
+): Map<number, number> {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const depthById = new Map<number, number>();
+
+  const resolveDepth = (item: ProjectPullRequestDiscussionItem): number => {
+    const cached = depthById.get(item.id);
+    if (cached !== undefined) return cached;
+
+    const parentId = item.inReplyToId;
+    const parent = parentId ? byId.get(parentId) : undefined;
+    const depth = parent ? Math.min(resolveDepth(parent) + 1, 2) : 0;
+    depthById.set(item.id, depth);
+    return depth;
+  };
+
+  for (const item of items) {
+    resolveDepth(item);
+  }
+
+  return depthById;
+}
+
+function orderDiscussionItems(
+  items: ProjectPullRequestDiscussionItem[],
+): ProjectPullRequestDiscussionItem[] {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const childrenByParent = new Map<number, ProjectPullRequestDiscussionItem[]>();
+  const roots: ProjectPullRequestDiscussionItem[] = [];
+
+  for (const item of items) {
+    if (item.inReplyToId && byId.has(item.inReplyToId)) {
+      const siblings = childrenByParent.get(item.inReplyToId) ?? [];
+      siblings.push(item);
+      childrenByParent.set(item.inReplyToId, siblings);
+    } else {
+      roots.push(item);
+    }
+  }
+
+  const byCreatedAt = (
+    left: ProjectPullRequestDiscussionItem,
+    right: ProjectPullRequestDiscussionItem,
+  ) => left.createdAt - right.createdAt;
+  roots.sort(byCreatedAt);
+  for (const children of childrenByParent.values()) {
+    children.sort(byCreatedAt);
+  }
+
+  const ordered: ProjectPullRequestDiscussionItem[] = [];
+  const visited = new Set<number>();
+  const append = (item: ProjectPullRequestDiscussionItem) => {
+    if (visited.has(item.id)) return;
+    visited.add(item.id);
+    ordered.push(item);
+    for (const child of childrenByParent.get(item.id) ?? []) {
+      append(child);
+    }
+  };
+
+  for (const root of roots) {
+    append(root);
+  }
+
+  return ordered;
+}
+
+function CommitsView({
+  commits,
+}: {
+  commits: ProjectPullRequestCommitSummary[];
+}) {
+  if (commits.length === 0) {
+    return (
+      <div className="px-3 py-8 text-center text-xs text-muted-foreground">
+        No commits reported.
+      </div>
+    );
+  }
+
+  return (
+    <ol className="grid min-w-0 gap-1.5 px-2 py-2">
+      {commits.map((commit) => (
+        <li
+          key={commit.sha}
+          className="grid min-w-0 grid-cols-[0.875rem_minmax(0,1fr)_auto] items-start gap-2 rounded-md border border-border/40 bg-background/20 px-2 py-1.5 text-xs hover:bg-accent/25"
+        >
+          <GitCommit className="mt-0.5 size-3.5 text-muted-foreground" />
+          <div className="min-w-0">
+            <a
+              href={commit.htmlUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="block truncate font-semibold hover:underline"
+            >
+              {commit.title}
+            </a>
+            <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+              <span className="truncate">{commit.authorLogin ?? commit.authorName}</span>
+              <span>{relativeTime(commit.committedAt)}</span>
+              <span className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[10px]">
+                {commit.shortSha}
+              </span>
+            </div>
+            {commit.message !== commit.title ? (
+              <pre className="mt-1.5 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded bg-background/70 p-1.5 font-mono text-[10px] leading-normal text-muted-foreground">
+                {commit.message}
+              </pre>
+            ) : null}
+          </div>
+          <Button
+            type="button"
+            size="icon-xs"
+            variant="ghost"
+            asChild
+            title="Open commit on GitHub"
+          >
+            <a href={commit.htmlUrl} target="_blank" rel="noreferrer">
+              <ExternalLink className="size-3" />
+            </a>
+          </Button>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function InlineStat({
+  value,
+  label,
+  tone,
+}: {
+  value: string | number;
+  label?: string;
+  tone?: "add" | "delete";
+}) {
+  return (
+    <span
+      className={cn(
+        "font-mono tabular-nums",
+        tone === "add" && "text-emerald-400",
+        tone === "delete" && "text-destructive",
+      )}
+    >
+      {value}
+      {label ? <span className="ml-1 text-muted-foreground">{label}</span> : null}
+    </span>
+  );
+}
+
+function relativeTime(timestamp: number): string {
+  if (!Number.isFinite(timestamp)) return "";
+  const diffSeconds = Math.round((timestamp - Date.now()) / 1000);
+  const divisions = [
+    { amount: 60, unit: "second" },
+    { amount: 60, unit: "minute" },
+    { amount: 24, unit: "hour" },
+    { amount: 7, unit: "day" },
+    { amount: 4.345, unit: "week" },
+    { amount: 12, unit: "month" },
+    { amount: Number.POSITIVE_INFINITY, unit: "year" },
+  ] as const;
+  let duration = diffSeconds;
+  for (const division of divisions) {
+    if (Math.abs(duration) < division.amount) {
+      return new Intl.RelativeTimeFormat(undefined, {
+        numeric: "auto",
+      }).format(Math.round(duration), division.unit);
+    }
+    duration /= division.amount;
+  }
+  return "";
 }
 
 function StateBadge({

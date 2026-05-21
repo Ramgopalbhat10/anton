@@ -121,9 +121,9 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [] Add PR creation flow after successful local changes.
 - [] Add issue selection and branch naming from GitHub issues.
 - [✔️] Add right-sidebar PR view for active GitHub project branches.
-- [] Add GitHub check/CI status display for pushed branches and PRs.
+- [✔️] Add GitHub check/CI status display for pushed branches and PRs.
 - [] Add retry/debug workflow for failing GitHub Actions logs.
-- [] Store GitHub token expiry metadata and refresh tokens only when needed.
+- [✔️] Store GitHub token expiry metadata and refresh tokens only when needed.
 
 ## Phase 6: Developer Experience
 

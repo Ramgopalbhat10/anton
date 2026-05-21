@@ -1,15 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ChatAddToolApproveResponseFunction } from "ai";
 import {
+  Check,
   CheckCircle2,
   FileText,
   GitBranch,
   ListTodo,
+  Loader2,
   Maximize2,
   Minimize2,
   Plus,
+  RefreshCw,
+  Search,
   TerminalSquare,
   X,
   XCircle,
@@ -24,6 +28,11 @@ import {
   type ToolTraceEntry,
 } from "@/src/lib/trace";
 import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { Markdown } from "@/components/features/chat/markdown";
 import { DiffView } from "./diff-view";
@@ -44,11 +53,12 @@ import { ApprovalDetails } from "./approval-details";
 import { TodoCard } from "./todo-card";
 import { getSessionTodoSnapshots } from "./trace-data";
 import { PullRequestEmptyPanel, PullRequestPanel } from "./pr-sidebar";
-import { getJson, jsonHeaders, requestJson } from "@/src/lib/client-fetch";
+import { errorMessage, getJson, jsonHeaders, requestJson } from "@/src/lib/client-fetch";
 import { PROJECT_GIT_CHANGED_EVENT } from "@/components/features/projects/hooks";
 import type {
   ProjectGitStatusSummary,
   ProjectLocalDiffSummary,
+  ProjectPullRequestListItem,
   ProjectPullRequestSummary,
   ProjectSummary,
 } from "@/src/lib/api-types";
@@ -162,14 +172,24 @@ export function Worklog({
                     <meta.Icon className="size-3.5 transition-opacity group-hover/close:opacity-0 group-focus-visible/close:opacity-0" />
                     <X className="absolute size-3.5 opacity-0 transition-opacity group-hover/close:opacity-100 group-focus-visible/close:opacity-100" />
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab(tab)}
-                    className="min-w-0 rounded py-1 pl-0.5 pr-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                    aria-pressed={activeTab === tab}
-                  >
-                    <span className="block truncate">{meta.label}</span>
-                  </button>
+                  {tab === "pr" ? (
+                    <PullRequestTabSelector
+                      project={project}
+                      pullRequest={prState.pullRequest}
+                      active={activeTab === tab}
+                      onActivate={() => setActiveTab(tab)}
+                      onSelect={prState.selectPullRequest}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab(tab)}
+                      className="min-w-0 rounded py-1 pl-0.5 pr-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      aria-pressed={activeTab === tab}
+                    >
+                      <span className="block truncate">{meta.label}</span>
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -245,6 +265,7 @@ export function Worklog({
             gitStatus={prState.gitStatus}
             loading={prState.loading}
             error={prState.error}
+            projectId={project?.id ?? null}
             onRefresh={prState.refresh}
           />
         ) : activeTab === "pr" && hasGithubProject ? (
@@ -283,6 +304,202 @@ function tabMeta(
   const meta = SIDEBAR_TABS.find((item) => item.id === tab) ?? SIDEBAR_TABS[0];
   if (tab !== "pr" || !pullRequest) return meta;
   return { ...meta, label: `PR #${pullRequest.number}` };
+}
+
+function PullRequestTabSelector({
+  project,
+  pullRequest,
+  active,
+  onActivate,
+  onSelect,
+}: {
+  project: ProjectSummary | null;
+  pullRequest: ProjectPullRequestSummary | null;
+  active: boolean;
+  onActivate: () => void;
+  onSelect: (number: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [pullRequests, setPullRequests] = useState<ProjectPullRequestListItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [selecting, setSelecting] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const label = pullRequest ? `PR #${pullRequest.number}` : "PR";
+
+  const filteredPullRequests = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return pullRequests;
+    return pullRequests.filter((item) =>
+      [
+        `#${item.number}`,
+        item.title,
+        item.authorLogin,
+        item.baseBranch,
+        item.headBranch,
+      ].some((value) => value.toLowerCase().includes(needle)),
+    );
+  }, [pullRequests, query]);
+
+  const loadPullRequests = useCallback(async () => {
+    if (!project || project.provider !== "github" || project.status !== "ready") return;
+    setLoading(true);
+    try {
+      const data = await getJson<{ pullRequests: ProjectPullRequestListItem[] }>(
+        `/api/projects/${project.id}/github/pull-requests`,
+      );
+      setPullRequests(data.pullRequests);
+      setError(null);
+    } catch (err) {
+      setPullRequests([]);
+      setError(errorMessage(err, "Failed to load pull requests"));
+    } finally {
+      setLoading(false);
+    }
+  }, [project]);
+
+  const selectPullRequest = (item: ProjectPullRequestListItem) => {
+    setSelecting(item.number);
+    onSelect(item.number);
+    setOpen(false);
+    window.setTimeout(() => setSelecting(null), 600);
+  };
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) {
+          onActivate();
+          void loadPullRequests();
+        }
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          onClick={onActivate}
+          className="min-w-0 rounded py-1 pl-0.5 pr-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          aria-pressed={active}
+          aria-label={pullRequest ? `Select pull request, current ${label}` : "Select pull request"}
+        >
+          <span className="block truncate">{label}</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" side="bottom" className="w-80 overflow-hidden p-0">
+        <div className="border-b border-border p-1.5">
+          <div className="grid grid-cols-[0.75rem_1fr_auto] items-center gap-1.5 rounded-md bg-background/70 px-1.5 py-1 ring-1 ring-border">
+            <Search className="size-3 text-muted-foreground" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search pull requests"
+              className="min-w-0 bg-transparent font-mono text-[11px] outline-none placeholder:text-muted-foreground"
+              aria-label="Search pull requests"
+            />
+            <button
+              type="button"
+              onClick={() => void loadPullRequests()}
+              disabled={loading}
+              className="inline-flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-60"
+              aria-label="Refresh pull requests"
+              title="Refresh pull requests"
+            >
+              {loading ? (
+                <Loader2 className="size-3 animate-spin" />
+              ) : (
+                <RefreshCw className="size-3" />
+              )}
+            </button>
+          </div>
+        </div>
+        <div className="max-h-72 overflow-y-auto p-0.5">
+          <div className="px-1.5 py-1 text-[10px] font-medium uppercase text-muted-foreground">
+            Pull requests
+          </div>
+          {error ? (
+            <div className="mx-1 rounded-md bg-destructive/10 px-1.5 py-1 text-[11px] text-destructive">
+              {error}
+            </div>
+          ) : filteredPullRequests.length === 0 ? (
+            <div className="px-2 py-3 text-center text-[11px] text-muted-foreground">
+              {loading ? "Loading pull requests..." : "No pull requests found."}
+            </div>
+          ) : (
+            <ul className="grid gap-0.5">
+              {filteredPullRequests.map((item) => {
+                const selected = pullRequest?.number === item.number;
+                const stateLabel = item.merged
+                  ? "Merged"
+                  : item.state === "open"
+                    ? "Open"
+                    : "Closed";
+                return (
+                  <li key={item.number}>
+                    <button
+                      type="button"
+                      onClick={() => selectPullRequest(item)}
+                      className="grid w-full grid-cols-[0.75rem_minmax(0,1fr)_0.75rem] items-start gap-1.5 rounded-md px-1.5 py-1 text-left text-[11px] transition-colors hover:bg-accent disabled:opacity-60"
+                    >
+                      {selecting === item.number ? (
+                        <Loader2 className="mt-0.5 size-3 animate-spin text-primary" />
+                      ) : (
+                        <GitBranch
+                          className={cn(
+                            "mt-0.5 size-3",
+                            item.merged
+                              ? "text-purple-400"
+                              : item.state === "open"
+                                ? "text-emerald-400"
+                                : "text-muted-foreground",
+                          )}
+                        />
+                      )}
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium">
+                          #{item.number} {item.title}
+                        </span>
+                        <span className="block truncate font-mono text-[10px] text-muted-foreground">
+                          {item.headBranch} {"->"} {item.baseBranch} | {stateLabel} |{" "}
+                          {relativePullRequestTime(item.updatedAt)}
+                        </span>
+                      </span>
+                      {selected ? <Check className="mt-0.5 size-3 text-primary" /> : null}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function relativePullRequestTime(timestamp: number): string {
+  if (!Number.isFinite(timestamp)) return "";
+  const diffSeconds = Math.round((timestamp - Date.now()) / 1000);
+  const divisions = [
+    { amount: 60, unit: "second" },
+    { amount: 60, unit: "minute" },
+    { amount: 24, unit: "hour" },
+    { amount: 7, unit: "day" },
+    { amount: 4.345, unit: "week" },
+    { amount: 12, unit: "month" },
+    { amount: Number.POSITIVE_INFINITY, unit: "year" },
+  ] as const;
+  let duration = diffSeconds;
+  for (const division of divisions) {
+    if (Math.abs(duration) < division.amount) {
+      return new Intl.RelativeTimeFormat(undefined, {
+        numeric: "auto",
+      }).format(Math.round(duration), division.unit);
+    }
+    duration /= division.amount;
+  }
+  return "";
 }
 
 function EmptyTabsPanel() {
@@ -419,6 +636,7 @@ function useProjectPullRequest(project: ProjectSummary | null): {
   creating: boolean;
   error: string | null;
   refresh: () => void;
+  selectPullRequest: (number: number) => void;
   createPullRequest: () => void;
 } {
   const [gitStatus, setGitStatus] = useState<ProjectGitStatusSummary | null>(null);
@@ -428,6 +646,14 @@ function useProjectPullRequest(project: ProjectSummary | null): {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [selectedPullRequest, setSelectedPullRequest] = useState<{
+    projectId: string;
+    number: number;
+  } | null>(null);
+  const selectedPullRequestNumber =
+    selectedPullRequest !== null && selectedPullRequest.projectId === project?.id
+      ? selectedPullRequest.number
+      : null;
 
   useEffect(() => {
     if (
@@ -472,6 +698,17 @@ function useProjectPullRequest(project: ProjectSummary | null): {
         } else {
           setLocalDiff(null);
         }
+        if (selectedPullRequestNumber !== null) {
+          const prData = await getJson<{
+            pullRequest: ProjectPullRequestSummary;
+          }>(
+            `/api/projects/${project.id}/github/pull-request?number=${selectedPullRequestNumber}`,
+          );
+          if (cancelled) return;
+          setPullRequest(prData.pullRequest);
+          setError(localDiffError);
+          return;
+        }
         if (!statusData.status.branch || statusData.status.isDefaultBranch) {
           setPullRequest(null);
           setError(localDiffError);
@@ -515,7 +752,7 @@ function useProjectPullRequest(project: ProjectSummary | null): {
       window.clearInterval(interval);
       window.removeEventListener(PROJECT_GIT_CHANGED_EVENT, onProjectGitChanged);
     };
-  }, [project, refreshKey]);
+  }, [project, refreshKey, selectedPullRequestNumber]);
 
   return {
     gitStatus,
@@ -525,6 +762,11 @@ function useProjectPullRequest(project: ProjectSummary | null): {
     creating,
     error,
     refresh: () => setRefreshKey((current) => current + 1),
+    selectPullRequest: (number: number) => {
+      if (!project) return;
+      setSelectedPullRequest({ projectId: project.id, number });
+      setRefreshKey((current) => current + 1);
+    },
     createPullRequest: () => {
       if (!project || !gitStatus?.branch || creating) return;
       setCreating(true);
@@ -537,6 +779,10 @@ function useProjectPullRequest(project: ProjectSummary | null): {
         },
       )
         .then((data) => {
+          setSelectedPullRequest({
+            projectId: project.id,
+            number: data.pullRequest.number,
+          });
           setPullRequest(data.pullRequest);
           setError(null);
         })
