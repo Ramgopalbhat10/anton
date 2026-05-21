@@ -154,6 +154,7 @@ const checkRunSchema = z.object({
     .nullable()
     .catch(null),
   html_url: z.string().url().nullable().optional(),
+  details_url: z.string().url().nullable().optional(),
 });
 
 const checkRunsResponseSchema = z.object({
@@ -449,14 +450,14 @@ export async function createInstallationToken(installationId: number): Promise<{
   return result;
 }
 
-export async function getCheckRunLogs(input: {
+export async function getWorkflowJobLogs(input: {
   installationId: number;
   owner: string;
   repo: string;
-  checkRunId: number;
+  jobId: number;
 }): Promise<string> {
   const token = await createInstallationToken(input.installationId);
-  const url = `${GITHUB_API}/repos/${repoPath(input.owner, input.repo)}/actions/jobs/${input.checkRunId}/logs`;
+  const url = `${GITHUB_API}/repos/${repoPath(input.owner, input.repo)}/actions/jobs/${input.jobId}/logs`;
 
   const res = await fetch(url, {
     redirect: "manual",
@@ -482,9 +483,25 @@ export async function getCheckRunLogs(input: {
   }
 
   if (!res.ok) {
-    throw new GitHubAppError(`Failed to fetch check run logs (${res.status})`);
+    throw new GitHubAppError(`Failed to fetch workflow job logs (${res.status})`);
   }
   return res.text();
+}
+
+export async function rerunWorkflowJob(input: {
+  installationId: number;
+  owner: string;
+  repo: string;
+  jobId: number;
+}): Promise<void> {
+  const token = await createInstallationToken(input.installationId);
+  await githubFetch(
+    `/repos/${repoPath(input.owner, input.repo)}/actions/jobs/${input.jobId}/rerun`,
+    {
+      method: "POST",
+      token: token.token,
+    },
+  );
 }
 
 async function fetchPullRequest(input: {
@@ -719,10 +736,13 @@ function summarizeChecks(input: {
   const statusContexts = input.status.statuses;
   const runs: ProjectPullRequestCheckSummary[] = input.checkRuns.map((run) => ({
     id: run.id,
+    workflowJobId: workflowJobIdFromCheckRun(run),
     name: run.name,
     status: run.status,
     conclusion: run.conclusion,
     htmlUrl: run.html_url ?? null,
+    detailsUrl: run.details_url ?? null,
+    canRerun: canRerunCheckRun(run),
   }));
   const total = statusContexts.length + runs.length;
   const failed =
@@ -752,6 +772,24 @@ function summarizeChecks(input: {
             : "success";
 
   return { state, total, passed, failed, pending, runs };
+}
+
+function workflowJobIdFromCheckRun(run: GitHubCheckRun): number | null {
+  for (const value of [run.details_url, run.html_url]) {
+    if (!value) continue;
+    const match = /\/actions\/runs\/\d+\/job\/(\d+)(?:\b|$)/.exec(value);
+    if (!match) continue;
+    const id = Number(match[1]);
+    if (Number.isSafeInteger(id) && id > 0) {
+      return id;
+    }
+  }
+  return null;
+}
+
+function canRerunCheckRun(run: GitHubCheckRun): boolean {
+  if (workflowJobIdFromCheckRun(run) === null) return false;
+  return ["failure", "cancelled", "timed_out"].includes(run.conclusion ?? "");
 }
 
 function repoPath(owner: string, repo: string): string {

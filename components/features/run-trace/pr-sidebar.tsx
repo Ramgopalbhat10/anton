@@ -12,6 +12,7 @@ import {
   Loader2,
   MessageSquare,
   RefreshCw,
+  RotateCcw,
   XCircle,
 } from "lucide-react";
 
@@ -156,6 +157,7 @@ export function PullRequestPanel({
           <ChecksView
             pullRequest={pullRequest}
             projectId={projectId}
+            onRefresh={onRefresh}
           />
         </TabsContent>
       </Tabs>
@@ -429,9 +431,11 @@ function PatchView({ file }: { file: ProjectPullRequestFileSummary }) {
 function ChecksView({
   pullRequest,
   projectId,
+  onRefresh,
 }: {
   pullRequest: ProjectPullRequestSummary;
   projectId: string | null;
+  onRefresh: () => void;
 }) {
   const meta = checkStateMeta(pullRequest.checks.state);
   if (pullRequest.checks.total === 0) {
@@ -458,6 +462,7 @@ function ChecksView({
             <CheckRunRow
               run={run}
               projectId={projectId}
+              onRefresh={onRefresh}
             />
           </li>
         ))}
@@ -469,21 +474,27 @@ function ChecksView({
 function CheckRunRow({
   run,
   projectId,
+  onRefresh,
 }: {
   run: ProjectPullRequestCheckSummary;
   projectId: string | null;
+  onRefresh: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [logs, setLogs] = useState<string | null>(null);
   const [loadingLogs, setLoadingLogs] = useState(false);
+  const [rerunning, setRerunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const jobId = run.workflowJobId;
+  const canLoadLogs = Boolean(projectId && jobId);
+  const canRerun = Boolean(projectId && jobId && run.canRerun);
 
   const fetchLogs = async () => {
-    if (!projectId || !run.id) return;
+    if (!projectId || !jobId) return;
     setLoadingLogs(true);
     setError(null);
     try {
-      const res = await fetch(`/api/projects/${projectId}/github/check-runs/${run.id}/logs`);
+      const res = await fetch(`/api/projects/${projectId}/github/actions/jobs/${jobId}/logs`);
       if (!res.ok) {
         throw new Error(await responseError(res, "Failed to load logs"));
       }
@@ -496,7 +507,30 @@ function CheckRunRow({
     }
   };
 
+  const rerunJob = async () => {
+    if (!projectId || !jobId || !run.canRerun) return;
+    setRerunning(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/projects/${projectId}/github/actions/jobs/${jobId}/rerun`,
+        { method: "POST" },
+      );
+      if (!res.ok) {
+        throw new Error(await responseError(res, "Failed to rerun job"));
+      }
+      setLogs(null);
+      onRefresh();
+    } catch (err) {
+      setExpanded(true);
+      setError(err instanceof Error ? err.message : "Failed to rerun job");
+    } finally {
+      setRerunning(false);
+    }
+  };
+
   const toggleExpand = () => {
+    if (!canLoadLogs) return;
     const next = !expanded;
     setExpanded(next);
     if (next && !logs) {
@@ -512,14 +546,22 @@ function CheckRunRow({
         <button
           type="button"
           onClick={toggleExpand}
+          disabled={!canLoadLogs}
           className="grid min-w-0 flex-1 grid-cols-[0.875rem_1fr] items-center gap-2 text-left"
+          title={canLoadLogs ? "View logs" : "No workflow job logs available for this check"}
         >
           <runMeta.Icon className={cn("size-3.5 shrink-0", runMeta.className)} />
-          <span className="min-w-0 truncate font-medium">{run.name}</span>
+          <span className="min-w-0">
+            <span className="block truncate font-medium">{run.name}</span>
+            <span className="block truncate font-mono text-[10px] text-muted-foreground">
+              {run.conclusion ?? run.status}
+              {jobId ? ` | job ${jobId}` : " | GitHub check"}
+            </span>
+          </span>
         </button>
 
         <div className="flex shrink-0 items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-          {run.htmlUrl ? (
+          {run.htmlUrl ?? run.detailsUrl ? (
             <Button
               type="button"
               size="icon-xs"
@@ -527,12 +569,28 @@ function CheckRunRow({
               asChild
               title="Open check on GitHub"
             >
-              <a href={run.htmlUrl} target="_blank" rel="noreferrer">
+              <a href={run.htmlUrl ?? run.detailsUrl ?? ""} target="_blank" rel="noreferrer">
                 <ExternalLink className="size-3" />
               </a>
             </Button>
           ) : null}
-          {projectId && run.id ? (
+          {canRerun ? (
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="ghost"
+              onClick={rerunJob}
+              disabled={rerunning}
+              title="Rerun failed job"
+            >
+              {rerunning ? (
+                <Loader2 className="size-3 animate-spin" />
+              ) : (
+                <RotateCcw className="size-3" />
+              )}
+            </Button>
+          ) : null}
+          {canLoadLogs ? (
             <Button
               type="button"
               size="icon-xs"
