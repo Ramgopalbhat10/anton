@@ -6,8 +6,18 @@ import { projects } from "@/src/db/schema";
 import { listInstallationRepositories } from "./app";
 
 export function parseGitHubUrl(url: string): { owner: string; name: string } | null {
-  const match = url.match(/github\.com[/:]([^/]+)\/([^/.]+)(?:\.git)?/);
-  if (!match) return null;
+  const trimmed = url.trim();
+  const httpsMatch = /^https:\/\/github\.com\/([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i.exec(
+    trimmed,
+  );
+  const sshMatch = /^(?:ssh:\/\/git@github\.com\/|git@github\.com:)([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i.exec(
+    trimmed,
+  );
+  const match = httpsMatch ?? sshMatch;
+  if (!match) {
+    return null;
+  }
+
   return {
     owner: match[1],
     name: match[2],

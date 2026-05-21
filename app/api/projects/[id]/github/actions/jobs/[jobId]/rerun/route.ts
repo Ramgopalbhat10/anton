@@ -1,13 +1,13 @@
 import { getProject } from "@/src/db/queries";
-import { getCheckRunLogs } from "@/src/github/app";
+import { rerunWorkflowJob } from "@/src/github/app";
 import { redactText } from "@/src/lib/redaction";
 
 export const runtime = "nodejs";
 
-type Ctx = { params: Promise<{ id: string; checkRunId: string }> };
+type Ctx = { params: Promise<{ id: string; jobId: string }> };
 
-export async function GET(_req: Request, { params }: Ctx) {
-  const { id, checkRunId } = await params;
+export async function POST(_req: Request, { params }: Ctx) {
+  const { id, jobId } = await params;
   const project = getProject(id);
   if (!project) {
     return Response.json({ error: "project not found" }, { status: 404 });
@@ -20,23 +20,19 @@ export async function GET(_req: Request, { params }: Ctx) {
     return Response.json({ error: "project is not a ready GitHub repository" }, { status: 400 });
   }
 
-  const numericCheckRunId = Number(checkRunId);
-  if (Number.isNaN(numericCheckRunId)) {
-    return Response.json({ error: "invalid check run ID" }, { status: 400 });
+  const numericJobId = Number(jobId);
+  if (!Number.isSafeInteger(numericJobId) || numericJobId <= 0) {
+    return Response.json({ error: "invalid workflow job ID" }, { status: 400 });
   }
 
   try {
-    const logs = await getCheckRunLogs({
+    await rerunWorkflowJob({
       installationId: project.githubInstallationId,
       owner: project.owner,
       repo: project.name,
-      checkRunId: numericCheckRunId,
+      jobId: numericJobId,
     });
-    return new Response(logs, {
-      headers: {
-        "content-type": "text/plain; charset=utf-8",
-      },
-    });
+    return Response.json({ ok: true });
   } catch (err) {
     return Response.json(
       { error: redactText(errorMessage(err)) },

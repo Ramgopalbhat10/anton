@@ -6,6 +6,7 @@ import type { ProjectGitStatusSummary, ProjectSummary } from "@/src/lib/api-type
 import { getJson } from "@/src/lib/client-fetch";
 
 export const PROJECT_GIT_CHANGED_EVENT = "anton-project-git-change";
+const PROJECT_GIT_STATUS_POLL_INTERVAL_MS = 120_000;
 
 export function useProjectSummary(projectId: string | null): ProjectSummary | null {
   const [loadedProject, setLoadedProject] = useState<{
@@ -47,7 +48,11 @@ export function useProjectGitStatus(
     }
 
     let cancelled = false;
+    let loading = false;
+    let pollTimeout: number | null = null;
     const loadStatus = async () => {
+      if (loading) return;
+      loading = true;
       try {
         const data = await getJson<{ status: ProjectGitStatusSummary }>(
           `/api/projects/${projectId}/git/status`,
@@ -57,12 +62,22 @@ export function useProjectGitStatus(
         }
       } catch {
         if (!cancelled) {
-          setLoadedStatus({ projectId, status: null });
+          setLoadedStatus((current) =>
+            current?.projectId === projectId ? current : { projectId, status: null },
+          );
         }
+      } finally {
+        loading = false;
       }
     };
-    void loadStatus();
-    const interval = window.setInterval(() => void loadStatus(), 15000);
+    const schedulePoll = () => {
+      if (cancelled) return;
+      pollTimeout = window.setTimeout(() => {
+        void loadStatus().finally(schedulePoll);
+      }, PROJECT_GIT_STATUS_POLL_INTERVAL_MS);
+    };
+
+    void loadStatus().finally(schedulePoll);
     const onProjectGitChanged = (event: Event) => {
       if (
         event instanceof CustomEvent &&
@@ -75,7 +90,9 @@ export function useProjectGitStatus(
     window.addEventListener(PROJECT_GIT_CHANGED_EVENT, onProjectGitChanged);
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
+      if (pollTimeout !== null) {
+        window.clearTimeout(pollTimeout);
+      }
       window.removeEventListener(PROJECT_GIT_CHANGED_EVENT, onProjectGitChanged);
     };
   }, [projectId]);

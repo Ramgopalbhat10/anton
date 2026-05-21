@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatAddToolApproveResponseFunction } from "ai";
 import {
   Check,
@@ -91,7 +91,10 @@ export function Worklog({
   const [activeTab, setActiveTab] = useState<SidebarTab | null>("worklog");
   const [menuOpen, setMenuOpen] = useState(false);
   const [lastAutoPr, setLastAutoPr] = useState<number | null>(null);
-  const prState = useProjectPullRequest(project);
+  const prState = useProjectPullRequest(project, {
+    enabled: visible,
+    poll: visible && activeTab === "pr",
+  });
   const hasGithubProject = project?.provider === "github" && project.status === "ready";
   const pullRequestNumber = prState.pullRequest?.number ?? null;
 
@@ -296,6 +299,8 @@ const SIDEBAR_TABS = [
   label: string;
   Icon: typeof TerminalSquare;
 }[];
+
+const PR_POLL_INTERVAL_MS = 120_000;
 
 function tabMeta(
   tab: SidebarTab,
@@ -628,7 +633,10 @@ function firstLine(value: string): string {
   return value.split(/\r?\n/).find((line) => line.trim().length > 0)?.trim() ?? "Markdown plan";
 }
 
-function useProjectPullRequest(project: ProjectSummary | null): {
+function useProjectPullRequest(
+  project: ProjectSummary | null,
+  options: { enabled: boolean; poll: boolean },
+): {
   gitStatus: ProjectGitStatusSummary | null;
   localDiff: ProjectLocalDiffSummary | null;
   pullRequest: ProjectPullRequestSummary | null;
@@ -646,6 +654,7 @@ function useProjectPullRequest(project: ProjectSummary | null): {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const latestPullRequestRef = useRef<ProjectPullRequestSummary | null>(null);
   const [selectedPullRequest, setSelectedPullRequest] = useState<{
     projectId: string;
     number: number;
@@ -654,9 +663,17 @@ function useProjectPullRequest(project: ProjectSummary | null): {
     selectedPullRequest !== null && selectedPullRequest.projectId === project?.id
       ? selectedPullRequest.number
       : null;
+  const setCurrentPullRequest = useCallback(
+    (nextPullRequest: ProjectPullRequestSummary | null) => {
+      latestPullRequestRef.current = nextPullRequest;
+      setPullRequest(nextPullRequest);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (
+      !options.enabled ||
       !project ||
       project.provider !== "github" ||
       project.status !== "ready"
@@ -664,7 +681,7 @@ function useProjectPullRequest(project: ProjectSummary | null): {
       queueMicrotask(() => {
         setGitStatus(null);
         setLocalDiff(null);
-        setPullRequest(null);
+        setCurrentPullRequest(null);
         setError(null);
         setLoading(false);
         setCreating(false);
@@ -673,7 +690,11 @@ function useProjectPullRequest(project: ProjectSummary | null): {
     }
 
     let cancelled = false;
+    let loadingRequest = false;
+    let pollTimeout: number | null = null;
     const load = async (showLoading: boolean) => {
+      if (loadingRequest) return;
+      loadingRequest = true;
       if (showLoading) setLoading(true);
       try {
         const statusData = await getJson<{ status: ProjectGitStatusSummary }>(
@@ -699,44 +720,64 @@ function useProjectPullRequest(project: ProjectSummary | null): {
           setLocalDiff(null);
         }
         if (selectedPullRequestNumber !== null) {
-          const prData = await getJson<{
-            pullRequest: ProjectPullRequestSummary;
-          }>(
-            `/api/projects/${project.id}/github/pull-request?number=${selectedPullRequestNumber}`,
-          );
+          let prData: { pullRequest: ProjectPullRequestSummary };
+          try {
+            prData = await getJson<{
+              pullRequest: ProjectPullRequestSummary;
+            }>(
+              `/api/projects/${project.id}/github/pull-request?number=${selectedPullRequestNumber}`,
+            );
+          } catch (err) {
+            if (cancelled) return;
+            setError(errorMessage(err, "Failed to load PR"));
+            return;
+          }
           if (cancelled) return;
-          setPullRequest(prData.pullRequest);
+          setCurrentPullRequest(prData.pullRequest);
           setError(localDiffError);
           return;
         }
         if (!statusData.status.branch || statusData.status.isDefaultBranch) {
-          setPullRequest(null);
+          setCurrentPullRequest(null);
           setError(localDiffError);
           return;
         }
-        const prData = await getJson<{
-          pullRequest: ProjectPullRequestSummary | null;
-        }>(
-          `/api/projects/${project.id}/github/pull-request?branch=${encodeURIComponent(
-            statusData.status.branch,
-          )}`,
-        );
+        let prData: { pullRequest: ProjectPullRequestSummary | null };
+        try {
+          prData = await getJson<{
+            pullRequest: ProjectPullRequestSummary | null;
+          }>(
+            `/api/projects/${project.id}/github/pull-request?branch=${encodeURIComponent(
+              statusData.status.branch,
+            )}`,
+          );
+        } catch (err) {
+          if (cancelled) return;
+          setError(errorMessage(err, "Failed to load PR"));
+          return;
+        }
         if (cancelled) return;
-        setPullRequest(prData.pullRequest);
+        setCurrentPullRequest(prData.pullRequest);
         setError(localDiffError);
       } catch (err) {
         if (!cancelled) {
-          setLocalDiff(null);
-          setPullRequest(null);
-          setError(err instanceof Error ? err.message : "Failed to load PR");
+          setError(errorMessage(err, "Failed to load PR"));
         }
       } finally {
+        loadingRequest = false;
         if (!cancelled) setLoading(false);
       }
     };
+    const schedulePoll = () => {
+      if (cancelled || !options.poll) return;
+      const currentPullRequest = latestPullRequestRef.current;
+      if (currentPullRequest === null || currentPullRequest.merged) return;
+      pollTimeout = window.setTimeout(() => {
+        void load(false).finally(schedulePoll);
+      }, PR_POLL_INTERVAL_MS);
+    };
 
-    void load(true);
-    const interval = window.setInterval(() => void load(false), 15000);
+    void load(true).finally(schedulePoll);
     const onProjectGitChanged = (event: Event) => {
       if (
         event instanceof CustomEvent &&
@@ -749,10 +790,19 @@ function useProjectPullRequest(project: ProjectSummary | null): {
     window.addEventListener(PROJECT_GIT_CHANGED_EVENT, onProjectGitChanged);
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
+      if (pollTimeout !== null) {
+        window.clearTimeout(pollTimeout);
+      }
       window.removeEventListener(PROJECT_GIT_CHANGED_EVENT, onProjectGitChanged);
     };
-  }, [project, refreshKey, selectedPullRequestNumber]);
+  }, [
+    options.enabled,
+    options.poll,
+    project,
+    refreshKey,
+    selectedPullRequestNumber,
+    setCurrentPullRequest,
+  ]);
 
   return {
     gitStatus,
@@ -783,7 +833,7 @@ function useProjectPullRequest(project: ProjectSummary | null): {
             projectId: project.id,
             number: data.pullRequest.number,
           });
-          setPullRequest(data.pullRequest);
+          setCurrentPullRequest(data.pullRequest);
           setError(null);
         })
         .catch((err: unknown) => {

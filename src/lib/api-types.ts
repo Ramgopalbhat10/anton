@@ -97,6 +97,7 @@ export type ProjectLocalDiffSummary = {
 
 export type ProjectPullRequestCheckSummary = {
   id: number | null;
+  workflowJobId: number | null;
   name: string;
   status: "queued" | "in_progress" | "completed" | "unknown";
   conclusion:
@@ -109,6 +110,8 @@ export type ProjectPullRequestCheckSummary = {
     | "action_required"
     | null;
   htmlUrl: string | null;
+  detailsUrl: string | null;
+  canRerun: boolean;
 };
 
 export type ProjectPullRequestDiscussionItem = {
