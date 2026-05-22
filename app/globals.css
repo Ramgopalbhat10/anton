@@ -149,6 +149,37 @@
     border-radius: 999px;
     background-clip: padding-box;
   }
+  .anton-file-tree {
+    --trees-accent-override: var(--primary);
+    --trees-bg-override: transparent;
+    --trees-bg-muted-override: color-mix(in oklch, var(--foreground) 6%, transparent);
+    --trees-border-color-override: var(--border);
+    --trees-border-radius-override: var(--radius-sm);
+    --trees-fg-muted-override: var(--muted-foreground);
+    --trees-fg-override: var(--foreground);
+    --trees-focus-ring-color-override: var(--ring);
+    --trees-font-family-override: var(--font-geist-mono);
+    --trees-font-size-override: 11px;
+    --trees-gap-override: 1px;
+    --trees-item-margin-x-override: 4px;
+    --trees-item-padding-x-override: 6px;
+    --trees-padding-inline-override: 4px;
+    --trees-search-bg-override: var(--secondary);
+    --trees-search-fg-override: var(--foreground);
+    --trees-git-added-color-override: #00d7ff;
+    --trees-git-deleted-color-override: #ff4d5f;
+    --trees-git-ignored-color-override: var(--muted-foreground);
+    --trees-git-modified-color-override: #00d7ff;
+    --trees-git-renamed-color-override: #ffd166;
+    --trees-git-untracked-color-override: #00d7ff;
+    --trees-selected-bg-override: color-mix(in oklch, var(--primary) 18%, transparent);
+    --trees-selected-fg-override: var(--foreground);
+  }
+  .project-file-code-view pierre-diffs {
+    display: block;
+    height: 100%;
+    min-height: 0;
+  }
   ::-webkit-scrollbar-thumb:hover {
     background: color-mix(in oklch, var(--foreground) 24%, transparent);
     border: 3px solid transparent;
@@ -159,4 +190,12 @@
     height: 0;
     display: none;
   }
+}
+
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
 }
