@@ -114,9 +114,13 @@ export async function POST(req: Request) {
   }
 
   const { sessionId } = parsed.data;
-  const mode = parsed.data.mode ?? DEFAULT_CHAT_MODE;
   const uiMessages = parsed.data.messages as AntonUIMessage[];
-  const profile = runProfileForMessages(mode, uiMessages);
+  const incomingHistory = uiMessages.filter(hasSubstantiveHistoryParts);
+  const approvalContinuation = isToolApprovalContinuation(incomingHistory);
+  const mode = approvalContinuation
+    ? "agent"
+    : parsed.data.mode ?? DEFAULT_CHAT_MODE;
+  const profile = runProfileForMessages(mode, incomingHistory);
   const needsProject = mode !== "chat";
   const requestBodyBytes = byteLength(JSON.stringify(json ?? {}));
   const model = parsed.data.model ?? DEFAULT_MODEL;
@@ -152,8 +156,6 @@ export async function POST(req: Request) {
       projectId,
     });
   } else {
-    const incomingHistory = uiMessages.filter(hasSubstantiveHistoryParts);
-    const approvalContinuation = isToolApprovalContinuation(incomingHistory);
     const conflict = getMessagePersistenceConflict(sessionId, incomingHistory, {
       mutableTailCount: approvalContinuation ? 1 : 0,
       allowExtraAssistantTail: approvalContinuation,
@@ -189,6 +191,12 @@ export async function POST(req: Request) {
     if (existing.model !== model) {
       touchSession(sessionId, model);
     }
+  }
+  if (incomingHistory.length > 0) {
+    saveMessagesIncrementally<AntonUIMessage>(
+      sessionId,
+      redactValue(incomingHistory) as AntonUIMessage[],
+    );
   }
 
   const budget = budgetForProfile(profile);
@@ -1373,10 +1381,10 @@ function runProfileForMessages(
   mode: ChatMode,
   messages: AntonUIMessage[],
 ): AgentRunProfile {
+  if (isToolApprovalContinuation(messages)) return "approval-continuation";
   if (mode === "chat") return "pure-chat";
   if (mode === "ask") return "ask";
   if (mode === "plan") return "plan";
-  if (isToolApprovalContinuation(messages)) return "approval-continuation";
   const latestText = latestUserText(messages).trim().toLowerCase();
   if (latestText === "implement plan") return "accepted-plan-simple";
   if (

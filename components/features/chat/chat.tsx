@@ -1,16 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import {
   DefaultChatTransport,
   lastAssistantMessageIsCompleteWithApprovalResponses,
+  type ChatAddToolApproveResponseFunction,
+  type ChatRequestOptions,
 } from "ai";
 import { PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 
-import { DEFAULT_MODEL_ID, type ModelId } from "@/src/lib/models";
-import { DEFAULT_CHAT_MODE, type ChatMode } from "@/src/lib/chat-modes";
+import {
+  DEFAULT_MODEL_ID,
+  isSupportedModelId,
+  type ModelId,
+} from "@/src/lib/models";
+import { CHAT_MODES, DEFAULT_CHAT_MODE, type ChatMode } from "@/src/lib/chat-modes";
 import type { PermissionMode } from "@/src/agent/permissions";
 import type { AntonUIMessage } from "@/src/lib/trace";
 import type { McpPreflightServer, McpServerSummary } from "@/src/lib/api-types";
@@ -64,6 +70,8 @@ type ComposerControlState = {
 };
 
 const composerControlStateBySession = new Map<string, ComposerControlState>();
+const COMPOSER_CONTROLS_STORAGE_PREFIX = "anton:composer-controls:";
+const PERMISSION_MODES = ["default", "auto-review", "full-access"] as const;
 
 function ChatSession({
   sessionId: sessionIdProp,
@@ -88,6 +96,12 @@ function ChatSession({
     initialProjectId,
     { listen: initialProjectId === null },
   );
+  const initialControls = useMemo(
+    () =>
+      composerControlStateBySession.get(sessionId) ??
+      readStoredComposerControlState(sessionId),
+    [sessionId],
+  );
   const [worklogOpen, setWorklogOpen] = useState(false);
   const [worklogExpanded, setWorklogExpanded] = useState(false);
   const [mobileWorklogOpen, setMobileWorklogOpen] = useState(false);
@@ -100,22 +114,21 @@ function ChatSession({
     sessionIdProp !== undefined &&
       (initialMessages?.filter(hasVisibleMessageParts).length ?? 0) === 0,
   );
-  const cachedControls = composerControlStateBySession.get(sessionId);
   const [model, setModel] = useState<ModelId>(
-    cachedControls?.model ?? ((initialModel ?? DEFAULT_MODEL_ID) as ModelId),
+    initialControls?.model ?? ((initialModel ?? DEFAULT_MODEL_ID) as ModelId),
   );
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(
-    cachedControls?.permissionMode ?? "auto-review",
+    initialControls?.permissionMode ?? "auto-review",
   );
   const [mode, setMode] = useState<ChatMode>(
-    cachedControls?.mode ?? DEFAULT_CHAT_MODE,
+    initialControls?.mode ?? DEFAULT_CHAT_MODE,
   );
   const [thinkingEnabled, setThinkingEnabled] = useState(
-    cachedControls?.thinkingEnabled ?? false,
+    initialControls?.thinkingEnabled ?? false,
   );
   const [mcpServers, setMcpServers] = useState<McpServerSummary[]>([]);
   const [selectedMcpServerIds, setSelectedMcpServerIds] = useState<string[]>(
-    cachedControls?.selectedMcpServerIds ?? [],
+    initialControls?.selectedMcpServerIds ?? [],
   );
   const [pendingMcpSend, setPendingMcpSend] = useState<{
     text: string;
@@ -176,6 +189,37 @@ function ChatSession({
       void refresh();
     },
   });
+  const previousStatusRef = useRef(status);
+
+  const restorePersistedMessages = useCallback(async (
+    options: { isCancelled?: () => boolean } = {},
+  ) => {
+    if (!sessionIdProp) return;
+    const res = await fetch(`/api/sessions/${sessionIdProp}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return;
+    const data = (await res.json()) as { messages?: AntonUIMessage[] };
+    if (options.isCancelled?.()) return;
+    const persistedMessages = data.messages?.filter(hasVisibleMessageParts);
+    if (persistedMessages && persistedMessages.length > 0) {
+      setMessages(data.messages ?? persistedMessages);
+      lastNonEmptyMessagesRef.current = persistedMessages;
+      setMessageDisplayOverride(null);
+    }
+  }, [sessionIdProp, setMessages]);
+
+  useEffect(() => {
+    const previousStatus = previousStatusRef.current;
+    previousStatusRef.current = status;
+    if (
+      sessionIdProp &&
+      status === "ready" &&
+      (previousStatus === "submitted" || previousStatus === "streaming")
+    ) {
+      void restorePersistedMessages().catch(() => undefined);
+    }
+  }, [restorePersistedMessages, sessionIdProp, status]);
 
   useEffect(() => {
     const visibleMessages = messages.filter(hasVisibleMessageParts);
@@ -195,18 +239,10 @@ function ChatSession({
     if (!sessionIdProp || messages.length > 0) return;
 
     let cancelled = false;
-    const restorePersistedMessages = async () => {
+    const restoreInitialPersistedMessages = async () => {
       setRestoringPersistedMessages(true);
       try {
-        const res = await fetch(`/api/sessions/${sessionIdProp}`, {
-          cache: "no-store",
-        });
-        if (!res.ok) return;
-        const data = (await res.json()) as { messages?: AntonUIMessage[] };
-        const persistedMessages = data.messages?.filter(hasVisibleMessageParts);
-        if (!cancelled && persistedMessages && persistedMessages.length > 0) {
-          setMessages(data.messages ?? persistedMessages);
-        }
+        await restorePersistedMessages({ isCancelled: () => cancelled });
       } catch {
         // Keep the current local state; the route refresh still has server truth.
       } finally {
@@ -214,17 +250,36 @@ function ChatSession({
       }
     };
 
-    void restorePersistedMessages();
+    void restoreInitialPersistedMessages();
     return () => {
       cancelled = true;
     };
-  }, [messages.length, sessionIdProp, setMessages]);
+  }, [messages.length, restorePersistedMessages, sessionIdProp]);
 
   useEffect(() => {
     if (resumeAttemptedRef.current || !sessionIdProp) return;
     resumeAttemptedRef.current = true;
     void resumeStream();
   }, [resumeStream, sessionIdProp]);
+
+  useEffect(() => {
+    const storedControls = readStoredComposerControlState(sessionId);
+    if (!storedControls) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setMode(storedControls.mode);
+      setModel(storedControls.model);
+      setPermissionMode(storedControls.permissionMode);
+      setThinkingEnabled(storedControls.thinkingEnabled);
+      if (storedControls.selectedMcpServerIds) {
+        setSelectedMcpServerIds(storedControls.selectedMcpServerIds);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -265,7 +320,54 @@ function ChatSession({
       thinkingEnabled,
       selectedMcpServerIds,
     });
+    writeStoredComposerControlState(sessionId, {
+      mode,
+      model,
+      permissionMode,
+      thinkingEnabled,
+      selectedMcpServerIds,
+    });
   }, [mode, model, permissionMode, selectedMcpServerIds, sessionId, thinkingEnabled]);
+
+  const selectedEnabledMcpServerIds = useCallback(() => (
+    selectedMcpServerIds.filter((id) =>
+      mcpServers.some((server) => server.id === id && server.enabled),
+    )
+  ), [mcpServers, selectedMcpServerIds]);
+
+  const requestBodyForMode = useCallback(
+    (requestedMode: ChatMode): ChatRequestOptions["body"] => ({
+      projectId: effectiveProjectId,
+      model,
+      mode: requestedMode,
+      thinkingEnabled,
+      permissionMode,
+      enabledMcpServerIds:
+        requestedMode === "agent" ? selectedEnabledMcpServerIds() : [],
+    }),
+    [
+      effectiveProjectId,
+      model,
+      permissionMode,
+      selectedEnabledMcpServerIds,
+      thinkingEnabled,
+    ],
+  );
+
+  const approveTool = useCallback<ChatAddToolApproveResponseFunction>(
+    (response) =>
+      addToolApprovalResponse({
+        ...response,
+        options: {
+          ...response.options,
+          body: {
+            ...requestBodyForMode(mode),
+            ...asRecord(response.options?.body),
+          },
+        },
+      }),
+    [addToolApprovalResponse, mode, requestBodyForMode],
+  );
 
   const sendWithMcp = async (
     text: string,
@@ -274,9 +376,7 @@ function ChatSession({
     if (requestedMode !== "chat" && !effectiveProjectId) return false;
     const includeMcp = requestedMode === "agent" && !isAcceptedPlanRequest(text);
     const selectedIds = includeMcp
-      ? selectedMcpServerIds.filter((id) =>
-          mcpServers.some((server) => server.id === id && server.enabled),
-        )
+      ? selectedEnabledMcpServerIds()
       : [];
     if (selectedIds.length > 0) {
       const preflight = await requestJson<{
@@ -300,11 +400,7 @@ function ChatSession({
       { text },
       {
         body: {
-          projectId: effectiveProjectId,
-          model,
-          mode: requestedMode,
-          thinkingEnabled,
-          permissionMode,
+          ...requestBodyForMode(requestedMode),
           enabledMcpServerIds: selectedIds,
         },
       },
@@ -403,7 +499,7 @@ function ChatSession({
             status={status}
             recovering={recoveringMessages}
             streamingResponseMode={streaming ? streamingResponseMode : null}
-            onApproval={addToolApprovalResponse}
+            onApproval={approveTool}
             onAcceptPlan={() => {
               void sendWithMcp("Implement plan", "agent");
             }}
@@ -444,7 +540,7 @@ function ChatSession({
 
         <Worklog
           messages={displayMessages}
-          onApproval={addToolApprovalResponse}
+          onApproval={approveTool}
           project={project}
           visible={worklogOpen}
           expanded={worklogExpanded}
@@ -470,7 +566,7 @@ function ChatSession({
           >
             <Worklog
               messages={displayMessages}
-              onApproval={addToolApprovalResponse}
+              onApproval={approveTool}
               project={project}
               visible
               className="ml-auto h-full w-[min(420px,100%)] border-l"
@@ -497,6 +593,82 @@ function ChatSession({
 
 function isAcceptedPlanRequest(text: string): boolean {
   return text.trim().toLowerCase() === "implement plan";
+}
+
+function composerControlsStorageKey(sessionId: string): string {
+  return `${COMPOSER_CONTROLS_STORAGE_PREFIX}${sessionId}`;
+}
+
+function readStoredComposerControlState(
+  sessionId: string,
+): ComposerControlState | undefined {
+  if (typeof window === "undefined") return undefined;
+  const raw = window.localStorage.getItem(composerControlsStorageKey(sessionId));
+  if (!raw) return undefined;
+  const parsed = parseJsonRecord(raw);
+  if (!parsed) return undefined;
+  const mode = readChatMode(parsed.mode);
+  const model = readModelId(parsed.model);
+  const permissionMode = readPermissionMode(parsed.permissionMode);
+  if (!mode || !model || !permissionMode) return undefined;
+  return {
+    mode,
+    model,
+    permissionMode,
+    thinkingEnabled: parsed.thinkingEnabled === true,
+    selectedMcpServerIds: readStringArray(parsed.selectedMcpServerIds),
+  };
+}
+
+function writeStoredComposerControlState(
+  sessionId: string,
+  controls: ComposerControlState,
+): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(
+    composerControlsStorageKey(sessionId),
+    JSON.stringify(controls),
+  );
+}
+
+function parseJsonRecord(value: string): Record<string, unknown> | undefined {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return asRecord(parsed);
+  } catch {
+    return undefined;
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function readChatMode(value: unknown): ChatMode | undefined {
+  return typeof value === "string" && CHAT_MODES.includes(value as ChatMode)
+    ? value as ChatMode
+    : undefined;
+}
+
+function readModelId(value: unknown): ModelId | undefined {
+  return typeof value === "string" && isSupportedModelId(value)
+    ? value
+    : undefined;
+}
+
+function readPermissionMode(value: unknown): PermissionMode | undefined {
+  return typeof value === "string" &&
+    PERMISSION_MODES.includes(value as PermissionMode)
+    ? value as PermissionMode
+    : undefined;
+}
+
+function readStringArray(value: unknown): string[] | undefined {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : undefined;
 }
 
 function McpTrustDialog({
