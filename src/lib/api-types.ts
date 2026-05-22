@@ -70,6 +70,14 @@ export type ProjectBranchesSummary = {
   branches: ProjectBranchSummary[];
 };
 
+export type ProjectFileTreeSummary = {
+  projectId: string;
+  paths: string[];
+  totalCount: number;
+  truncated: boolean;
+  ignoredDirectories: string[];
+};
+
 export type ProjectIssueSummary = {
   number: number;
   title: string;

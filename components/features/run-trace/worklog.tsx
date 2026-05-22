@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   FileText,
   GitBranch,
+  FolderTree,
   ListTodo,
   Loader2,
   Maximize2,
@@ -53,6 +54,7 @@ import { ApprovalDetails } from "./approval-details";
 import { TodoCard } from "./todo-card";
 import { getSessionTodoSnapshots } from "./trace-data";
 import { PullRequestEmptyPanel, PullRequestPanel } from "./pr-sidebar";
+import { ProjectFilesPanel } from "./project-files-panel";
 import { errorMessage, getJson, jsonHeaders, requestJson } from "@/src/lib/client-fetch";
 import { PROJECT_GIT_CHANGED_EVENT } from "@/components/features/projects/hooks";
 import type {
@@ -64,7 +66,7 @@ import type {
 } from "@/src/lib/api-types";
 
 export type WorklogEntry = ToolTraceEntry;
-type SidebarTab = "worklog" | "plans" | "todos" | "pr";
+type SidebarTab = "worklog" | "plans" | "todos" | "pr" | "files";
 
 interface WorklogProps {
   messages: AntonUIMessage[];
@@ -262,6 +264,8 @@ export function Worklog({
           <PlansPanel messages={messages} />
         ) : activeTab === "todos" ? (
           <TodosPanel messages={messages} />
+        ) : activeTab === "files" ? (
+          <ProjectFilesPanel project={project} visible={visible} />
         ) : activeTab === "pr" && prState.pullRequest ? (
           <PullRequestPanel
             pullRequest={prState.pullRequest}
@@ -294,6 +298,7 @@ const SIDEBAR_TABS = [
   { id: "plans", label: "Plans", Icon: FileText },
   { id: "todos", label: "Todos", Icon: ListTodo },
   { id: "pr", label: "PR", Icon: GitBranch },
+  { id: "files", label: "Files", Icon: FolderTree },
 ] as const satisfies readonly {
   id: SidebarTab;
   label: string;
@@ -510,7 +515,7 @@ function relativePullRequestTime(timestamp: number): string {
 function EmptyTabsPanel() {
   return (
     <div className="flex flex-1 items-center justify-center px-4 text-center text-xs text-muted-foreground">
-      Add a sidebar tab to view worklog activity, generated plans, or todos.
+      Add a sidebar tab to view worklog activity, generated plans, todos, or files.
     </div>
   );
 }
