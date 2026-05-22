@@ -164,7 +164,7 @@
     --trees-item-margin-x-override: 4px;
     --trees-item-padding-x-override: 6px;
     --trees-padding-inline-override: 4px;
-    --trees-search-bg-override: color-mix(in oklch, var(--primary) 24%, transparent);
+    --trees-search-bg-override: var(--secondary);
     --trees-search-fg-override: var(--foreground);
     --trees-selected-bg-override: color-mix(in oklch, var(--primary) 18%, transparent);
     --trees-selected-fg-override: var(--foreground);

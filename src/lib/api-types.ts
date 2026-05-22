@@ -78,6 +78,14 @@ export type ProjectFileTreeSummary = {
   ignoredDirectories: string[];
 };
 
+export type ProjectFileContentSummary = {
+  projectId: string;
+  path: string;
+  content: string;
+  sizeBytes: number;
+  sha256: string;
+};
+
 export type ProjectIssueSummary = {
   number: number;
   title: string;

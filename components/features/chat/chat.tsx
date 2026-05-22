@@ -544,12 +544,16 @@ function ChatSession({
           project={project}
           visible={worklogOpen}
           expanded={worklogExpanded}
+          onFileOpen={() => {
+            sidebar.setOpen(false);
+            setWorklogExpanded(true);
+          }}
           onExpandToggle={() => setWorklogExpanded((value) => !value)}
           className={cn(
             "hidden shrink-0 overflow-hidden transition-[width] duration-200 ease-in xl:flex",
             worklogOpen
               ? worklogExpanded
-                ? "xl:w-1/2"
+                ? "xl:w-[65%]"
                 : "xl:w-[420px]"
               : "xl:w-0 xl:border-l-0",
           )}
@@ -571,6 +575,7 @@ function ChatSession({
               visible
               className="ml-auto h-full w-[min(420px,100%)] border-l"
               onClose={() => setMobileWorklogOpen(false)}
+              onFileOpen={() => setMobileWorklogOpen(false)}
             />
           </div>
         )}

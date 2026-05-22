@@ -77,6 +77,7 @@ interface WorklogProps {
   visible?: boolean;
   expanded?: boolean;
   onExpandToggle?: () => void;
+  onFileOpen?: () => void;
 }
 
 export function Worklog({
@@ -88,6 +89,7 @@ export function Worklog({
   visible = true,
   expanded = false,
   onExpandToggle,
+  onFileOpen,
 }: WorklogProps) {
   const [tabs, setTabs] = useState<SidebarTab[]>(["worklog"]);
   const [activeTab, setActiveTab] = useState<SidebarTab | null>("worklog");
@@ -265,7 +267,12 @@ export function Worklog({
         ) : activeTab === "todos" ? (
           <TodosPanel messages={messages} />
         ) : activeTab === "files" ? (
-          <ProjectFilesPanel project={project} visible={visible} />
+          <ProjectFilesPanel
+            project={project}
+            visible={visible}
+            expanded={expanded}
+            onFileOpen={onFileOpen}
+          />
         ) : activeTab === "pr" && prState.pullRequest ? (
           <PullRequestPanel
             pullRequest={prState.pullRequest}
