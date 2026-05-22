@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  FileCode2,
+  FileCode,
+  FileJson,
+  FileText,
+  Image as FileImage,
+  Music as FileAudio,
+  Video as FileVideo,
   FolderTree,
   Loader2,
   RefreshCw,
@@ -132,9 +137,9 @@ export function ProjectFilesPanel({
           )}
         >
           <ProjectFileTree
+            project={project}
             paths={state.fileTree.paths}
             gitStatus={state.fileTree.gitStatus}
-            totalCount={state.fileTree.totalCount}
             truncated={state.fileTree.truncated}
             refreshing={state.refreshing}
             onRefresh={state.refresh}
@@ -160,7 +165,7 @@ export function ProjectFilesPanel({
         <ProjectFilesEmptyState message="No files found in this project." />
       )}
       {state.error ? (
-        <div className="border-t border-border px-3 py-2 text-[11px] text-destructive">
+        <div className="border-t border-border px-2 py-2 text-[12px] text-destructive">
           {state.error}
         </div>
       ) : null}
@@ -169,9 +174,9 @@ export function ProjectFilesPanel({
 }
 
 function ProjectFileTree({
+  project,
   paths,
   gitStatus,
-  totalCount,
   truncated,
   refreshing,
   onRefresh,
@@ -179,9 +184,9 @@ function ProjectFileTree({
   selectedPath,
   className,
 }: {
+  project: ProjectSummary | null;
   paths: readonly string[];
   gitStatus: readonly GitStatusEntry[];
-  totalCount: number;
   truncated: boolean;
   refreshing: boolean;
   onRefresh: () => void;
@@ -227,7 +232,7 @@ function ProjectFileTree({
         <div className="min-w-0 truncate font-mono text-[10px] text-muted-foreground">
           {search.value
             ? `${search.matchingPaths.length.toLocaleString()} match${search.matchingPaths.length === 1 ? "" : "es"}`
-            : `${totalCount.toLocaleString()} files`}
+            : project?.localPath || "Project"}
           {truncated ? ` · showing ${paths.length.toLocaleString()}` : ""}
         </div>
         <Button
@@ -245,7 +250,7 @@ function ProjectFileTree({
       <div className="min-h-0 flex-1 overflow-hidden px-2 py-2">
         <FileTree
           model={model}
-          className="anton-file-tree h-full overflow-hidden rounded-md border border-border bg-background/45 [--trees-search-bg-override:var(--secondary)]"
+          className="anton-file-tree h-full overflow-hidden [--trees-search-bg-override:var(--secondary)]"
           style={fileTreeStyle}
           aria-label="Project file tree"
         />
@@ -291,7 +296,19 @@ function ProjectFileViewer({
   return (
     <div className="flex min-h-0 min-w-0 flex-col bg-background/25">
       <div className="border-b border-border px-2">
-        <div className="flex h-10 min-w-0 items-center gap-1 overflow-x-auto py-1">
+        <div
+          className="flex h-10 min-w-0 items-center gap-1 overflow-x-auto py-1 scrollbar-hide"
+          style={{
+            scrollbarWidth: 'none',
+            msOverflowStyle: 'none',
+          }}
+          onWheel={(e) => {
+            if (e.deltaY !== 0) {
+              e.currentTarget.scrollLeft += e.deltaY;
+              e.preventDefault();
+            }
+          }}
+        >
           {files.map((file) => (
             <div
               key={file.path}
@@ -312,7 +329,7 @@ function ProjectFileViewer({
                 aria-label={`Close ${file.path}`}
                 title={`Close ${baseName(file.path)}`}
               >
-                <FileCode2 className="size-3.5 transition-opacity group-hover/close:opacity-0 group-focus-visible/close:opacity-0" />
+                <FileIcon path={file.path} className="size-3.5 transition-opacity group-hover/close:opacity-0 group-focus-visible/close:opacity-0" />
                 <X className="absolute size-3.5 opacity-0 transition-opacity group-hover/close:opacity-100 group-focus-visible/close:opacity-100" />
               </button>
               <button
@@ -328,11 +345,16 @@ function ProjectFileViewer({
         </div>
       </div>
       {activeFile ? (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <div className="flex h-8 shrink-0 items-center justify-between gap-3 border-b border-border px-3">
-            <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">
-              {activeFile.path}
-            </span>
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border px-3">
+            <div className="min-w-0 flex items-center gap-1 font-mono text-[12px] text-muted-foreground">
+              {activeFile.path.split("/").filter(Boolean).map((segment, index, array) => (
+                <span key={index} className="flex items-center gap-1">
+                  <span className="truncate hover:text-foreground transition-colors">{segment}</span>
+                  {index < array.length - 1 && <span className="shrink-0 text-muted-foreground/50">/</span>}
+                </span>
+              ))}
+            </div>
             {activeFile.sizeBytes !== null ? (
               <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
                 {formatBytes(activeFile.sizeBytes)}
@@ -452,4 +474,31 @@ function formatBytes(sizeBytes: number): string {
   if (kib < 1024) return `${kib.toFixed(kib >= 10 ? 0 : 1)} KiB`;
   const mib = kib / 1024;
   return `${mib.toFixed(mib >= 10 ? 0 : 1)} MiB`;
+}
+
+
+
+function FileIcon({ path, className }: { path: string; className?: string }) {
+  const extension = path.split(".").pop()?.toLowerCase() || "";
+  
+  if (["js", "jsx", "ts", "tsx", "vue", "py", "rs", "go", "css", "scss", "html"].includes(extension)) {
+    return <FileCode className={className} />;
+  }
+  if (extension === "json" || extension === "yaml" || extension === "yml") {
+    return <FileJson className={className} />;
+  }
+  if (["png", "jpg", "jpeg", "gif", "svg", "webp"].includes(extension)) {
+    return <FileImage className={className} />;
+  }
+  if (["mp3", "wav", "ogg", "flac"].includes(extension)) {
+    return <FileAudio className={className} />;
+  }
+  if (["mp4", "webm", "mov", "avi"].includes(extension)) {
+    return <FileVideo className={className} />;
+  }
+  if (extension === "md" || extension === "markdown") {
+    return <FileText className={className} />;
+  }
+  
+  return <FileCode className={className} />;
 }

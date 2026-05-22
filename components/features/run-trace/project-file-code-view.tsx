@@ -20,7 +20,7 @@ const codeViewerOptions = {
   themeType: "dark" as const,
   unsafeCSS: `
     :host {
-      --diffs-dark-bg: #090909;
+      --diffs-dark-bg: hsl(var(--background)/0.25);
       --diffs-dark: #ededed;
       --diffs-font-size: 11px;
       --diffs-line-height: 19px;
@@ -32,7 +32,7 @@ const codeViewerOptions = {
     }
     [data-column-number] {
       padding-right: 14px;
-      background: #090909;
+      background: transparent;
       border-right: 1px solid rgba(255, 255, 255, 0.08);
     }
     [data-code] {
@@ -78,7 +78,7 @@ export function ProjectFileCodeView({
   return (
     <div
       ref={containerRef}
-      className={cn("project-file-code-view min-h-0 flex-1 overflow-hidden bg-[#090909]", className)}
+      className={cn("project-file-code-view min-h-0 flex-1 overflow-auto bg-background/25", className)}
     />
   );
 }
