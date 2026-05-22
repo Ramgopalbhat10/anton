@@ -12,10 +12,14 @@ import {
   openrouter,
   DEFAULT_MODEL,
 } from "@/src/lib/providers";
-import { buildTokenUsageMetrics } from "@/src/lib/token-usage";
+import {
+  buildTokenUsageMetrics,
+  openRouterCostFromMetadata,
+} from "@/src/lib/token-usage";
 import { listMemories } from "@/src/db/queries";
 import {
   budgetForProfile,
+  costBudgetStopCondition,
   tokenBudgetStopCondition,
   type RunBudget,
 } from "./run-budget";
@@ -82,6 +86,7 @@ type RunBudgetAudit = Pick<
   | "maxInputTokens"
   | "maxInputBytes"
   | "maxTotalTokens"
+  | "maxCostUsd"
   | "priorRunContextChars"
   | "workspaceContextChars"
 >;
@@ -399,8 +404,10 @@ export async function runAgent({
     stepCount: number;
     maxSteps: number;
     maxTotalTokens: number;
+    maxCostUsd: number;
     maxStepLimitReached: boolean;
     tokenBudgetReached: boolean;
+    costBudgetReached: boolean;
     tokenAudit: TokenAudit;
   }) => void;
 }) {
@@ -462,6 +469,7 @@ export async function runAgent({
       maxInputTokens: budget.maxInputTokens,
       maxInputBytes: budget.maxInputBytes,
       maxTotalTokens: budget.maxTotalTokens,
+      maxCostUsd: budget.maxCostUsd,
       priorRunContextChars: budget.priorRunContextChars,
       workspaceContextChars: budget.workspaceContextChars,
     },
@@ -478,6 +486,7 @@ export async function runAgent({
     stopWhen: [
       stepCountIs(budget.maxSteps),
       tokenBudgetStopCondition(budget.maxTotalTokens),
+      costBudgetStopCondition(budget.maxCostUsd),
     ],
     providerOptions: {
       openrouter: openRouterProviderOptions(profile, thinkingEnabled),
@@ -582,11 +591,15 @@ export async function runAgent({
         stepCount: observedStepCount,
         maxSteps: budget.maxSteps,
         maxTotalTokens: budget.maxTotalTokens,
+        maxCostUsd: budget.maxCostUsd,
         maxStepLimitReached:
           observedStepCount >= budget.maxSteps && finishReason === "tool-calls",
         tokenBudgetReached:
           finiteNumber(totalUsage.totalTokens) !== undefined &&
           (totalUsage.totalTokens ?? 0) >= budget.maxTotalTokens,
+        costBudgetReached:
+          (openRouterCostFromMetadata(undefined, stepProviderMetadata) ?? 0) >=
+          budget.maxCostUsd,
         tokenAudit,
       });
       await closeMcpTools();

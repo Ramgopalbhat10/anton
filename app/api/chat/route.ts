@@ -59,6 +59,7 @@ import {
   upsertToolCall,
   upsertRunEvent,
 } from "@/src/db/queries";
+import { registerActiveChatStream } from "@/src/lib/chat-stream-registry";
 import { DEFAULT_MODEL } from "@/src/lib/providers";
 import { isSupportedModelId } from "@/src/lib/models";
 import { CHAT_MODES, DEFAULT_CHAT_MODE, type ChatMode } from "@/src/lib/chat-modes";
@@ -113,9 +114,13 @@ export async function POST(req: Request) {
   }
 
   const { sessionId } = parsed.data;
-  const mode = parsed.data.mode ?? DEFAULT_CHAT_MODE;
   const uiMessages = parsed.data.messages as AntonUIMessage[];
-  const profile = runProfileForMessages(mode, uiMessages);
+  const incomingHistory = uiMessages.filter(hasSubstantiveHistoryParts);
+  const approvalContinuation = isToolApprovalContinuation(incomingHistory);
+  const mode = approvalContinuation
+    ? "agent"
+    : parsed.data.mode ?? DEFAULT_CHAT_MODE;
+  const profile = runProfileForMessages(mode, incomingHistory);
   const needsProject = mode !== "chat";
   const requestBodyBytes = byteLength(JSON.stringify(json ?? {}));
   const model = parsed.data.model ?? DEFAULT_MODEL;
@@ -151,8 +156,6 @@ export async function POST(req: Request) {
       projectId,
     });
   } else {
-    const incomingHistory = uiMessages.filter(hasSubstantiveHistoryParts);
-    const approvalContinuation = isToolApprovalContinuation(incomingHistory);
     const conflict = getMessagePersistenceConflict(sessionId, incomingHistory, {
       mutableTailCount: approvalContinuation ? 1 : 0,
       allowExtraAssistantTail: approvalContinuation,
@@ -188,6 +191,12 @@ export async function POST(req: Request) {
     if (existing.model !== model) {
       touchSession(sessionId, model);
     }
+  }
+  if (incomingHistory.length > 0) {
+    saveMessagesIncrementally<AntonUIMessage>(
+      sessionId,
+      redactValue(incomingHistory) as AntonUIMessage[],
+    );
   }
 
   const budget = budgetForProfile(profile);
@@ -311,11 +320,14 @@ export async function POST(req: Request) {
             stepProviderMetadata,
             maxSteps,
             maxTotalTokens,
+            maxCostUsd,
             maxStepLimitReached,
             tokenBudgetReached,
+            costBudgetReached,
             tokenAudit,
           }) => {
-            const budgetLimitReached = maxStepLimitReached || tokenBudgetReached;
+            const budgetLimitReached =
+              maxStepLimitReached || tokenBudgetReached || costBudgetReached;
             contextTerminalStatus = budgetLimitReached ? "error" : "completed";
             trace.finalize(
               budgetLimitReached ? "error" : "completed",
@@ -325,8 +337,10 @@ export async function POST(req: Request) {
               {
                 maxSteps,
                 maxTotalTokens,
+                maxCostUsd,
                 maxStepLimitReached,
                 tokenBudgetReached,
+                costBudgetReached,
                 tokenAudit,
                 stepProviderMetadata,
               },
@@ -391,7 +405,9 @@ export async function POST(req: Request) {
     },
   });
 
-  return createUIMessageStreamResponse({ stream });
+  return createUIMessageStreamResponse({
+    stream: registerActiveChatStream(sessionId, stream),
+  });
 }
 
 function finalAssistantText(messages: AntonUIMessage[]): string | undefined {
@@ -880,8 +896,10 @@ function createTraceWriter({
     limits: {
       maxSteps?: number;
       maxTotalTokens?: number;
+      maxCostUsd?: number;
       maxStepLimitReached?: boolean;
       tokenBudgetReached?: boolean;
+      costBudgetReached?: boolean;
       tokenAudit?: TokenAudit;
       stepProviderMetadata?: ProviderMetadata[];
     } = {},
@@ -908,11 +926,18 @@ function createTraceWriter({
       limits.tokenAudit,
       tokenUsage,
       limits.stepProviderMetadata,
+      {
+        maxCostUsd: limits.maxCostUsd,
+        observedCostUsd: costUsd,
+        reached: limits.costBudgetReached === true,
+      },
     );
     const storedFinishReason = limits.maxStepLimitReached
       ? "max_step_limit"
       : limits.tokenBudgetReached
         ? "token_budget_limit"
+      : limits.costBudgetReached
+        ? "cost_budget_limit"
       : finishReason;
     writeRun(status, {
       finishedAt,
@@ -926,6 +951,8 @@ function createTraceWriter({
       finishReason: storedFinishReason,
       maxSteps: limits.maxSteps,
       maxStepLimitReached: limits.maxStepLimitReached,
+      maxCostUsd: limits.maxCostUsd,
+      costBudgetReached: limits.costBudgetReached,
     });
     if (limits.maxStepLimitReached) {
       startEvent({
@@ -952,6 +979,21 @@ function createTraceWriter({
           finishReason,
           stepCount,
           maxTotalTokens: limits.maxTotalTokens,
+        },
+      });
+    }
+    if (limits.costBudgetReached) {
+      startEvent({
+        id: `${runId}:cost-budget:${sequence + 1}`,
+        kind: "error",
+        status: "error",
+        label: "Cost budget reached",
+        summary: `Stopped after reaching the per-run cost budget of $${formatCostLimit(limits.maxCostUsd)}.`,
+        details: {
+          finishReason,
+          stepCount,
+          maxCostUsd: limits.maxCostUsd,
+          costUsd,
         },
       });
     }
@@ -1297,27 +1339,52 @@ function runCostMetadata(
   tokenAudit: TokenAudit | undefined,
   tokenUsage: TokenUsageMetrics | undefined,
   stepProviderMetadata: ProviderMetadata[] | undefined,
+  costBudget: {
+    maxCostUsd: number | undefined;
+    observedCostUsd: number | undefined;
+    reached: boolean;
+  },
 ): Record<string, unknown> | null {
   const providerCostMetadata = openRouterCostMetadata(
     providerMetadata,
     stepProviderMetadata,
   );
-  if (!tokenAudit && !tokenUsage) return providerCostMetadata;
+  const costBudgetMetadata = {
+    maxCostUsd: costBudget.maxCostUsd,
+    observedCostUsd: costBudget.observedCostUsd,
+    reached: costBudget.reached,
+    enforcement:
+      costBudget.observedCostUsd === undefined
+        ? "skipped_missing_provider_cost"
+        : "enforced_provider_cost",
+  };
+  if (!tokenAudit && !tokenUsage && !providerCostMetadata) {
+    return redactValue({ costBudget: costBudgetMetadata }) as Record<
+      string,
+      unknown
+    >;
+  }
   return redactValue({
     ...(providerCostMetadata ?? {}),
     ...(tokenUsage ? { tokenUsage } : {}),
     ...(tokenAudit ? { tokenAudit } : {}),
+    costBudget: costBudgetMetadata,
   }) as Record<string, unknown>;
+}
+
+function formatCostLimit(value: number | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "unknown";
+  return value.toFixed(value >= 1 ? 2 : 4);
 }
 
 function runProfileForMessages(
   mode: ChatMode,
   messages: AntonUIMessage[],
 ): AgentRunProfile {
+  if (isToolApprovalContinuation(messages)) return "approval-continuation";
   if (mode === "chat") return "pure-chat";
   if (mode === "ask") return "ask";
   if (mode === "plan") return "plan";
-  if (isToolApprovalContinuation(messages)) return "approval-continuation";
   const latestText = latestUserText(messages).trim().toLowerCase();
   if (latestText === "implement plan") return "accepted-plan-simple";
   if (
