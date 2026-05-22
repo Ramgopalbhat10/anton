@@ -1,5 +1,6 @@
 import type { StopCondition, ToolSet } from "ai";
 
+import { openRouterCostFromMetadata } from "@/src/lib/token-usage";
 import type { AgentRunProfile } from "./loop";
 
 export type RunBudget = {
@@ -9,6 +10,7 @@ export type RunBudget = {
   maxInputTokens: number;
   maxInputBytes: number;
   maxTotalTokens: number;
+  maxCostUsd: number;
   priorRunContextChars: number;
   workspaceContextChars: number;
   latestUserMaxBytes: number;
@@ -22,6 +24,7 @@ const RUN_BUDGETS = {
     maxOutputTokens: 4_096,
     maxInputTokens: 24_000,
     maxTotalTokens: 32_000,
+    maxCostUsd: 0.02,
     priorRunContextChars: 0,
     workspaceContextChars: 0,
   },
@@ -30,6 +33,7 @@ const RUN_BUDGETS = {
     maxOutputTokens: 4_096,
     maxInputTokens: 32_000,
     maxTotalTokens: 48_000,
+    maxCostUsd: 0.05,
     priorRunContextChars: 4_000,
     workspaceContextChars: 4_000,
   },
@@ -38,6 +42,7 @@ const RUN_BUDGETS = {
     maxOutputTokens: 4_096,
     maxInputTokens: 48_000,
     maxTotalTokens: 64_000,
+    maxCostUsd: 0.08,
     priorRunContextChars: 5_000,
     workspaceContextChars: 5_000,
   },
@@ -46,6 +51,7 @@ const RUN_BUDGETS = {
     maxOutputTokens: 4_096,
     maxInputTokens: 32_000,
     maxTotalTokens: 48_000,
+    maxCostUsd: 0.08,
     priorRunContextChars: 3_000,
     workspaceContextChars: 3_000,
   },
@@ -54,6 +60,7 @@ const RUN_BUDGETS = {
     maxOutputTokens: 8_192,
     maxInputTokens: 64_000,
     maxTotalTokens: 96_000,
+    maxCostUsd: 0.25,
     priorRunContextChars: 6_000,
     workspaceContextChars: 6_000,
   },
@@ -62,6 +69,7 @@ const RUN_BUDGETS = {
     maxOutputTokens: 4_096,
     maxInputTokens: 24_000,
     maxTotalTokens: 40_000,
+    maxCostUsd: 0.05,
     priorRunContextChars: 2_500,
     workspaceContextChars: 2_500,
   },
@@ -70,6 +78,7 @@ const RUN_BUDGETS = {
     maxOutputTokens: 8_192,
     maxInputTokens: 64_000,
     maxTotalTokens: 96_000,
+    maxCostUsd: 0.25,
     priorRunContextChars: 6_000,
     workspaceContextChars: 6_000,
   },
@@ -78,6 +87,7 @@ const RUN_BUDGETS = {
     maxOutputTokens: 8_192,
     maxInputTokens: 64_000,
     maxTotalTokens: 96_000,
+    maxCostUsd: 0.25,
     priorRunContextChars: 4_000,
     workspaceContextChars: 4_000,
   },
@@ -102,6 +112,20 @@ export function tokenBudgetStopCondition(
 ): StopCondition<ToolSet> {
   return ({ steps }) => {
     return totalStepTokens(steps) >= maxTotalTokens;
+  };
+}
+
+export function costBudgetStopCondition(
+  maxCostUsd: number,
+): StopCondition<ToolSet> {
+  return ({ steps }) => {
+    const costUsd = openRouterCostFromMetadata(
+      undefined,
+      steps
+        .map((step) => step.providerMetadata)
+        .filter((metadata) => metadata !== undefined),
+    );
+    return costUsd !== undefined && costUsd >= maxCostUsd;
   };
 }
 

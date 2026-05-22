@@ -106,8 +106,8 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Add repo map, recent diff summary, and selected file summaries for richer context selection.
 - [✔️] Add model selection validation on the server; reject unsupported or disabled model IDs.
 - [✔️] Add enforceable per-run token and step budgets.
-- [] Add enforceable dollar-cost budgets after reliable model pricing metadata is available.
-- [] Add resumable runs after tool approval, refresh, or network interruption.
+- [✔️] Add enforceable dollar-cost budgets after reliable model pricing metadata is available.
+- [✔️] Add resumable runs after tool approval, refresh, or network interruption.
 - [✔️] Add better system prompts for coding workflow: inspect, plan, edit, verify, summarize.
 - [✔️] Add final response structure that reports changed files, verification, and unresolved risks.
 

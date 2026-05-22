@@ -41,6 +41,8 @@ export type AntonMessageMetadata = {
   finishReason?: string;
   maxSteps?: number;
   maxStepLimitReached?: boolean;
+  maxCostUsd?: number;
+  costBudgetReached?: boolean;
 };
 
 export type AntonRunData = {
@@ -59,6 +61,8 @@ export type AntonRunData = {
   finishReason?: string;
   maxSteps?: number;
   maxStepLimitReached?: boolean;
+  maxCostUsd?: number;
+  costBudgetReached?: boolean;
 };
 
 export type AntonRunMetricSnapshot = {
@@ -75,6 +79,8 @@ export type AntonRunMetricSnapshot = {
   costMetadata?: unknown;
   stepCount?: number | null;
   finishReason?: string | null;
+  maxCostUsd?: number | null;
+  costBudgetReached?: boolean | null;
 };
 
 export type AntonActivitySnapshot = {
@@ -736,7 +742,7 @@ function hydrateMetricRecord<T>(
     next ??= { ...record };
     next[key] = metric;
   }
-  for (const key of ["durationMs", "stepCount"] as const) {
+  for (const key of ["durationMs", "stepCount", "maxCostUsd"] as const) {
     const metric = run[key];
     if (typeof metric !== "number" || !Number.isFinite(metric)) continue;
     if (record[key] === metric) continue;
@@ -768,6 +774,10 @@ function hydrateMetricRecord<T>(
   if (run.finishReason === "max_step_limit" && record.maxStepLimitReached !== true) {
     next ??= { ...record };
     next.maxStepLimitReached = true;
+  }
+  if (run.finishReason === "cost_budget_limit" && record.costBudgetReached !== true) {
+    next ??= { ...record };
+    next.costBudgetReached = true;
   }
 
   return (next ?? value) as T;
@@ -835,9 +845,31 @@ function runDataFromSnapshot(run: AntonRunMetricSnapshot): AntonRunData {
     ...(isRecord(run.costMetadata) ? { costMetadata: run.costMetadata } : {}),
     ...(typeof run.stepCount === "number" ? { stepCount: run.stepCount } : {}),
     ...(typeof run.finishReason === "string" ? { finishReason: run.finishReason } : {}),
+    ...costBudgetDataFromMetadata(run.costMetadata),
     ...(run.finishReason === "max_step_limit"
       ? { maxStepLimitReached: true }
       : {}),
+    ...(run.finishReason === "cost_budget_limit"
+      ? { costBudgetReached: true }
+      : {}),
+  };
+}
+
+function costBudgetDataFromMetadata(
+  costMetadata: unknown,
+): Pick<AntonRunData, "maxCostUsd" | "costBudgetReached"> {
+  if (!isRecord(costMetadata)) return {};
+  const costBudget = isRecord(costMetadata.costBudget)
+    ? costMetadata.costBudget
+    : undefined;
+  if (!costBudget) return {};
+  const maxCostUsd = costBudget.maxCostUsd;
+  const reached = costBudget.reached;
+  return {
+    ...(typeof maxCostUsd === "number" && Number.isFinite(maxCostUsd)
+      ? { maxCostUsd }
+      : {}),
+    ...(typeof reached === "boolean" ? { costBudgetReached: reached } : {}),
   };
 }
 

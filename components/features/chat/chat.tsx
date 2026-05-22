@@ -81,6 +81,7 @@ function ChatSession({
     initialMessages?.filter(hasVisibleMessageParts) ?? [],
   );
   const restoreMessagesRef = useRef<AntonUIMessage[] | null>(null);
+  const resumeAttemptedRef = useRef(false);
 
   const [sessionId] = useState<string>(() => sessionIdProp ?? generateChatId());
   const [activeProjectId, setActiveProjectId] = useActiveProjectIdState(
@@ -135,6 +136,9 @@ function ChatSession({
         body: () => ({
           sessionId,
         }),
+        prepareReconnectToStreamRequest: ({ id }) => ({
+          api: `/api/chat/resume?sessionId=${encodeURIComponent(id)}`,
+        }),
       }),
     [sessionId],
   );
@@ -146,8 +150,10 @@ function ChatSession({
     stop,
     error,
     setMessages,
+    resumeStream,
     addToolApprovalResponse,
   } = useChat<AntonUIMessage>({
+    id: sessionId,
     transport,
     messages: initialMessages,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
@@ -213,6 +219,12 @@ function ChatSession({
       cancelled = true;
     };
   }, [messages.length, sessionIdProp, setMessages]);
+
+  useEffect(() => {
+    if (resumeAttemptedRef.current || !sessionIdProp) return;
+    resumeAttemptedRef.current = true;
+    void resumeStream();
+  }, [resumeStream, sessionIdProp]);
 
   useEffect(() => {
     let cancelled = false;
