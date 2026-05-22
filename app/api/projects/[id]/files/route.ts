@@ -1,13 +1,20 @@
 import fs from "node:fs/promises";
+import { execFile } from "node:child_process";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import { ensureWorkspaceRootAt } from "@/src/agent/sandbox";
 import { getProject } from "@/src/db/queries";
-import type { ProjectFileTreeSummary } from "@/src/lib/api-types";
+import type {
+  ProjectFileGitStatus,
+  ProjectFileGitStatusEntry,
+  ProjectFileTreeSummary,
+} from "@/src/lib/api-types";
 import { redactText } from "@/src/lib/redaction";
 
 export const runtime = "nodejs";
 
+const execFileAsync = promisify(execFile);
 const MAX_FILE_TREE_ENTRIES = 8_000;
 const IGNORED_DIRECTORIES = [
   ".cache",
@@ -35,9 +42,13 @@ export async function GET(_req: Request, { params }: Ctx) {
 
   try {
     const root = ensureWorkspaceRootAt(project.localPath);
-    const result = await listProjectFiles(root);
+    const [result, gitStatus] = await Promise.all([
+      listProjectFiles(root),
+      listProjectGitStatus(root).catch(() => []),
+    ]);
     const summary: ProjectFileTreeSummary = {
       projectId: project.id,
+      gitStatus,
       ignoredDirectories: [...IGNORED_DIRECTORIES],
       ...result,
     };
@@ -100,6 +111,55 @@ async function listProjectFiles(root: string): Promise<{
 
 function readDirectoryEntries(directory: string) {
   return fs.readdir(directory, { withFileTypes: true });
+}
+
+async function listProjectGitStatus(root: string): Promise<ProjectFileGitStatusEntry[]> {
+  const output = await gitOutput(root, [
+    "status",
+    "--porcelain=v1",
+    "-z",
+    "--untracked-files=all",
+    "--ignored=matching",
+  ]);
+  return parsePorcelainStatus(output);
+}
+
+async function gitOutput(cwd: string, args: string[]): Promise<string> {
+  const result = await execFileAsync("git", args, { cwd });
+  return result.stdout;
+}
+
+function parsePorcelainStatus(output: string): ProjectFileGitStatusEntry[] {
+  const tokens = output.split("\0").filter(Boolean);
+  const entries: ProjectFileGitStatusEntry[] = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (!token || token.length < 4) continue;
+    const indexStatus = token[0] ?? " ";
+    const worktreeStatus = token[1] ?? " ";
+    const statusPath = token.slice(3);
+    const status = toProjectFileGitStatus(indexStatus, worktreeStatus);
+    if (!status) continue;
+    if (indexStatus === "R" || indexStatus === "C") index += 1;
+    entries.push({
+      path: statusPath.split(path.sep).join("/"),
+      status,
+    });
+  }
+  return entries;
+}
+
+function toProjectFileGitStatus(
+  indexStatus: string,
+  worktreeStatus: string,
+): ProjectFileGitStatus | null {
+  if (indexStatus === "R") return "renamed";
+  if (indexStatus === "A" || worktreeStatus === "A") return "added";
+  if (indexStatus === "D" || worktreeStatus === "D") return "deleted";
+  if (indexStatus === "?" || worktreeStatus === "?") return "untracked";
+  if (indexStatus === "!" || worktreeStatus === "!") return "ignored";
+  if (indexStatus === "M" || worktreeStatus === "M") return "modified";
+  return null;
 }
 
 function errorMessage(err: unknown): string {

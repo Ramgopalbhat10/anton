@@ -8,6 +8,8 @@ import {
   RefreshCw,
   X,
 } from "lucide-react";
+import type { GitStatusEntry } from "@pierre/trees";
+import type { CSSProperties } from "react";
 import {
   FileTree,
   useFileTree,
@@ -22,6 +24,11 @@ import type {
   ProjectSummary,
 } from "@/src/lib/api-types";
 import { cn } from "@/lib/utils";
+import { ProjectFileCodeView } from "./project-file-code-view";
+
+const fileTreeStyle = {
+  "--trees-search-bg-override": "var(--secondary)",
+} as CSSProperties;
 
 type ProjectFileTreeState = {
   fileTree: ProjectFileTreeSummary | null;
@@ -126,6 +133,7 @@ export function ProjectFilesPanel({
         >
           <ProjectFileTree
             paths={state.fileTree.paths}
+            gitStatus={state.fileTree.gitStatus}
             totalCount={state.fileTree.totalCount}
             truncated={state.fileTree.truncated}
             refreshing={state.refreshing}
@@ -162,6 +170,7 @@ export function ProjectFilesPanel({
 
 function ProjectFileTree({
   paths,
+  gitStatus,
   totalCount,
   truncated,
   refreshing,
@@ -171,6 +180,7 @@ function ProjectFileTree({
   className,
 }: {
   paths: readonly string[];
+  gitStatus: readonly GitStatusEntry[];
   totalCount: number;
   truncated: boolean;
   refreshing: boolean;
@@ -185,6 +195,7 @@ function ProjectFileTree({
     fileTreeSearchMode: "hide-non-matches",
     flattenEmptyDirectories: true,
     initialExpansion: 1,
+    gitStatus,
     paths: sortedPaths,
     search: true,
     searchBlurBehavior: "retain",
@@ -200,6 +211,10 @@ function ProjectFileTree({
     model.resetPaths(sortedPaths, { initialExpandedPaths: [] });
     model.closeSearch();
   }, [model, sortedPaths]);
+
+  useEffect(() => {
+    model.setGitStatus(gitStatus);
+  }, [gitStatus, model]);
 
   useEffect(() => {
     if (!selectedPath) return;
@@ -230,7 +245,8 @@ function ProjectFileTree({
       <div className="min-h-0 flex-1 overflow-hidden px-2 py-2">
         <FileTree
           model={model}
-          className="anton-file-tree h-full overflow-hidden rounded-md border border-border bg-background/45"
+          className="anton-file-tree h-full overflow-hidden rounded-md border border-border bg-background/45 [--trees-search-bg-override:var(--secondary)]"
+          style={fileTreeStyle}
           aria-label="Project file tree"
         />
       </div>
@@ -274,43 +290,42 @@ function ProjectFileViewer({
 }) {
   return (
     <div className="flex min-h-0 min-w-0 flex-col bg-background/25">
-      <div className="flex h-10 shrink-0 items-end gap-1 overflow-x-auto border-b border-border px-2 pt-1">
-        {files.map((file) => (
-          <button
-            key={file.path}
-            type="button"
-            onClick={() => onSelect(file.path)}
-            className={cn(
-              "group flex h-8 max-w-56 shrink-0 items-center gap-1.5 rounded-t-md border border-b-0 px-2 text-left font-mono text-[11px]",
-              activePath === file.path
-                ? "border-border bg-background text-foreground"
-                : "border-transparent bg-secondary/40 text-muted-foreground hover:bg-secondary",
-            )}
-            title={file.path}
-            aria-pressed={activePath === file.path}
-          >
-            <FileCode2 className="size-3 shrink-0" />
-            <span className="truncate">{baseName(file.path)}</span>
-            <span
-              role="button"
-              tabIndex={0}
-              className="ml-1 inline-flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-              aria-label={`Close ${file.path}`}
-              onClick={(event) => {
-                event.stopPropagation();
-                onClose(file.path);
-              }}
-              onKeyDown={(event) => {
-                if (event.key !== "Enter" && event.key !== " ") return;
-                event.preventDefault();
-                event.stopPropagation();
-                onClose(file.path);
-              }}
+      <div className="border-b border-border px-2">
+        <div className="flex h-10 min-w-0 items-center gap-1 overflow-x-auto py-1">
+          {files.map((file) => (
+            <div
+              key={file.path}
+              className={cn(
+                "inline-flex h-7 min-w-28 max-w-56 shrink-0 items-center rounded text-xs font-semibold transition-colors",
+                activePath === file.path
+                  ? "bg-secondary text-foreground"
+                  : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
+              )}
+              role="group"
+              aria-label={`${baseName(file.path)} tab`}
+              title={file.path}
             >
-              <X className="size-3" />
-            </span>
-          </button>
-        ))}
+              <button
+                type="button"
+                onClick={() => onClose(file.path)}
+                className="group/close relative ml-1 inline-flex size-5 shrink-0 items-center justify-center rounded transition-colors hover:bg-background/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                aria-label={`Close ${file.path}`}
+                title={`Close ${baseName(file.path)}`}
+              >
+                <FileCode2 className="size-3.5 transition-opacity group-hover/close:opacity-0 group-focus-visible/close:opacity-0" />
+                <X className="absolute size-3.5 opacity-0 transition-opacity group-hover/close:opacity-100 group-focus-visible/close:opacity-100" />
+              </button>
+              <button
+                type="button"
+                onClick={() => onSelect(file.path)}
+                className="min-w-0 rounded py-1 pl-0.5 pr-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                aria-pressed={activePath === file.path}
+              >
+                <span className="block truncate">{baseName(file.path)}</span>
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
       {activeFile ? (
         <div className="flex min-h-0 flex-1 flex-col">
@@ -328,12 +343,14 @@ function ProjectFileViewer({
             <ProjectFilesEmptyState message="Loading file..." loading />
           ) : activeFile.error ? (
             <ProjectFilesEmptyState message={activeFile.error} />
+          ) : activeFile.content !== null ? (
+            <ProjectFileCodeView
+              key={`${activeFile.path}:${activeFile.content.length}`}
+              path={activeFile.path}
+              content={activeFile.content}
+            />
           ) : (
-            <div className="min-h-0 flex-1 overflow-auto bg-[#090909]">
-              <pre className="min-w-max px-4 py-3 font-mono text-[11px] leading-relaxed text-foreground/90">
-                {activeFile.content}
-              </pre>
-            </div>
+            <ProjectFilesEmptyState message="No file content available." />
           )}
         </div>
       ) : (

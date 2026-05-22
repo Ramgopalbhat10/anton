@@ -73,9 +73,23 @@ export type ProjectBranchesSummary = {
 export type ProjectFileTreeSummary = {
   projectId: string;
   paths: string[];
+  gitStatus: ProjectFileGitStatusEntry[];
   totalCount: number;
   truncated: boolean;
   ignoredDirectories: string[];
+};
+
+export type ProjectFileGitStatus =
+  | "added"
+  | "deleted"
+  | "ignored"
+  | "modified"
+  | "renamed"
+  | "untracked";
+
+export type ProjectFileGitStatusEntry = {
+  path: string;
+  status: ProjectFileGitStatus;
 };
 
 export type ProjectFileContentSummary = {
