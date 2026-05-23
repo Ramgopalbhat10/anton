@@ -32,7 +32,8 @@ import { cn } from "@/lib/utils";
 import { ProjectFileCodeView } from "./project-file-code-view";
 
 const fileTreeStyle = {
-  "--trees-search-bg-override": "var(--secondary)",
+  "--trees-search-bg-override":
+    "color-mix(in oklch, var(--primary) 24%, transparent)",
 } as CSSProperties;
 
 const projectFilesHeaderRowClass =
@@ -253,7 +254,7 @@ function ProjectFileTree({
       <div className="min-h-0 flex-1 overflow-hidden px-1 py-1">
         <FileTree
           model={model}
-          className="anton-file-tree h-full overflow-hidden [--trees-search-bg-override:var(--secondary)]"
+          className="anton-file-tree h-full overflow-hidden rounded-md border border-border bg-background/45"
           style={fileTreeStyle}
           aria-label="Project file tree"
         />
