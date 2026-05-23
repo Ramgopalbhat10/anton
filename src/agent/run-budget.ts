@@ -107,6 +107,17 @@ export function budgetForProfile(profile: AgentRunProfile): RunBudget {
   };
 }
 
+export function capRunBudget(
+  budget: RunBudget,
+  maxStepsCap: number | null | undefined,
+): RunBudget {
+  if (maxStepsCap === null || maxStepsCap === undefined) return budget;
+  return {
+    ...budget,
+    maxSteps: Math.min(budget.maxSteps, maxStepsCap),
+  };
+}
+
 export function tokenBudgetStopCondition(
   maxTotalTokens: number,
 ): StopCondition<ToolSet> {

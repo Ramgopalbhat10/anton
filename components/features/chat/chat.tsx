@@ -21,6 +21,7 @@ import type { PermissionMode } from "@/src/agent/permissions";
 import type { AntonUIMessage } from "@/src/lib/trace";
 import type { McpPreflightServer, McpServerSummary } from "@/src/lib/api-types";
 import { getJson, jsonHeaders, requestJson } from "@/src/lib/client-fetch";
+import { useWorkspaceAgentDefaults } from "@/components/features/settings/use-workspace-agent-defaults";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -92,6 +93,8 @@ function ChatSession({
   const resumeAttemptedRef = useRef(false);
 
   const [sessionId] = useState<string>(() => sessionIdProp ?? generateChatId());
+  const isDraftSession = sessionIdProp === undefined;
+  const workspaceDefaults = useWorkspaceAgentDefaults();
   const [activeProjectId, setActiveProjectId] = useActiveProjectIdState(
     initialProjectId,
     { listen: initialProjectId === null },
@@ -99,8 +102,8 @@ function ChatSession({
   const initialControls = useMemo(
     () =>
       composerControlStateBySession.get(sessionId) ??
-      readStoredComposerControlState(sessionId),
-    [sessionId],
+      (isDraftSession ? undefined : readStoredComposerControlState(sessionId)),
+    [isDraftSession, sessionId],
   );
   const [worklogOpen, setWorklogOpen] = useState(false);
   const [worklogExpanded, setWorklogExpanded] = useState(false);
@@ -263,23 +266,34 @@ function ChatSession({
   }, [resumeStream, sessionIdProp]);
 
   useEffect(() => {
-    const storedControls = readStoredComposerControlState(sessionId);
-    if (!storedControls) return;
-    let cancelled = false;
+    if (!isDraftSession) {
+      const storedControls = readStoredComposerControlState(sessionId);
+      if (!storedControls) return;
+      let cancelled = false;
+      queueMicrotask(() => {
+        if (cancelled) return;
+        setMode(storedControls.mode);
+        setModel(storedControls.model);
+        setPermissionMode(storedControls.permissionMode);
+        setThinkingEnabled(storedControls.thinkingEnabled);
+        if (storedControls.selectedMcpServerIds) {
+          setSelectedMcpServerIds(storedControls.selectedMcpServerIds);
+        }
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+    return undefined;
+  }, [isDraftSession, sessionId]);
+
+  useEffect(() => {
+    if (!isDraftSession || !workspaceDefaults) return;
     queueMicrotask(() => {
-      if (cancelled) return;
-      setMode(storedControls.mode);
-      setModel(storedControls.model);
-      setPermissionMode(storedControls.permissionMode);
-      setThinkingEnabled(storedControls.thinkingEnabled);
-      if (storedControls.selectedMcpServerIds) {
-        setSelectedMcpServerIds(storedControls.selectedMcpServerIds);
-      }
+      setModel(workspaceDefaults.model);
+      setPermissionMode(workspaceDefaults.permissionMode);
     });
-    return () => {
-      cancelled = true;
-    };
-  }, [sessionId]);
+  }, [isDraftSession, workspaceDefaults]);
 
   useEffect(() => {
     let cancelled = false;
@@ -313,21 +327,26 @@ function ChatSession({
   }, [sessionId]);
 
   useEffect(() => {
-    composerControlStateBySession.set(sessionId, {
+    const controls: ComposerControlState = {
       mode,
       model,
       permissionMode,
       thinkingEnabled,
       selectedMcpServerIds,
-    });
-    writeStoredComposerControlState(sessionId, {
-      mode,
-      model,
-      permissionMode,
-      thinkingEnabled,
-      selectedMcpServerIds,
-    });
-  }, [mode, model, permissionMode, selectedMcpServerIds, sessionId, thinkingEnabled]);
+    };
+    composerControlStateBySession.set(sessionId, controls);
+    if (!isDraftSession || persistedRef.current) {
+      writeStoredComposerControlState(sessionId, controls);
+    }
+  }, [
+    isDraftSession,
+    mode,
+    model,
+    permissionMode,
+    selectedMcpServerIds,
+    sessionId,
+    thinkingEnabled,
+  ]);
 
   const selectedEnabledMcpServerIds = useCallback(() => (
     selectedMcpServerIds.filter((id) =>

@@ -11,6 +11,11 @@ import {
 export const workspaceSettings = sqliteTable("workspace_settings", {
   id: text("id").primaryKey(),
   localWorkspacesRoot: text("local_workspaces_root"),
+  defaultModel: text("default_model"),
+  defaultMaxSteps: integer("default_max_steps"),
+  defaultPermissionMode: text("default_permission_mode", {
+    enum: ["default", "auto-review", "full-access"],
+  }),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .default(sql`(unixepoch('now') * 1000)`),

@@ -30,7 +30,7 @@ import {
   type RunContextStatus,
 } from "@/src/agent/context";
 import { buildWorkspaceContextDigest } from "@/src/agent/workspace-context";
-import { budgetForProfile } from "@/src/agent/run-budget";
+import { budgetForProfile, capRunBudget } from "@/src/agent/run-budget";
 import {
   buildToolApprovalMetadata,
   getNativeToolPermissionMetadata,
@@ -48,6 +48,7 @@ import {
   getMessagePersistenceConflict,
   getProject,
   getSession,
+  getWorkspaceSettings,
   getToolCall,
   MessagePersistenceConflictError,
   saveMessagesIncrementally,
@@ -123,7 +124,11 @@ export async function POST(req: Request) {
   const profile = runProfileForMessages(mode, incomingHistory);
   const needsProject = mode !== "chat";
   const requestBodyBytes = byteLength(JSON.stringify(json ?? {}));
-  const model = parsed.data.model ?? DEFAULT_MODEL;
+  const workspaceSettings = getWorkspaceSettings();
+  const model =
+    parsed.data.model ??
+    workspaceSettings.defaultModel ??
+    DEFAULT_MODEL;
   if (!isSupportedModelId(model)) {
     return Response.json(
       { error: "unsupported model", model },
@@ -199,7 +204,10 @@ export async function POST(req: Request) {
     );
   }
 
-  const budget = budgetForProfile(profile);
+  const budget = capRunBudget(
+    budgetForProfile(profile),
+    workspaceSettings.defaultMaxSteps,
+  );
   const preservation = modelContextPreservation(uiMessages, profile);
   const preparedMessages = prepareMessagesForModel(
     uiMessages,
@@ -290,6 +298,7 @@ export async function POST(req: Request) {
           requestBodyBytes,
           contextBudget: contextBudget.report,
           thinkingEnabled: parsed.data.thinkingEnabled ?? false,
+          maxStepsCap: workspaceSettings.defaultMaxSteps,
           permissionMode: parsed.data.permissionMode as
             | PermissionMode
             | undefined,

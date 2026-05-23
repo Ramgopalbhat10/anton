@@ -19,6 +19,7 @@ import {
 import { listMemories } from "@/src/db/queries";
 import {
   budgetForProfile,
+  capRunBudget,
   costBudgetStopCondition,
   tokenBudgetStopCondition,
   type RunBudget,
@@ -354,6 +355,7 @@ export async function runAgent({
   profile = profileForMode(mode),
   enabledMcpServerIds,
   thinkingEnabled = false,
+  maxStepsCap,
   requestBodyBytes,
   contextBudget,
   onStepStart,
@@ -373,6 +375,7 @@ export async function runAgent({
   profile?: AgentRunProfile;
   enabledMcpServerIds?: string[];
   thinkingEnabled?: boolean;
+  maxStepsCap?: number | null;
   requestBodyBytes?: number;
   contextBudget?: ContextBudgetAudit;
   onStepStart?: (event: { stepNumber: number }) => void;
@@ -411,7 +414,7 @@ export async function runAgent({
     tokenAudit: TokenAudit;
   }) => void;
 }) {
-  const budget = budgetForProfile(profile);
+  const budget = capRunBudget(budgetForProfile(profile), maxStepsCap);
   const nativeToolNames = PROFILE_NATIVE_TOOLS[profile];
   const allowMcpTools = profileAllowsMcp(profile);
   const mcpTools = allowMcpTools

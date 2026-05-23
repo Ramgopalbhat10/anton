@@ -8,6 +8,7 @@ import {
   FileText,
   GitBranch,
   FolderTree,
+  Info,
   ListTodo,
   Loader2,
   Maximize2,
@@ -55,6 +56,7 @@ import { TodoCard } from "./todo-card";
 import { getSessionTodoSnapshots } from "./trace-data";
 import { PullRequestEmptyPanel, PullRequestPanel } from "./pr-sidebar";
 import { ProjectFilesPanel } from "./project-files-panel";
+import { ProjectStatusPanel } from "./project-status-panel";
 import { errorMessage, getJson, jsonHeaders, requestJson } from "@/src/lib/client-fetch";
 import { PROJECT_GIT_CHANGED_EVENT } from "@/components/features/projects/hooks";
 import type {
@@ -66,7 +68,7 @@ import type {
 } from "@/src/lib/api-types";
 
 export type WorklogEntry = ToolTraceEntry;
-type SidebarTab = "worklog" | "plans" | "todos" | "pr" | "files";
+type SidebarTab = "worklog" | "plans" | "todos" | "pr" | "files" | "status";
 
 interface WorklogProps {
   messages: AntonUIMessage[];
@@ -273,6 +275,8 @@ export function Worklog({
             expanded={expanded}
             onFileOpen={onFileOpen}
           />
+        ) : activeTab === "status" ? (
+          <ProjectStatusPanel project={project} />
         ) : activeTab === "pr" && prState.pullRequest ? (
           <PullRequestPanel
             pullRequest={prState.pullRequest}
@@ -306,6 +310,7 @@ const SIDEBAR_TABS = [
   { id: "todos", label: "Todos", Icon: ListTodo },
   { id: "pr", label: "PR", Icon: GitBranch },
   { id: "files", label: "Files", Icon: FolderTree },
+  { id: "status", label: "Status", Icon: Info },
 ] as const satisfies readonly {
   id: SidebarTab;
   label: string;

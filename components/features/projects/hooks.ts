@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import type { ProjectGitStatusSummary, ProjectSummary } from "@/src/lib/api-types";
+import type { ProjectGitStatusSummary, ProjectStatusSummary, ProjectSummary } from "@/src/lib/api-types";
 import { getJson } from "@/src/lib/client-fetch";
 
 export const PROJECT_GIT_CHANGED_EVENT = "anton-project-git-change";
@@ -102,4 +102,103 @@ export function useProjectGitStatus(
 
 export function notifyProjectGitChanged(projectId: string): void {
   window.dispatchEvent(new CustomEvent(PROJECT_GIT_CHANGED_EVENT, { detail: projectId }));
+}
+
+const PROJECT_STATUS_POLL_INTERVAL_MS = 120_000;
+
+export function useProjectStatus(projectId: string | null): {
+  status: ProjectStatusSummary | null;
+  loading: boolean;
+  error: string | null;
+  refresh: () => Promise<void>;
+} {
+  const [loaded, setLoaded] = useState<{
+    projectId: string;
+    status: ProjectStatusSummary | null;
+    error: string | null;
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const refresh = async () => {
+    if (!projectId) return;
+    setLoading(true);
+    try {
+      const data = await getJson<{ status: ProjectStatusSummary }>(
+        `/api/projects/${projectId}/status`,
+      );
+      setLoaded({ projectId, status: data.status, error: null });
+    } catch (err) {
+      setLoaded({
+        projectId,
+        status: null,
+        error: err instanceof Error ? err.message : "Failed to load project status",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!projectId) {
+      queueMicrotask(() => setLoaded(null));
+      return;
+    }
+
+    let cancelled = false;
+    let pollTimeout: number | null = null;
+    const load = async () => {
+      if (cancelled) return;
+      setLoading(true);
+      try {
+        const data = await getJson<{ status: ProjectStatusSummary }>(
+          `/api/projects/${projectId}/status`,
+        );
+        if (!cancelled) {
+          setLoaded({ projectId, status: data.status, error: null });
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setLoaded({
+            projectId,
+            status: null,
+            error:
+              err instanceof Error ? err.message : "Failed to load project status",
+          });
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    const schedulePoll = () => {
+      if (cancelled) return;
+      pollTimeout = window.setTimeout(() => {
+        void load().finally(schedulePoll);
+      }, PROJECT_STATUS_POLL_INTERVAL_MS);
+    };
+
+    void load().finally(schedulePoll);
+    const onProjectGitChanged = (event: Event) => {
+      if (
+        event instanceof CustomEvent &&
+        typeof event.detail === "string" &&
+        event.detail === projectId
+      ) {
+        void load();
+      }
+    };
+    window.addEventListener(PROJECT_GIT_CHANGED_EVENT, onProjectGitChanged);
+    return () => {
+      cancelled = true;
+      if (pollTimeout !== null) window.clearTimeout(pollTimeout);
+      window.removeEventListener(PROJECT_GIT_CHANGED_EVENT, onProjectGitChanged);
+    };
+  }, [projectId]);
+
+  const isCurrent = loaded?.projectId === projectId;
+  return {
+    status: isCurrent ? loaded?.status ?? null : null,
+    loading,
+    error: isCurrent ? loaded?.error ?? null : null,
+    refresh,
+  };
 }

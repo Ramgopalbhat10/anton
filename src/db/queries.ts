@@ -155,6 +155,9 @@ export function getWorkspaceSettings(): WorkspaceSettings {
   const row: WorkspaceSettings = {
     id: WORKSPACE_SETTINGS_ID,
     localWorkspacesRoot: null,
+    defaultModel: null,
+    defaultMaxSteps: null,
+    defaultPermissionMode: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -163,18 +166,49 @@ export function getWorkspaceSettings(): WorkspaceSettings {
 }
 
 export function updateWorkspaceSettings(input: {
-  localWorkspacesRoot: string | null;
+  localWorkspacesRoot?: string | null;
+  defaultModel?: string | null;
+  defaultMaxSteps?: number | null;
+  defaultPermissionMode?: "default" | "auto-review" | "full-access" | null;
 }): WorkspaceSettings {
   getWorkspaceSettings();
+  const update: Partial<WorkspaceSettings> = { updatedAt: new Date() };
+  if ("localWorkspacesRoot" in input) {
+    update.localWorkspacesRoot = input.localWorkspacesRoot ?? null;
+  }
+  if ("defaultModel" in input) {
+    update.defaultModel = input.defaultModel ?? null;
+  }
+  if ("defaultMaxSteps" in input) {
+    update.defaultMaxSteps = input.defaultMaxSteps ?? null;
+  }
+  if ("defaultPermissionMode" in input) {
+    update.defaultPermissionMode = input.defaultPermissionMode ?? null;
+  }
   db
     .update(workspaceSettings)
-    .set({
-      localWorkspacesRoot: input.localWorkspacesRoot,
-      updatedAt: new Date(),
-    })
+    .set(update)
     .where(eq(workspaceSettings.id, WORKSPACE_SETTINGS_ID))
     .run();
   return getWorkspaceSettings();
+}
+
+export function getLastRunForProject(projectId: string): Run | undefined {
+  const projectSessions = db
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(eq(sessions.projectId, projectId))
+    .all();
+  const sessionIds = projectSessions.map((session) => session.id);
+  if (sessionIds.length === 0) return undefined;
+
+  return db
+    .select()
+    .from(runs)
+    .where(inArray(runs.sessionId, sessionIds))
+    .orderBy(desc(runs.startedAt))
+    .limit(1)
+    .get();
 }
 
 export function listGithubInstallations(): GithubInstallation[] {
