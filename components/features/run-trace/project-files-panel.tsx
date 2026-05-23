@@ -35,6 +35,9 @@ const fileTreeStyle = {
   "--trees-search-bg-override": "var(--secondary)",
 } as CSSProperties;
 
+const projectFilesHeaderRowClass =
+  "flex shrink-0 items-center border-b border-border p-1.5";
+
 type ProjectFileTreeState = {
   fileTree: ProjectFileTreeSummary | null;
   loading: boolean;
@@ -228,8 +231,8 @@ function ProjectFileTree({
 
   return (
     <div className={cn("flex min-h-0 min-w-0 flex-col", className)}>
-      <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border px-3">
-        <div className="min-w-0 truncate font-mono text-[10px] text-muted-foreground">
+      <div className={cn(projectFilesHeaderRowClass, "justify-between gap-2")}>
+        <div className="min-w-0 ml-1 truncate font-mono text-[11px] text-muted-foreground">
           {search.value
             ? `${search.matchingPaths.length.toLocaleString()} match${search.matchingPaths.length === 1 ? "" : "es"}`
             : project?.localPath || "Project"}
@@ -247,7 +250,7 @@ function ProjectFileTree({
           {refreshing ? <Loader2 className="animate-spin" /> : <RefreshCw />}
         </Button>
       </div>
-      <div className="min-h-0 flex-1 overflow-hidden px-2 py-2">
+      <div className="min-h-0 flex-1 overflow-hidden px-1 py-1">
         <FileTree
           model={model}
           className="anton-file-tree h-full overflow-hidden [--trees-search-bg-override:var(--secondary)]"
@@ -295,59 +298,56 @@ function ProjectFileViewer({
 }) {
   return (
     <div className="flex min-h-0 min-w-0 flex-col bg-background/25">
-      <div className="border-b border-border px-2">
-        <div
-          className="flex h-10 min-w-0 items-center gap-1 overflow-x-auto py-1 scrollbar-hide"
-          style={{
-            scrollbarWidth: 'none',
-            msOverflowStyle: 'none',
-          }}
-          onWheel={(e) => {
-            if (e.deltaY !== 0) {
-              e.currentTarget.scrollLeft += e.deltaY;
-              e.preventDefault();
-            }
-          }}
-        >
-          {files.map((file) => (
-            <div
-              key={file.path}
-              className={cn(
-                "inline-flex h-7 min-w-28 max-w-56 shrink-0 items-center rounded text-xs font-semibold transition-colors",
-                activePath === file.path
-                  ? "bg-secondary text-foreground"
-                  : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
-              )}
-              role="group"
-              aria-label={`${baseName(file.path)} tab`}
-              title={file.path}
+      <div
+        className={cn(
+          projectFilesHeaderRowClass,
+          "min-w-0 gap-1 overflow-x-auto overflow-y-hidden scrollbar-hide",
+        )}
+        onWheel={(e) => {
+          if (e.deltaY !== 0) {
+            e.currentTarget.scrollLeft += e.deltaY;
+            e.preventDefault();
+          }
+        }}
+      >
+        {files.map((file) => (
+          <div
+            key={file.path}
+            className={cn(
+              "inline-flex h-6 min-w-0 max-w-44 shrink-0 items-center rounded text-[11px] font-normal transition-colors",
+              activePath === file.path
+                ? "bg-secondary text-foreground"
+                : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
+            )}
+            role="group"
+            aria-label={`${baseName(file.path)} tab`}
+            title={file.path}
+          >
+            <button
+              type="button"
+              onClick={() => onClose(file.path)}
+              className="group/close relative ml-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded transition-colors hover:bg-background/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              aria-label={`Close ${file.path}`}
+              title={`Close ${baseName(file.path)}`}
             >
-              <button
-                type="button"
-                onClick={() => onClose(file.path)}
-                className="group/close relative ml-1 inline-flex size-5 shrink-0 items-center justify-center rounded transition-colors hover:bg-background/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                aria-label={`Close ${file.path}`}
-                title={`Close ${baseName(file.path)}`}
-              >
-                <FileIcon path={file.path} className="size-3.5 transition-opacity group-hover/close:opacity-0 group-focus-visible/close:opacity-0" />
-                <X className="absolute size-3.5 opacity-0 transition-opacity group-hover/close:opacity-100 group-focus-visible/close:opacity-100" />
-              </button>
-              <button
-                type="button"
-                onClick={() => onSelect(file.path)}
-                className="min-w-0 rounded py-1 pl-0.5 pr-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                aria-pressed={activePath === file.path}
-              >
-                <span className="block truncate">{baseName(file.path)}</span>
-              </button>
-            </div>
-          ))}
-        </div>
+              <FileIcon path={file.path} className="size-3 transition-opacity group-hover/close:opacity-0 group-focus-visible/close:opacity-0" />
+              <X className="absolute size-3 opacity-0 transition-opacity group-hover/close:opacity-100 group-focus-visible/close:opacity-100" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onSelect(file.path)}
+              className="min-w-0 rounded pl-0 pr-1.5 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              aria-pressed={activePath === file.path}
+            >
+              <span className="block truncate">{baseName(file.path)}</span>
+            </button>
+          </div>
+        ))}
       </div>
       {activeFile ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border px-3">
-            <div className="min-w-0 flex items-center gap-1 font-mono text-[12px] text-muted-foreground">
+          <div className={cn(projectFilesHeaderRowClass, "justify-between gap-2.5")}>
+            <div className="min-w-0 ml-1 flex items-center gap-1 font-mono text-xs text-muted-foreground">
               {activeFile.path.split("/").filter(Boolean).map((segment, index, array) => (
                 <span key={index} className="flex items-center gap-1">
                   <span className="truncate hover:text-foreground transition-colors">{segment}</span>
@@ -356,7 +356,7 @@ function ProjectFileViewer({
               ))}
             </div>
             {activeFile.sizeBytes !== null ? (
-              <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+              <span className="shrink-0 mr-1 font-mono text-[11px] text-muted-foreground">
                 {formatBytes(activeFile.sizeBytes)}
               </span>
             ) : null}

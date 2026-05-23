@@ -123,7 +123,7 @@ export function Composer({
         e.preventDefault();
         submit();
       }}
-      className="relative z-40 w-full max-w-full shrink-0 overflow-visible bg-background/95 px-3 pb-2 pt-1 sm:px-4"
+      className="relative z-40 w-full max-w-full shrink-0 overflow-visible bg-background px-3 pb-2 pt-1 sm:px-4"
     >
       <div className="mx-auto w-full max-w-[calc(100vw-1.5rem)] min-w-0 sm:max-w-3xl">
         <div className="rounded-lg bg-card p-2 ring-1 ring-border">
