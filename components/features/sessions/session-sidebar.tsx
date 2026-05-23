@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import {
@@ -15,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { SettingsDialog } from "@/components/features/settings/settings-dialog";
 import { useActiveProjectIdState } from "@/src/lib/client-state/active-project";
 
+import { generateChatId } from "@/components/features/chat/chat-utils";
 import { SessionRow } from "./session-row";
 import { useSessionStore } from "./session-store";
 import { SidebarProvider, useSidebar } from "./sidebar-state";
@@ -56,9 +56,13 @@ export function SessionSidebar() {
           sessions={sessions}
           onCollapse={() => setOpen(false)}
           onOpenSettings={() => setSettingsOpen(true)}
+          onNewChat={() => router.push(`/?chat=${generateChatId()}`)}
         />
       ) : (
-        <CollapsedSidebar onOpenSettings={() => setSettingsOpen(true)} />
+        <CollapsedSidebar
+          onOpenSettings={() => setSettingsOpen(true)}
+          onNewChat={() => router.push(`/?chat=${generateChatId()}`)}
+        />
       )}
       <SettingsDialog
         open={settingsOpen}
@@ -77,6 +81,7 @@ function ExpandedSidebar({
   sessions,
   onCollapse,
   onOpenSettings,
+  onNewChat,
 }: {
   activeId: string | undefined;
   loading: boolean;
@@ -84,6 +89,7 @@ function ExpandedSidebar({
   sessions: ReturnType<typeof useSessionStore>["sessions"];
   onCollapse: () => void;
   onOpenSettings: () => void;
+  onNewChat: () => void;
 }) {
   return (
     <div className="flex h-full w-[300px] shrink-0 flex-col">
@@ -113,10 +119,14 @@ function ExpandedSidebar({
 
       <div className="flex items-center justify-between gap-2 px-2 py-1.5">
         <span className="text-xs font-medium text-muted-foreground">Recent</span>
-        <Button asChild size="icon-sm" variant="ghost" aria-label="New chat">
-          <Link href="/">
-            <Plus />
-          </Link>
+        <Button
+          type="button"
+          size="icon-sm"
+          variant="ghost"
+          aria-label="New chat"
+          onClick={onNewChat}
+        >
+          <Plus />
         </Button>
       </div>
 
@@ -146,8 +156,10 @@ function ExpandedSidebar({
 
 function CollapsedSidebar({
   onOpenSettings,
+  onNewChat,
 }: {
   onOpenSettings: () => void;
+  onNewChat: () => void;
 }) {
   return (
     <div className="flex h-full w-[41px] shrink-0 flex-col">
@@ -164,10 +176,14 @@ function CollapsedSidebar({
         >
           <MessageSquare />
         </Button>
-        <Button asChild size="icon-sm" variant="ghost" aria-label="New chat">
-          <Link href="/">
-            <Plus className="size-3.5" />
-          </Link>
+        <Button
+          type="button"
+          size="icon-sm"
+          variant="ghost"
+          aria-label="New chat"
+          onClick={onNewChat}
+        >
+          <Plus className="size-3.5" />
         </Button>
       </nav>
       <div className="mt-auto flex w-full justify-center border-t border-sidebar-border py-1.5">

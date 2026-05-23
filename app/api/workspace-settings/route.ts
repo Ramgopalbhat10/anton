@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-import { getWorkspaceSettings } from "@/src/db/queries";
+import { getWorkspaceSettings, updateWorkspaceSettings } from "@/src/db/queries";
+import { isSupportedModelId } from "@/src/lib/models";
 import {
   getLocalWorkspacesRoot,
   setLocalWorkspacesRoot,
@@ -9,8 +10,13 @@ import {
 
 export const runtime = "nodejs";
 
+const permissionModeSchema = z.enum(["default", "auto-review", "full-access"]);
+
 const patchSchema = z.object({
-  localWorkspacesRoot: z.string().trim().min(1).nullable(),
+  localWorkspacesRoot: z.string().trim().min(1).nullable().optional(),
+  defaultModel: z.string().trim().min(1).nullable().optional(),
+  defaultMaxSteps: z.number().int().min(1).max(50).nullable().optional(),
+  defaultPermissionMode: permissionModeSchema.nullable().optional(),
 });
 
 export async function GET() {
@@ -29,8 +35,35 @@ export async function PATCH(req: Request) {
     );
   }
 
+  if (
+    parsed.data.defaultModel !== undefined &&
+    parsed.data.defaultModel !== null &&
+    !isSupportedModelId(parsed.data.defaultModel)
+  ) {
+    return Response.json(
+      { error: "unsupported model", model: parsed.data.defaultModel },
+      { status: 400 },
+    );
+  }
+
   try {
-    await setLocalWorkspacesRoot(parsed.data.localWorkspacesRoot);
+    if ("localWorkspacesRoot" in parsed.data) {
+      await setLocalWorkspacesRoot(parsed.data.localWorkspacesRoot ?? null);
+    }
+    const agentPatch = {
+      ...(parsed.data.defaultModel !== undefined
+        ? { defaultModel: parsed.data.defaultModel }
+        : {}),
+      ...(parsed.data.defaultMaxSteps !== undefined
+        ? { defaultMaxSteps: parsed.data.defaultMaxSteps }
+        : {}),
+      ...(parsed.data.defaultPermissionMode !== undefined
+        ? { defaultPermissionMode: parsed.data.defaultPermissionMode }
+        : {}),
+    };
+    if (Object.keys(agentPatch).length > 0) {
+      updateWorkspaceSettings(agentPatch);
+    }
     return Response.json({ settings: serializeSettings() });
   } catch (err) {
     const status = err instanceof WorkspaceRootError ? 400 : 500;
@@ -46,6 +79,9 @@ function serializeSettings() {
     resolvedLocalWorkspacesRoot: resolved.path,
     source: resolved.source,
     exists: resolved.exists,
+    defaultModel: settings.defaultModel,
+    defaultMaxSteps: settings.defaultMaxSteps,
+    defaultPermissionMode: settings.defaultPermissionMode,
   };
 }
 

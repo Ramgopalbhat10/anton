@@ -248,8 +248,8 @@ function ModeSelector({
       onValueChange={(next) => onChange(next as ChatMode)}
       disabled={disabled}
     >
-      <SelectTrigger className="h-5 gap-1 border-0 bg-transparent px-1.5 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground">
-        <selected.Icon className="size-3.5" />
+      <SelectTrigger className="h-5 gap-1 border-0 bg-transparent px-1.5 text-[11px] font-medium leading-4 text-muted-foreground hover:bg-accent hover:text-foreground">
+        <selected.Icon className="size-3.5 shrink-0" />
         <SelectValue>{selected.label}</SelectValue>
       </SelectTrigger>
       <SelectContent align="start" className="min-w-40">
@@ -384,10 +384,14 @@ function PermissionsDropdown({
   value: PermissionMode;
   onChange: (mode: PermissionMode) => void;
 }) {
+  const selected =
+    PERMISSION_MODE_ITEMS.find((item) => item.value === value) ??
+    PERMISSION_MODE_ITEMS[1];
   return (
     <Select value={value} onValueChange={(v) => onChange(v as PermissionMode)}>
-      <SelectTrigger className="h-5 gap-1 border-0 bg-transparent px-1.5 text-[11px] font-medium text-primary hover:bg-primary/10">
-        <SelectValue />
+      <SelectTrigger className="h-5 gap-1 border-0 bg-transparent px-1.5 text-[11px] font-medium leading-4 text-primary hover:bg-primary/10">
+        <selected.Icon className="size-3.5 shrink-0" />
+        <SelectValue>{selected.label}</SelectValue>
       </SelectTrigger>
       <SelectContent className="min-w-36">
         <SelectViewport className="p-0.5">

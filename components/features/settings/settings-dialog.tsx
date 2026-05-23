@@ -10,6 +10,7 @@ import {
   SettingsShell,
   type SettingsSection,
 } from "./settings-shell";
+import { AgentSettingsPanel } from "./agent-settings-panel";
 import { McpSettingsPanel } from "./mcp-settings-panel";
 import { WorkspaceSettingsPanel } from "./workspace-settings-panel";
 
@@ -59,6 +60,7 @@ export function SettingsDialog({
           onActiveProjectChange={onActiveProjectChange}
         />
       )}
+      {section === "agent" && <AgentSettingsPanel />}
       {section === "mcp" && <McpSettingsPanel />}
       {section === "memories" && (
         <SettingsPageShell

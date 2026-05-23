@@ -3,6 +3,9 @@ export type WorkspaceSettingsSummary = {
   resolvedLocalWorkspacesRoot: string | null;
   source: "database" | "env" | "default";
   exists: boolean;
+  defaultModel: string | null;
+  defaultMaxSteps: number | null;
+  defaultPermissionMode: "default" | "auto-review" | "full-access" | null;
 };
 
 export type GitHubRepositorySummary = {
@@ -55,6 +58,30 @@ export type ProjectGitStatusSummary = {
   upstreamBehind: number | null;
   upstream: string | null;
   remoteUrl: string | null;
+};
+
+export type ProjectStatusSummary = {
+  project: ProjectSummary;
+  packageManager: "npm" | "pnpm" | "yarn" | "bun" | null;
+  scripts: string[];
+  keyDependencies: string[];
+  noteworthyFiles: string[];
+  git: ProjectGitStatusSummary;
+  dirtyFiles: string[];
+  lastRun: ProjectLastRunSummary | null;
+};
+
+export type ProjectLastRunSummary = {
+  runId: string;
+  sessionId: string;
+  status: "running" | "completed" | "error" | "aborted";
+  model: string;
+  startedAt: number;
+  finishedAt: number | null;
+  durationMs: number | null;
+  stepCount: number | null;
+  totalTokens: number | null;
+  costUsd: number | null;
 };
 
 export type ProjectBranchSummary = {

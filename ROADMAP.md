@@ -128,11 +128,11 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 ## Phase 6: Developer Experience
 
 - [✔️] Add file tree and file search panel for the active project.
-- [] Add project status panel showing root path, git branch, dirty files, package manager, scripts, and last run.
+- [✔️] Add project status panel showing root path, git branch, dirty files, package manager, scripts, and last run.
 - [] Add live terminal output streaming for long-running commands.
 - [] Add cancellable background command sessions for dev servers and watchers.
 - [] Add command history with rerun support.
-- [] Add settings for default model, max steps, approval strictness, and workspace root.
+- [✔️] Add settings for default model, max steps, approval strictness, and workspace root.
 - [] Add mobile-friendly workspace and worklog controls.
 - [] Add accessible keyboard navigation for settings, sessions, worklog, approvals, and message actions.
 - [✔️] Split chat UI components into feature-oriented folders.
