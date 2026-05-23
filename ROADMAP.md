@@ -1,6 +1,6 @@
 # Anton Roadmap
 
-Last reviewed: 2026-05-12
+Last reviewed: 2026-05-23
 
 This roadmap is the working backlog for turning Anton from a learning harness into a reliable local AI coding agent. Use each checklist item as the source for future GitHub issues. Mark finished items as `[✔️]` after the related GitHub issue or PR is resolved.
 
@@ -54,6 +54,10 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Added GitHub installation/account filtering in Workspaces settings.
 - [✔️] Added right-sidebar PR view detection for active GitHub project branches.
 - [✔️] Added branch switch/create controls in the composer and workspace settings.
+- [✔️] Added project Status worklog tab with path, git state, package manager, scripts, and last run metadata.
+- [✔️] Added Agent defaults settings for model, max steps cap, and approval strictness with server-side enforcement.
+- [✔️] Polished trace workspace file tabs, headers, and Pierre code view scrolling/gutter behavior.
+- [✔️] Synced file tree git status badges with local `git status`, including header dirty counts and refresh on focus.
 
 ## Phase 1: Trust Boundaries And Safety
 
@@ -140,7 +144,8 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Consolidate client state and feature API hooks.
 - [✔️] Clean up shared UI primitives after modularization.
 - [✔️] Replace duplicate workspace/settings UI paths with one canonical Settings implementation.
-- [] Clean up layout formatting and UI polish issues that are not core behavior.
+- [✔️] Clean up layout formatting and UI polish issues that are not core behavior.
+- [] Fix project file code view scrollbar corner styling when both scrollbars are visible.
 
 ## Phase 7: Evaluation
 
@@ -167,8 +172,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [] Shell tool still runs through `bash -lc`; command policy is heuristic rather than a full shell parser.
 - [] MCP stdio server startup can execute configured commands before user approval.
 - [] Full-file `write_file` remains the main write primitive.
-- [] Message persistence still deletes and reinserts the full session transcript.
-- [] There is no durable tool-call audit table yet.
+- [] Message persistence still deletes and reinserts the full session transcript in some recovery paths.
 - [] GitHub clone/fetch runs synchronously inside request handling and may exceed request duration for large repositories.
 - [] Installation tokens are injected into git through extra headers; keep redaction behavior current as clone/fetch behavior evolves.
 - [] Active project selection is client-local and not yet a durable user/workspace preference.
