@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import {
   FileCode,
   FileJson,
@@ -34,6 +34,12 @@ import { ProjectFileCodeView } from "./project-file-code-view";
 const fileTreeStyle = {
   "--trees-search-bg-override": "var(--secondary)",
 } as CSSProperties;
+
+function countBadgeGitChanges(
+  gitStatus: readonly Pick<GitStatusEntry, "status">[],
+): number {
+  return gitStatus.filter((entry) => entry.status !== "ignored").length;
+}
 
 const projectFilesHeaderRowClass =
   "flex shrink-0 items-center border-b border-border p-1.5";
@@ -214,15 +220,16 @@ function ProjectFileTree({
     },
   });
   const search = useFileTreeSearch(model);
+  const badgeChangeCount = useMemo(
+    () => countBadgeGitChanges(gitStatus),
+    [gitStatus],
+  );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     model.resetPaths(sortedPaths, { initialExpandedPaths: [] });
     model.closeSearch();
-  }, [model, sortedPaths]);
-
-  useEffect(() => {
     model.setGitStatus(gitStatus);
-  }, [gitStatus, model]);
+  }, [model, sortedPaths, gitStatus]);
 
   useEffect(() => {
     if (!selectedPath) return;
@@ -236,6 +243,9 @@ function ProjectFileTree({
           {search.value
             ? `${search.matchingPaths.length.toLocaleString()} match${search.matchingPaths.length === 1 ? "" : "es"}`
             : project?.localPath || "Project"}
+          {!search.value && badgeChangeCount > 0
+            ? ` · ${badgeChangeCount.toLocaleString()} changed`
+            : ""}
           {truncated ? ` · showing ${paths.length.toLocaleString()}` : ""}
         </div>
         <Button
@@ -253,7 +263,7 @@ function ProjectFileTree({
       <div className="min-h-0 flex-1 overflow-hidden px-1 py-1">
         <FileTree
           model={model}
-          className="anton-file-tree h-full overflow-hidden [--trees-search-bg-override:var(--secondary)]"
+          className="anton-file-tree h-full overflow-hidden"
           style={fileTreeStyle}
           aria-label="Project file tree"
         />
@@ -427,6 +437,17 @@ function useProjectFileTree(
       return;
     }
     queueMicrotask(() => void loadFileTree("initial"));
+  }, [loadFileTree, options.enabled, projectId]);
+
+  useEffect(() => {
+    if (!options.enabled || !projectId) return;
+    const refreshGitStatus = () => void loadFileTree("refresh");
+    window.addEventListener("focus", refreshGitStatus);
+    const intervalId = window.setInterval(refreshGitStatus, 15_000);
+    return () => {
+      window.removeEventListener("focus", refreshGitStatus);
+      window.clearInterval(intervalId);
+    };
   }, [loadFileTree, options.enabled, projectId]);
 
   return {

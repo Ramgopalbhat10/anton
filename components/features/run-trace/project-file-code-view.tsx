@@ -39,7 +39,7 @@ const codeViewerOptions = {
       width: 100%;
       min-width: max-content;
       max-width: none;
-      padding-block: 12px;
+      padding-block: 0;
       overflow: visible;
       background: transparent;
     }
@@ -58,12 +58,16 @@ const codeViewerOptions = {
       left: 0;
     }
     [data-column-number] {
-      padding-right: 14px;
+      min-width: 3.5ch;
+      padding-inline: 0.375rem 0.5rem;
       background-color: var(--project-file-code-surface);
       border-right: 1px solid rgba(255, 255, 255, 0.08);
     }
+    [data-line-number-content] {
+      min-width: 3.5ch;
+    }
     [data-line] {
-      padding-inline: 14px 18px;
+      padding-inline: 0.625rem 1rem;
     }
   `,
 };
