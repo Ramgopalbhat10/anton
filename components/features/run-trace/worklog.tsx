@@ -67,6 +67,18 @@ import type {
   ProjectSummary,
 } from "@/src/lib/api-types";
 
+const traceWorkspaceHeaderRowClass =
+  "flex shrink-0 items-center border-b border-border p-1.5";
+
+const traceWorkspaceTabClass =
+  "inline-flex h-6 min-w-0 max-w-44 shrink-0 items-center rounded text-[11px] font-normal transition-colors";
+
+const traceWorkspaceTabCloseButtonClass =
+  "group/close relative ml-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded transition-colors hover:bg-background/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+
+const traceWorkspaceTabLabelButtonClass =
+  "min-w-0 rounded pl-0 pr-1.5 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+
 export type WorklogEntry = ToolTraceEntry;
 type SidebarTab = "worklog" | "plans" | "todos" | "pr" | "files" | "status";
 
@@ -155,15 +167,15 @@ export function Worklog({
       aria-label="Trace workspace"
     >
       <div className="flex h-full min-w-0 w-full shrink-0 flex-col xl:min-w-[420px]">
-        <header className="flex h-10 shrink-0 items-center justify-between border-b border-border px-2">
-          <div className="flex min-w-0 items-center gap-1">
+        <header className={cn(traceWorkspaceHeaderRowClass, "justify-between gap-1")}>
+          <div className="flex min-w-0 items-center gap-1 overflow-x-auto overflow-y-hidden scrollbar-hide">
             {tabs.map((tab) => {
               const meta = tabMeta(tab, prState.pullRequest);
               return (
                 <div
                   key={tab}
                   className={cn(
-                    "inline-flex h-7 min-w-0 items-center rounded text-xs font-semibold transition-colors",
+                    traceWorkspaceTabClass,
                     activeTab === tab
                       ? "bg-secondary text-foreground"
                       : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
@@ -174,12 +186,12 @@ export function Worklog({
                   <button
                     type="button"
                     onClick={() => closeTab(tab)}
-                    className="group/close relative ml-1 inline-flex size-5 shrink-0 items-center justify-center rounded transition-colors hover:bg-background/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    className={traceWorkspaceTabCloseButtonClass}
                     aria-label={`Close ${meta.label} tab`}
                     title={`Close ${meta.label}`}
                   >
-                    <meta.Icon className="size-3.5 transition-opacity group-hover/close:opacity-0 group-focus-visible/close:opacity-0" />
-                    <X className="absolute size-3.5 opacity-0 transition-opacity group-hover/close:opacity-100 group-focus-visible/close:opacity-100" />
+                    <meta.Icon className="size-3 transition-opacity group-hover/close:opacity-0 group-focus-visible/close:opacity-0" />
+                    <X className="absolute size-3 opacity-0 transition-opacity group-hover/close:opacity-100 group-focus-visible/close:opacity-100" />
                   </button>
                   {tab === "pr" ? (
                     <PullRequestTabSelector
@@ -193,7 +205,7 @@ export function Worklog({
                     <button
                       type="button"
                       onClick={() => setActiveTab(tab)}
-                      className="min-w-0 rounded py-1 pl-0.5 pr-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      className={traceWorkspaceTabLabelButtonClass}
                       aria-pressed={activeTab === tab}
                     >
                       <span className="block truncate">{meta.label}</span>
@@ -402,7 +414,7 @@ function PullRequestTabSelector({
         <button
           type="button"
           onClick={onActivate}
-          className="min-w-0 rounded py-1 pl-0.5 pr-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className={traceWorkspaceTabLabelButtonClass}
           aria-pressed={active}
           aria-label={pullRequest ? `Select pull request, current ${label}` : "Select pull request"}
         >

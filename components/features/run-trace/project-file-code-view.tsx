@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
-import { File as PierreFile } from "@pierre/diffs";
+import { useMemo } from "react";
+import { File } from "@pierre/diffs/react";
 import type { FileContents } from "@pierre/diffs";
 
 import { cn } from "@/lib/utils";
@@ -20,23 +20,47 @@ const codeViewerOptions = {
   themeType: "dark" as const,
   unsafeCSS: `
     :host {
-      --diffs-dark-bg: hsl(var(--background)/0.25);
+      display: block;
+      width: 100%;
+      min-width: max-content;
+      max-width: none;
+      --project-file-code-surface: color-mix(in oklch, var(--background) 25%, var(--card));
+      --diffs-bg: var(--project-file-code-surface);
+      --diffs-dark-bg: var(--project-file-code-surface);
       --diffs-dark: #ededed;
       --diffs-font-size: 11px;
       --diffs-line-height: 19px;
       --diffs-font-family: var(--font-geist-mono), "SF Mono", Monaco, Consolas, "Liberation Mono", monospace;
       --diffs-fg-number-override: rgba(255, 255, 255, 0.34);
+      --diffs-gap-block: 0;
+      --diffs-gap-inline: 0;
     }
-    pre {
-      min-height: 100%;
+    [data-code] {
+      width: 100%;
+      min-width: max-content;
+      max-width: none;
+      padding-block: 12px;
+      overflow: visible;
+      background: transparent;
+    }
+    [data-code]::-webkit-scrollbar {
+      display: none;
+      width: 0;
+      height: 0;
+    }
+    [data-gutter] {
+      z-index: 5;
+      background-color: var(--project-file-code-surface);
+      box-shadow: 1px 0 0 var(--border);
+    }
+    [data-overflow="scroll"] [data-gutter] {
+      position: sticky;
+      left: 0;
     }
     [data-column-number] {
       padding-right: 14px;
-      background: transparent;
+      background-color: var(--project-file-code-surface);
       border-right: 1px solid rgba(255, 255, 255, 0.08);
-    }
-    [data-code] {
-      padding-block: 12px;
     }
     [data-line] {
       padding-inline: 14px 18px;
@@ -49,8 +73,6 @@ export function ProjectFileCodeView({
   content,
   className,
 }: ProjectFileCodeViewProps) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const rendererRef = useRef<PierreFile | null>(null);
   const file = useMemo<FileContents>(
     () => ({
       cacheKey: `${path}:${content.length}`,
@@ -60,25 +82,18 @@ export function ProjectFileCodeView({
     [content, path],
   );
 
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    rendererRef.current ??= new PierreFile(codeViewerOptions);
-    rendererRef.current.render({ containerWrapper: container, file });
-  }, [file]);
-
-  useEffect(
-    () => () => {
-      rendererRef.current?.cleanUp();
-      rendererRef.current = null;
-    },
-    [],
-  );
-
   return (
     <div
-      ref={containerRef}
-      className={cn("project-file-code-view min-h-0 flex-1 overflow-auto bg-background/25", className)}
-    />
+      className={cn(
+        "project-file-code-view anton-diff-scrollbar min-h-0 flex-1 overflow-auto bg-[var(--project-file-code-surface)]",
+        className,
+      )}
+    >
+      <File
+        file={file}
+        options={codeViewerOptions}
+        className="block min-w-0 w-full max-w-none"
+      />
+    </div>
   );
 }

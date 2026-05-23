@@ -160,10 +160,10 @@
     --trees-focus-ring-color-override: var(--ring);
     --trees-font-family-override: var(--font-geist-mono);
     --trees-font-size-override: 11px;
-    --trees-gap-override: 1px;
-    --trees-item-margin-x-override: 4px;
-    --trees-item-padding-x-override: 6px;
-    --trees-padding-inline-override: 4px;
+    --trees-gap-override: 0px;
+    --trees-item-margin-x-override: 2px;
+    --trees-item-padding-x-override: 4px;
+    --trees-padding-inline-override: 2px;
     --trees-search-bg-override: var(--secondary);
     --trees-search-fg-override: var(--foreground);
     --trees-git-added-color-override: #00d7ff;
@@ -175,10 +175,18 @@
     --trees-selected-bg-override: color-mix(in oklch, var(--primary) 18%, transparent);
     --trees-selected-fg-override: var(--foreground);
   }
-  .project-file-code-view pierre-diffs {
+  .project-file-code-view {
+    --project-file-code-surface: color-mix(in oklch, var(--background) 25%, var(--card));
+  }
+  .project-file-code-view::-webkit-scrollbar-corner {
+    background: var(--project-file-code-surface);
+  }
+  .project-file-code-view diffs-container {
     display: block;
-    height: 100%;
+    width: 100%;
+    min-width: max-content;
     min-height: 0;
+    background: transparent;
   }
   ::-webkit-scrollbar-thumb:hover {
     background: color-mix(in oklch, var(--foreground) 24%, transparent);
