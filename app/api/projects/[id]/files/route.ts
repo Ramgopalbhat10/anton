@@ -42,16 +42,19 @@ export async function GET(_req: Request, { params }: Ctx) {
 
   try {
     const root = ensureWorkspaceRootAt(project.localPath);
-    const [result, gitStatus] = await Promise.all([
+    const [result, gitStatusResult] = await Promise.all([
       listProjectFiles(root),
-      listProjectGitStatus(root).catch(() => []),
+      listProjectGitStatus(root),
     ]);
     const summary: ProjectFileTreeSummary = {
       projectId: project.id,
-      gitStatus,
+      gitStatus: gitStatusResult.entries,
       ignoredDirectories: [...IGNORED_DIRECTORIES],
       ...result,
     };
+    if (gitStatusResult.error) {
+      console.error("[project files] git status unavailable:", gitStatusResult.error);
+    }
     return Response.json({ fileTree: summary });
   } catch (err) {
     return Response.json(
@@ -113,15 +116,21 @@ function readDirectoryEntries(directory: string) {
   return fs.readdir(directory, { withFileTypes: true });
 }
 
-async function listProjectGitStatus(root: string): Promise<ProjectFileGitStatusEntry[]> {
-  const output = await gitOutput(root, [
-    "status",
-    "--porcelain=v1",
-    "-z",
-    "--untracked-files=all",
-    "--ignored=matching",
-  ]);
-  return parsePorcelainStatus(output);
+async function listProjectGitStatus(root: string): Promise<{
+  entries: ProjectFileGitStatusEntry[];
+  error: string | null;
+}> {
+  try {
+    const output = await gitOutput(root, [
+      "status",
+      "--porcelain=v1",
+      "-z",
+      "--untracked-files=all",
+    ]);
+    return { entries: parsePorcelainStatus(output), error: null };
+  } catch (err) {
+    return { entries: [], error: errorMessage(err) };
+  }
 }
 
 async function gitOutput(cwd: string, args: string[]): Promise<string> {
