@@ -52,6 +52,7 @@ import {
   getToolCall,
   MessagePersistenceConflictError,
   saveMessagesIncrementally,
+  sessionHasStoredMessages,
   setSessionProject,
   touchSession,
   updateRun,
@@ -137,7 +138,32 @@ export async function POST(req: Request) {
   }
 
   const existing = getSession(sessionId);
-  const projectId = existing?.projectId ?? parsed.data.projectId ?? null;
+  const requestedProjectId = parsed.data.projectId ?? null;
+
+  if (existing) {
+    if (
+      existing.projectId &&
+      requestedProjectId &&
+      existing.projectId !== requestedProjectId
+    ) {
+      return Response.json(
+        { error: "session project cannot be changed" },
+        { status: 400 },
+      );
+    }
+    if (
+      !existing.projectId &&
+      requestedProjectId &&
+      sessionHasStoredMessages(sessionId)
+    ) {
+      return Response.json(
+        { error: "project cannot be attached after the session has started" },
+        { status: 400 },
+      );
+    }
+  }
+
+  const projectId = existing?.projectId ?? requestedProjectId ?? null;
   if (needsProject && !projectId) {
     return Response.json(
       { error: "projectId is required for project-aware modes" },

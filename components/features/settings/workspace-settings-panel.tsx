@@ -38,13 +38,7 @@ import { BranchSwitcher } from "@/components/features/projects/branch-switcher";
 import { useWorkspaceSettings } from "./hooks";
 import { SettingsCard, SettingsPageShell } from "./settings-shell";
 
-export function WorkspaceSettingsPanel({
-  activeProjectId,
-  onActiveProjectChange,
-}: {
-  activeProjectId: string | null;
-  onActiveProjectChange: (projectId: string | null) => void;
-}) {
+export function WorkspaceSettingsPanel() {
   const {
     settings,
     rootDraft,
@@ -67,18 +61,17 @@ export function WorkspaceSettingsPanel({
     error,
     refresh,
     saveRoot,
-    selectProject,
     cloneRepo,
     importLocalProject,
     removeProject,
     refreshProject,
-  } = useWorkspaceSettings(onActiveProjectChange);
+  } = useWorkspaceSettings();
   const showAccountLabels = installations.length > 0;
 
   return (
     <SettingsPageShell
       title="Workspaces"
-      description="Choose where Anton stores cloned repositories and which workspace new sessions use."
+      description="Manage where Anton stores cloned repositories and import local projects."
     >
       {error && <ErrorBanner message={error} />}
       <SettingsCard title="Local workspace root" icon={<FolderGit2 />}>
@@ -135,7 +128,7 @@ export function WorkspaceSettingsPanel({
         </p>
       </SettingsCard>
 
-      <SettingsCard title="Active project" icon={<GitBranch />}>
+      <SettingsCard title="Projects" icon={<GitBranch />}>
         {readyProjects.length === 0 ? (
           <EmptyState message="No projects yet." />
         ) : (
@@ -146,18 +139,9 @@ export function WorkspaceSettingsPanel({
               return (
                 <li
                   key={project.id}
-                  className={cn(
-                    "flex items-start gap-2 rounded-md p-2.5 ring-1 transition-colors",
-                    activeProjectId === project.id
-                      ? "bg-primary/10 ring-primary/50"
-                      : "bg-background/45 ring-border",
-                  )}
+                  className="flex items-start gap-2 rounded-md bg-background/45 p-2.5 ring-1 ring-border"
                 >
-                <button
-                  type="button"
-                  onClick={() => selectProject(project.id)}
-                  className="min-w-0 flex-1 text-left"
-                >
+                <div className="min-w-0 flex-1">
                   <span className="block truncate text-xs font-medium">
                     {project.fullName}
                   </span>
@@ -168,7 +152,7 @@ export function WorkspaceSettingsPanel({
                   <span className="mt-0.5 block truncate font-mono text-[11px] text-muted-foreground">
                     {project.localPath}
                   </span>
-                </button>
+                </div>
                 <BranchSwitcher
                   project={project}
                   currentBranch={currentBranch}
@@ -230,9 +214,7 @@ export function WorkspaceSettingsPanel({
                       <AlertDialogCancel>Cancel</AlertDialogCancel>
                       <AlertDialogAction
                         variant="destructive"
-                        onClick={() =>
-                          void removeProject(project.id, activeProjectId)
-                        }
+                        onClick={() => void removeProject(project.id)}
                       >
                         Remove
                       </AlertDialogAction>
@@ -348,18 +330,9 @@ export function WorkspaceSettingsPanel({
                         </div>
                       </div>
                       {repo.clonedProjectId ? (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            if (repo.clonedProjectId) {
-                              selectProject(repo.clonedProjectId);
-                            }
-                          }}
-                        >
-                          Select
-                        </Button>
+                        <span className="text-[11px] text-muted-foreground">
+                          Cloned
+                        </span>
                       ) : (
                         <Button
                           type="button"

@@ -9,7 +9,6 @@ import type {
   ProjectSummary,
   WorkspaceSettingsSummary,
 } from "@/src/lib/api-types";
-import { writeActiveProjectId } from "@/src/lib/client-state/active-project";
 import {
   errorMessage,
   getJson,
@@ -17,9 +16,7 @@ import {
   requestJson,
 } from "@/src/lib/client-fetch";
 
-export function useWorkspaceSettings(
-  onActiveProjectChange: (projectId: string | null) => void,
-) {
+export function useWorkspaceSettings() {
   const [settings, setSettings] = useState<WorkspaceSettingsSummary | null>(null);
   const [rootDraft, setRootDraft] = useState("");
   const [installations, setInstallations] = useState<GitHubInstallationSummary[]>(
@@ -125,15 +122,10 @@ export function useWorkspaceSettings(
     }
   };
 
-  const selectProject = (projectId: string) => {
-    writeActiveProjectId(projectId);
-    onActiveProjectChange(projectId);
-  };
-
   const cloneRepo = async (repo: GitHubRepositorySummary) => {
     setCloningRepoId(repo.id);
     try {
-      const data = await requestJson<{ project: ProjectSummary }>("/api/projects", {
+      await requestJson<{ project: ProjectSummary }>("/api/projects", {
         method: "POST",
         headers: jsonHeaders(),
         body: JSON.stringify({
@@ -141,7 +133,6 @@ export function useWorkspaceSettings(
           installationId: repo.installationId,
         }),
       });
-      selectProject(data.project.id);
       await refresh();
     } catch (err) {
       setError(errorMessage(err, "Clone failed"));
@@ -156,13 +147,12 @@ export function useWorkspaceSettings(
 
     setImportingLocal(true);
     try {
-      const data = await requestJson<{ project: ProjectSummary }>("/api/projects", {
+      await requestJson<{ project: ProjectSummary }>("/api/projects", {
         method: "POST",
         headers: jsonHeaders(),
         body: JSON.stringify({ source: "local", localPath }),
       });
       setLocalPathDraft("");
-      selectProject(data.project.id);
       await refresh();
     } catch (err) {
       setError(errorMessage(err, "Import failed"));
@@ -171,16 +161,12 @@ export function useWorkspaceSettings(
     }
   };
 
-  const removeProject = async (projectId: string, activeProjectId: string | null) => {
+  const removeProject = async (projectId: string) => {
     setRemovingProjectId(projectId);
     try {
       await requestJson<{ project: ProjectSummary }>(`/api/projects/${projectId}`, {
         method: "DELETE",
       });
-      if (activeProjectId === projectId) {
-        writeActiveProjectId(null);
-        onActiveProjectChange(null);
-      }
       await refresh();
     } catch (err) {
       setError(errorMessage(err, "Project removal failed"));
@@ -239,7 +225,6 @@ export function useWorkspaceSettings(
     error,
     refresh,
     saveRoot,
-    selectProject,
     cloneRepo,
     importLocalProject,
     removeProject,

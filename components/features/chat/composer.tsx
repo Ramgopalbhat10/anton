@@ -9,11 +9,9 @@ import {
 } from "react";
 import {
   ArrowUp,
-  ChevronDown,
   Code2,
   DatabaseZap,
   MessageCircle,
-  Monitor,
   Plus,
   ScrollText,
   Search,
@@ -22,7 +20,6 @@ import {
   ShieldQuestion,
   Square,
 } from "lucide-react";
-
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -40,6 +37,7 @@ import type { PermissionMode } from "@/src/agent/permissions";
 import type { McpServerSummary, ProjectSummary } from "@/src/lib/api-types";
 import type { SessionTokenUsage } from "@/src/lib/token-usage";
 import { BranchSwitcher } from "@/components/features/projects/branch-switcher";
+import { ProjectPicker } from "@/components/features/projects/project-picker";
 import { ModelPicker } from "./model-picker";
 
 interface ComposerProps {
@@ -56,6 +54,13 @@ interface ComposerProps {
   tokenUsage: SessionTokenUsage;
   project: ProjectSummary | null;
   projectBranch: string | null;
+  readyProjects: ProjectSummary[];
+  projectsLoading: boolean;
+  projectsError: string | null;
+  selectedProjectId: string | null;
+  onSelectedProjectIdChange: (projectId: string) => void;
+  projectLocked: boolean;
+  onRefreshProjects: () => void;
   permissionMode: PermissionMode;
   onPermissionModeChange: (mode: PermissionMode) => void;
   mcpServers: McpServerSummary[];
@@ -80,6 +85,13 @@ export function Composer({
   tokenUsage,
   project,
   projectBranch,
+  readyProjects,
+  projectsLoading,
+  projectsError,
+  selectedProjectId,
+  onSelectedProjectIdChange,
+  projectLocked,
+  onRefreshProjects,
   permissionMode,
   onPermissionModeChange,
   mcpServers,
@@ -200,17 +212,23 @@ export function Composer({
         </div>
 
         <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 px-1.5 text-[11px] font-medium text-muted-foreground">
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 hover:text-foreground"
-          >
-            <Monitor className="size-3.5" />
-            Work locally
-            <ChevronDown className="size-3" />
-          </button>
+          <ProjectPicker
+            projects={readyProjects}
+            selectedProjectId={selectedProjectId}
+            selectedProject={project}
+            locked={projectLocked}
+            disabled={disabled}
+            loading={projectsLoading}
+            error={projectsError}
+            onSelect={onSelectedProjectIdChange}
+            onRefresh={onRefreshProjects}
+            className="max-w-[20rem]"
+            contentAlign="start"
+          />
           <BranchSwitcher
             project={project}
             currentBranch={projectBranch}
+            showProjectName={false}
             className="max-w-[20rem]"
             contentAlign="start"
           />

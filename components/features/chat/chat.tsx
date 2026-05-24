@@ -38,16 +38,14 @@ import { MessageList } from "./message-list";
 import { Composer } from "./composer";
 import { sessionTokenUsage } from "./message-metrics";
 import { generateChatId } from "./chat-utils";
-import { WorkspaceRequired } from "./workspace-required";
 import { Worklog } from "@/components/features/run-trace/worklog";
 import { useSessionStore } from "@/components/features/sessions/session-store";
 import { useSidebar } from "@/components/features/sessions/session-sidebar";
-import { useActiveProjectIdState } from "@/src/lib/client-state/active-project";
 import {
   useProjectGitStatus,
   useProjectSummary,
+  useProjectsList,
 } from "@/components/features/projects/hooks";
-import { SettingsDialog } from "@/components/features/settings/settings-dialog";
 
 interface ChatProps {
   sessionId?: string;
@@ -95,20 +93,20 @@ function ChatSession({
   const [sessionId] = useState<string>(() => sessionIdProp ?? generateChatId());
   const isDraftSession = sessionIdProp === undefined;
   const workspaceDefaults = useWorkspaceAgentDefaults();
-  const [activeProjectId, setActiveProjectId] = useActiveProjectIdState(
-    initialProjectId,
-    { listen: initialProjectId === null },
-  );
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const {
+    readyProjects,
+    loading: projectsLoading,
+    error: projectsError,
+    refresh: refreshProjects,
+  } = useProjectsList();
   const initialControls = useMemo(
-    () =>
-      composerControlStateBySession.get(sessionId) ??
-      (isDraftSession ? undefined : readStoredComposerControlState(sessionId)),
-    [isDraftSession, sessionId],
+    () => composerControlStateBySession.get(sessionId),
+    [sessionId],
   );
   const [worklogOpen, setWorklogOpen] = useState(false);
   const [worklogExpanded, setWorklogExpanded] = useState(false);
   const [mobileWorklogOpen, setMobileWorklogOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [restoreVersion, setRestoreVersion] = useState(0);
   const [messageDisplayOverride, setMessageDisplayOverride] = useState<
     AntonUIMessage[] | null
@@ -141,7 +139,7 @@ function ChatSession({
   const [streamingResponseMode, setStreamingResponseMode] = useState<ChatMode | null>(
     null,
   );
-  const effectiveProjectId = initialProjectId ?? activeProjectId;
+  const effectiveProjectId = initialProjectId ?? selectedProjectId;
   const project = useProjectSummary(effectiveProjectId);
   const projectGitStatus = useProjectGitStatus(project ? effectiveProjectId : null);
 
@@ -451,6 +449,8 @@ function ChatSession({
     fallback: messageDisplayOverride,
     streaming,
   });
+  const projectLocked =
+    initialProjectId !== null || displayMessages.length > 0;
   const recoveringMessages =
     restoringPersistedMessages && displayMessages.length === 0;
   const headerTitle = initialTitle ?? (sessionIdProp ? "Session" : "New chat");
@@ -525,10 +525,6 @@ function ChatSession({
             acceptPlanDisabled={streaming || !effectiveProjectId}
           />
 
-          {displayMessages.length === 0 && !effectiveProjectId && mode !== "chat" && (
-            <WorkspaceRequired onOpenSettings={() => setSettingsOpen(true)} />
-          )}
-
           {error && (
             <div className="border-t border-border px-4 py-2 text-xs text-destructive">
               Error: {error.message}
@@ -549,6 +545,13 @@ function ChatSession({
             tokenUsage={tokenUsage}
             project={project}
             projectBranch={projectGitStatus?.branch ?? null}
+            readyProjects={readyProjects}
+            projectsLoading={projectsLoading}
+            projectsError={projectsError}
+            selectedProjectId={effectiveProjectId}
+            onSelectedProjectIdChange={setSelectedProjectId}
+            projectLocked={projectLocked}
+            onRefreshProjects={() => void refreshProjects()}
             permissionMode={permissionMode}
             onPermissionModeChange={setPermissionMode}
             mcpServers={mcpServers}
@@ -599,13 +602,6 @@ function ChatSession({
           </div>
         )}
       </div>
-      <SettingsDialog
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        activeProjectId={activeProjectId}
-        onActiveProjectChange={setActiveProjectId}
-        initialSection="workspaces"
-      />
       <McpTrustDialog
         pending={pendingMcpSend}
         onClose={() => setPendingMcpSend(null)}
