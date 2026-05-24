@@ -29,7 +29,99 @@ import type {
 } from "@/src/lib/api-types";
 import { errorMessage, getJson, jsonHeaders, requestJson } from "@/src/lib/client-fetch";
 
+import { PopupSectionHeader } from "@/components/shared/popup-section-header";
+import {
+  PopupSortSelect,
+  type PopupSortOption,
+} from "@/components/shared/popup-sort-select";
+
 import { notifyProjectGitChanged } from "./hooks";
+
+type BranchSort =
+  | "recent-desc"
+  | "recent-asc"
+  | "name-asc"
+  | "name-desc"
+  | "local-first"
+  | "remote-first";
+
+const BRANCH_SORT_OPTIONS = [
+  { value: "recent-desc", label: "Recent" },
+  { value: "recent-asc", label: "Oldest" },
+  { value: "name-asc", label: "Name A-Z" },
+  { value: "name-desc", label: "Name Z-A" },
+  { value: "local-first", label: "Local first" },
+  { value: "remote-first", label: "Remote first" },
+] as const satisfies readonly PopupSortOption<BranchSort>[];
+
+function branchCommitTime(branch: ProjectBranchSummary): number {
+  return branch.lastCommitAt ?? 0;
+}
+
+function sortBranches(
+  branches: ProjectBranchSummary[],
+  sort: BranchSort,
+): ProjectBranchSummary[] {
+  const sorted = [...branches];
+  switch (sort) {
+    case "recent-desc":
+      sorted.sort(
+        (a, b) => branchCommitTime(b) - branchCommitTime(a) || a.name.localeCompare(b.name),
+      );
+      break;
+    case "recent-asc":
+      sorted.sort(
+        (a, b) => branchCommitTime(a) - branchCommitTime(b) || a.name.localeCompare(b.name),
+      );
+      break;
+    case "name-asc":
+      sorted.sort((a, b) => a.name.localeCompare(b.name));
+      break;
+    case "name-desc":
+      sorted.sort((a, b) => b.name.localeCompare(a.name));
+      break;
+    case "local-first":
+      sorted.sort((a, b) => {
+        if (a.kind !== b.kind) return a.kind === "local" ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+      break;
+    case "remote-first":
+      sorted.sort((a, b) => {
+        if (a.kind !== b.kind) return a.kind === "remote" ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+      break;
+  }
+
+  const current = sorted.find((branch) => branch.current);
+  if (!current) return sorted;
+  return [current, ...sorted.filter((branch) => !branch.current)];
+}
+
+function relativeBranchTime(timestamp: number | null): string {
+  if (timestamp === null || !Number.isFinite(timestamp)) return "Unknown";
+  const diffSeconds = Math.round((timestamp - Date.now()) / 1000);
+  const divisions = [
+    { amount: 60, unit: "second" },
+    { amount: 60, unit: "minute" },
+    { amount: 24, unit: "hour" },
+    { amount: 7, unit: "day" },
+    { amount: 4.345, unit: "week" },
+    { amount: 12, unit: "month" },
+    { amount: Number.POSITIVE_INFINITY, unit: "year" },
+  ] as const;
+  let duration = diffSeconds;
+  for (const division of divisions) {
+    if (Math.abs(duration) < division.amount) {
+      return new Intl.RelativeTimeFormat(undefined, {
+        numeric: "auto",
+      }).format(Math.round(duration), division.unit);
+    }
+    duration /= division.amount;
+  }
+  return "";
+}
 
 export function BranchSwitcher({
   project,
@@ -61,14 +153,17 @@ export function BranchSwitcher({
   const [newBranch, setNewBranch] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [issueError, setIssueError] = useState<string | null>(null);
+  const [branchSort, setBranchSort] = useState<BranchSort>("recent-desc");
   const displayedBranch = currentBranch ?? project?.defaultBranch ?? null;
 
   const filteredBranches = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const items = branches?.branches ?? [];
-    if (!needle) return items;
-    return items.filter((branch) => branch.name.toLowerCase().includes(needle));
-  }, [branches, query]);
+    const filtered = needle
+      ? items.filter((branch) => branch.name.toLowerCase().includes(needle))
+      : items;
+    return sortBranches(filtered, branchSort);
+  }, [branches, branchSort, query]);
 
   const filteredIssues = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -256,9 +351,17 @@ export function BranchSwitcher({
           </div>
         </div>
         <div className="max-h-72 overflow-y-auto p-0.5">
-          <div className="px-1.5 py-1 text-[10px] font-medium uppercase text-muted-foreground">
-            Branches
-          </div>
+          <PopupSectionHeader
+            title="Branches"
+            action={
+              <PopupSortSelect
+                value={branchSort}
+                options={BRANCH_SORT_OPTIONS}
+                onChange={setBranchSort}
+                aria-label="Sort branches"
+              />
+            }
+          />
           {error ? (
             <div className="mx-1 rounded-md bg-destructive/10 px-1.5 py-1 text-[11px] text-destructive">
               {error}
@@ -275,14 +378,14 @@ export function BranchSwitcher({
                     type="button"
                     onClick={() => selectBranch(branch)}
                     disabled={switching !== null}
-                    className="grid w-full grid-cols-[0.75rem_minmax(0,1fr)_0.75rem] items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[11px] transition-colors hover:bg-accent disabled:opacity-60"
+                    className="grid w-full grid-cols-[0.75rem_minmax(0,1fr)_0.75rem] items-start gap-1.5 rounded-md px-1.5 py-1 text-left text-[11px] transition-colors hover:bg-accent disabled:opacity-60"
                   >
                     {switching === branch.name ? (
-                      <Loader2 className="size-3 animate-spin text-primary" />
+                      <Loader2 className="mt-0.5 size-3 animate-spin text-primary" />
                     ) : (
                       <GitBranch
                         className={cn(
-                          "size-3",
+                          "mt-0.5 size-3",
                           branch.kind === "remote"
                             ? "text-sky-400"
                             : "text-muted-foreground",
@@ -293,6 +396,12 @@ export function BranchSwitcher({
                     <span className="min-w-0">
                       <span className="block truncate font-mono font-medium">
                         {branch.name}
+                      </span>
+                      <span className="block truncate font-mono text-[10px] text-muted-foreground">
+                        {branch.kind === "remote" ? "remote" : "local"}
+                        {branch.lastCommitAt !== null
+                          ? ` · ${relativeBranchTime(branch.lastCommitAt)}`
+                          : null}
                       </span>
                     </span>
                     {branch.current ? (

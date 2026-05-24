@@ -1,9 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatAddToolApproveResponseFunction } from "ai";
 import {
-  Check,
   CheckCircle2,
   FileText,
   GitBranch,
@@ -11,12 +10,9 @@ import {
   FolderTree,
   Info,
   ListTodo,
-  Loader2,
   Maximize2,
   Minimize2,
   Plus,
-  RefreshCw,
-  Search,
   TerminalSquare,
   X,
   XCircle,
@@ -31,11 +27,6 @@ import {
   type ToolTraceEntry,
 } from "@/src/lib/trace";
 import { Button } from "@/components/ui/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { Markdown } from "@/components/features/chat/markdown";
 import { DiffView } from "./diff-view";
@@ -63,7 +54,6 @@ import { errorMessage, getJson, jsonHeaders, requestJson } from "@/src/lib/clien
 import { PROJECT_GIT_CHANGED_EVENT, OPEN_WORKLOG_STATUS_EVENT } from "@/components/features/projects/hooks";
 import type {
   ProjectGitStatusSummary,
-  ProjectPullRequestListItem,
   ProjectPullRequestSummary,
   ProjectSummary,
 } from "@/src/lib/api-types";
@@ -109,13 +99,12 @@ export function Worklog({
   const [tabs, setTabs] = useState<SidebarTab[]>(["worklog"]);
   const [activeTab, setActiveTab] = useState<SidebarTab | null>("worklog");
   const [menuOpen, setMenuOpen] = useState(false);
-  const [lastAutoPr, setLastAutoPr] = useState<number | null>(null);
+  const prTabOpen = tabs.includes("pr");
   const prState = useProjectPullRequest(project, {
-    enabled: visible,
+    enabled: visible && prTabOpen,
     poll: visible && activeTab === "pr",
   });
   const hasGithubProject = project?.provider === "github" && project.status === "ready";
-  const pullRequestNumber = prState.pullRequest?.number ?? null;
 
   const addTab = (tab: SidebarTab) => {
     setTabs((current) => (current.includes(tab) ? current : [...current, tab]));
@@ -149,28 +138,17 @@ export function Worklog({
   }, []);
 
   useEffect(() => {
-    if (pullRequestNumber === null && !hasGithubProject) {
-      queueMicrotask(() => {
-        setTabs((current) => current.filter((tab) => tab !== "pr"));
-        setActiveTab((current) => (current === "pr" ? "worklog" : current));
-        setLastAutoPr(null);
-      });
-      return;
-    }
-    if (pullRequestNumber === null || !visible || lastAutoPr === pullRequestNumber) {
-      return;
-    }
+    if (hasGithubProject) return;
     queueMicrotask(() => {
-      setTabs((current) => (current.includes("pr") ? current : [...current, "pr"]));
-      setActiveTab("pr");
-      setLastAutoPr(pullRequestNumber);
+      setTabs((current) => current.filter((tab) => tab !== "pr"));
+      setActiveTab((current) => (current === "pr" ? "worklog" : current));
     });
-  }, [hasGithubProject, lastAutoPr, pullRequestNumber, visible]);
+  }, [hasGithubProject]);
 
   const availableTabs = SIDEBAR_TABS.filter(
     (tab) =>
       !tabs.includes(tab.id) &&
-      (tab.id !== "pr" || hasGithubProject || prState.pullRequest !== null),
+      (tab.id !== "pr" || hasGithubProject),
   );
 
   return (
@@ -185,7 +163,7 @@ export function Worklog({
         <header className={cn(traceWorkspaceHeaderRowClass, "justify-between gap-1")}>
           <div className="flex min-w-0 items-center gap-1 overflow-x-auto overflow-y-hidden scrollbar-hide">
             {tabs.map((tab) => {
-              const meta = tabMeta(tab, prState.pullRequest);
+              const meta = tabMeta(tab);
               return (
                 <div
                   key={tab}
@@ -208,24 +186,14 @@ export function Worklog({
                     <meta.Icon className="size-3 transition-opacity group-hover/close:opacity-0 group-focus-visible/close:opacity-0" />
                     <X className="absolute size-3 opacity-0 transition-opacity group-hover/close:opacity-100 group-focus-visible/close:opacity-100" />
                   </button>
-                  {tab === "pr" ? (
-                    <PullRequestTabSelector
-                      project={project}
-                      pullRequest={prState.pullRequest}
-                      active={activeTab === tab}
-                      onActivate={() => setActiveTab(tab)}
-                      onSelect={prState.selectPullRequest}
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab(tab)}
-                      className={traceWorkspaceTabLabelButtonClass}
-                      aria-pressed={activeTab === tab}
-                    >
-                      <span className="block truncate">{meta.label}</span>
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab(tab)}
+                    className={traceWorkspaceTabLabelButtonClass}
+                    aria-pressed={activeTab === tab}
+                  >
+                    <span className="block truncate">{meta.label}</span>
+                  </button>
                 </div>
               );
             })}
@@ -248,7 +216,7 @@ export function Worklog({
                 <div className="absolute right-0 top-full z-50 mt-1 w-36 min-w-36 overflow-hidden rounded-md bg-popover text-popover-foreground shadow-none ring-1 ring-border">
                   <ul className="p-0.5">
                     {availableTabs.map((tab) => {
-                      const meta = tabMeta(tab.id, prState.pullRequest);
+                      const meta = tabMeta(tab.id);
                       return (
                         <li key={tab.id}>
                           <button
@@ -317,8 +285,10 @@ export function Worklog({
             gitStatus={prState.gitStatus}
             loading={prState.loading}
             error={prState.error}
+            project={project}
             projectId={project?.id ?? null}
             onRefresh={prState.refresh}
+            onSelectPullRequest={prState.selectPullRequest}
           />
         ) : activeTab === "pr" && hasGithubProject ? (
           <PullRequestEmptyPanel
@@ -326,8 +296,10 @@ export function Worklog({
             loading={prState.loading}
             creating={prState.creating}
             error={prState.error}
+            project={project}
             onRefresh={prState.refresh}
             onCreatePullRequest={prState.createPullRequest}
+            onSelectPullRequest={prState.selectPullRequest}
           />
         ) : (
           <EmptyTabsPanel />
@@ -353,209 +325,8 @@ const SIDEBAR_TABS = [
 
 const PR_POLL_INTERVAL_MS = 120_000;
 
-function tabMeta(
-  tab: SidebarTab,
-  pullRequest: ProjectPullRequestSummary | null,
-) {
-  const meta = SIDEBAR_TABS.find((item) => item.id === tab) ?? SIDEBAR_TABS[0];
-  if (tab !== "pr" || !pullRequest) return meta;
-  return { ...meta, label: `PR #${pullRequest.number}` };
-}
-
-function PullRequestTabSelector({
-  project,
-  pullRequest,
-  active,
-  onActivate,
-  onSelect,
-}: {
-  project: ProjectSummary | null;
-  pullRequest: ProjectPullRequestSummary | null;
-  active: boolean;
-  onActivate: () => void;
-  onSelect: (number: number) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [pullRequests, setPullRequests] = useState<ProjectPullRequestListItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [selecting, setSelecting] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const label = pullRequest ? `PR #${pullRequest.number}` : "PR";
-
-  const filteredPullRequests = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return pullRequests;
-    return pullRequests.filter((item) =>
-      [
-        `#${item.number}`,
-        item.title,
-        item.authorLogin,
-        item.baseBranch,
-        item.headBranch,
-      ].some((value) => value.toLowerCase().includes(needle)),
-    );
-  }, [pullRequests, query]);
-
-  const loadPullRequests = useCallback(async () => {
-    if (!project || project.provider !== "github" || project.status !== "ready") return;
-    setLoading(true);
-    try {
-      const data = await getJson<{ pullRequests: ProjectPullRequestListItem[] }>(
-        `/api/projects/${project.id}/github/pull-requests`,
-      );
-      setPullRequests(data.pullRequests);
-      setError(null);
-    } catch (err) {
-      setPullRequests([]);
-      setError(errorMessage(err, "Failed to load pull requests"));
-    } finally {
-      setLoading(false);
-    }
-  }, [project]);
-
-  const selectPullRequest = (item: ProjectPullRequestListItem) => {
-    setSelecting(item.number);
-    onSelect(item.number);
-    setOpen(false);
-    window.setTimeout(() => setSelecting(null), 600);
-  };
-
-  return (
-    <Popover
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (next) {
-          onActivate();
-          void loadPullRequests();
-        }
-      }}
-    >
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          onClick={onActivate}
-          className={traceWorkspaceTabLabelButtonClass}
-          aria-pressed={active}
-          aria-label={pullRequest ? `Select pull request, current ${label}` : "Select pull request"}
-        >
-          <span className="block truncate">{label}</span>
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="start" side="bottom" className="w-80 overflow-hidden p-0">
-        <div className="border-b border-border p-1.5">
-          <div className="grid grid-cols-[0.75rem_1fr_auto] items-center gap-1.5 rounded-md bg-background/70 px-1.5 py-1 ring-1 ring-border">
-            <Search className="size-3 text-muted-foreground" />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search pull requests"
-              className="min-w-0 bg-transparent font-mono text-[11px] outline-none placeholder:text-muted-foreground"
-              aria-label="Search pull requests"
-            />
-            <button
-              type="button"
-              onClick={() => void loadPullRequests()}
-              disabled={loading}
-              className="inline-flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-60"
-              aria-label="Refresh pull requests"
-              title="Refresh pull requests"
-            >
-              {loading ? (
-                <Loader2 className="size-3 animate-spin" />
-              ) : (
-                <RefreshCw className="size-3" />
-              )}
-            </button>
-          </div>
-        </div>
-        <div className="max-h-72 overflow-y-auto p-0.5">
-          <div className="px-1.5 py-1 text-[10px] font-medium uppercase text-muted-foreground">
-            Pull requests
-          </div>
-          {error ? (
-            <div className="mx-1 rounded-md bg-destructive/10 px-1.5 py-1 text-[11px] text-destructive">
-              {error}
-            </div>
-          ) : filteredPullRequests.length === 0 ? (
-            <div className="px-2 py-3 text-center text-[11px] text-muted-foreground">
-              {loading ? "Loading pull requests..." : "No pull requests found."}
-            </div>
-          ) : (
-            <ul className="grid gap-0.5">
-              {filteredPullRequests.map((item) => {
-                const selected = pullRequest?.number === item.number;
-                const stateLabel = item.merged
-                  ? "Merged"
-                  : item.state === "open"
-                    ? "Open"
-                    : "Closed";
-                return (
-                  <li key={item.number}>
-                    <button
-                      type="button"
-                      onClick={() => selectPullRequest(item)}
-                      className="grid w-full grid-cols-[0.75rem_minmax(0,1fr)_0.75rem] items-start gap-1.5 rounded-md px-1.5 py-1 text-left text-[11px] transition-colors hover:bg-accent disabled:opacity-60"
-                    >
-                      {selecting === item.number ? (
-                        <Loader2 className="mt-0.5 size-3 animate-spin text-primary" />
-                      ) : (
-                        <GitBranch
-                          className={cn(
-                            "mt-0.5 size-3",
-                            item.merged
-                              ? "text-purple-400"
-                              : item.state === "open"
-                                ? "text-emerald-400"
-                                : "text-muted-foreground",
-                          )}
-                        />
-                      )}
-                      <span className="min-w-0">
-                        <span className="block truncate font-medium">
-                          #{item.number} {item.title}
-                        </span>
-                        <span className="block truncate font-mono text-[10px] text-muted-foreground">
-                          {item.headBranch} {"->"} {item.baseBranch} | {stateLabel} |{" "}
-                          {relativePullRequestTime(item.updatedAt)}
-                        </span>
-                      </span>
-                      {selected ? <Check className="mt-0.5 size-3 text-primary" /> : null}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-function relativePullRequestTime(timestamp: number): string {
-  if (!Number.isFinite(timestamp)) return "";
-  const diffSeconds = Math.round((timestamp - Date.now()) / 1000);
-  const divisions = [
-    { amount: 60, unit: "second" },
-    { amount: 60, unit: "minute" },
-    { amount: 24, unit: "hour" },
-    { amount: 7, unit: "day" },
-    { amount: 4.345, unit: "week" },
-    { amount: 12, unit: "month" },
-    { amount: Number.POSITIVE_INFINITY, unit: "year" },
-  ] as const;
-  let duration = diffSeconds;
-  for (const division of divisions) {
-    if (Math.abs(duration) < division.amount) {
-      return new Intl.RelativeTimeFormat(undefined, {
-        numeric: "auto",
-      }).format(Math.round(duration), division.unit);
-    }
-    duration /= division.amount;
-  }
-  return "";
+function tabMeta(tab: SidebarTab) {
+  return SIDEBAR_TABS.find((item) => item.id === tab) ?? SIDEBAR_TABS[0];
 }
 
 function EmptyTabsPanel() {

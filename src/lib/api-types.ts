@@ -88,6 +88,7 @@ export type ProjectBranchSummary = {
   name: string;
   kind: "local" | "remote";
   current: boolean;
+  lastCommitAt: number | null;
 };
 
 export type ProjectBranchesSummary = {

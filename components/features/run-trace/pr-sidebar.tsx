@@ -1,22 +1,31 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   AlertCircle,
+  Check,
   CheckCircle2,
+  ChevronDown,
   Clock,
   ExternalLink,
   FileText,
+  GitBranch,
   GitCommit,
   GitPullRequest,
   Loader2,
   MessageSquare,
   RefreshCw,
   RotateCcw,
+  Search,
   XCircle,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Tabs,
   TabsContent,
@@ -29,25 +38,37 @@ import type {
   ProjectPullRequestCommitSummary,
   ProjectPullRequestDiscussionItem,
   ProjectPullRequestFileSummary,
+  ProjectPullRequestListItem,
   ProjectPullRequestSummary,
   ProjectPullRequestCheckSummary,
+  ProjectSummary,
 } from "@/src/lib/api-types";
+import { errorMessage, getJson } from "@/src/lib/client-fetch";
 import { Markdown } from "@/components/features/chat/markdown";
+import { PopupSectionHeader } from "@/components/shared/popup-section-header";
+import {
+  PopupSortSelect,
+  type PopupSortOption,
+} from "@/components/shared/popup-sort-select";
 import { PatchDiffView } from "./diff-view";
 
 export function PullRequestPanel({
   pullRequest,
   loading,
   error,
+  project,
   projectId,
   onRefresh,
+  onSelectPullRequest,
 }: {
   pullRequest: ProjectPullRequestSummary;
   gitStatus: ProjectGitStatusSummary | null;
   loading: boolean;
   error: string | null;
+  project: ProjectSummary | null;
   projectId: string | null;
   onRefresh: () => void;
+  onSelectPullRequest: (number: number) => void;
 }) {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const selected =
@@ -62,9 +83,11 @@ export function PullRequestPanel({
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
               <StateBadge pullRequest={pullRequest} />
-              <span className="truncate text-muted-foreground">
-                PR #{pullRequest.number}
-              </span>
+              <PullRequestSelector
+                project={project}
+                pullRequest={pullRequest}
+                onSelect={onSelectPullRequest}
+              />
             </div>
             <h2 className="mt-1 line-clamp-2 text-sm font-semibold leading-5">
               {pullRequest.title}
@@ -170,15 +193,19 @@ export function PullRequestEmptyPanel({
   loading,
   creating,
   error,
+  project,
   onRefresh,
   onCreatePullRequest,
+  onSelectPullRequest,
 }: {
   gitStatus: ProjectGitStatusSummary | null;
   loading: boolean;
   creating: boolean;
   error: string | null;
+  project: ProjectSummary | null;
   onRefresh: () => void;
   onCreatePullRequest: () => void;
+  onSelectPullRequest: (number: number) => void;
 }) {
   const createReady = canCreatePullRequest(gitStatus);
   const canShowCreateAction = Boolean(gitStatus?.branch && !gitStatus.isDefaultBranch);
@@ -191,9 +218,16 @@ export function PullRequestEmptyPanel({
       <section className="border-b border-border px-3 py-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 font-mono text-[10px] text-muted-foreground ring-1 ring-border">
-              <GitPullRequest className="size-3" />
-              No PR
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 font-mono text-[10px] text-muted-foreground ring-1 ring-border">
+                <GitPullRequest className="size-3" />
+                No PR
+              </span>
+              <PullRequestSelector
+                project={project}
+                pullRequest={null}
+                onSelect={onSelectPullRequest}
+              />
             </div>
             <h2 className="mt-2 text-sm font-semibold">Pull request</h2>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -913,6 +947,228 @@ function relativeTime(timestamp: number): string {
     duration /= division.amount;
   }
   return "";
+}
+
+function relativePullRequestTime(timestamp: number): string {
+  return relativeTime(timestamp);
+}
+
+type PullRequestSort =
+  | "updated-desc"
+  | "updated-asc"
+  | "created-desc"
+  | "created-asc"
+  | "number-desc"
+  | "number-asc"
+  | "title-asc";
+
+const PULL_REQUEST_SORT_OPTIONS = [
+  { value: "updated-desc", label: "Recent" },
+  { value: "updated-asc", label: "Oldest" },
+  { value: "created-desc", label: "Newest" },
+  { value: "created-asc", label: "Earliest" },
+  { value: "number-desc", label: "# ↓" },
+  { value: "number-asc", label: "# ↑" },
+  { value: "title-asc", label: "Title A-Z" },
+] as const satisfies readonly PopupSortOption<PullRequestSort>[];
+
+function sortPullRequests(
+  items: ProjectPullRequestListItem[],
+  sort: PullRequestSort,
+): ProjectPullRequestListItem[] {
+  const sorted = [...items];
+  switch (sort) {
+    case "updated-desc":
+      return sorted.sort((a, b) => b.updatedAt - a.updatedAt);
+    case "updated-asc":
+      return sorted.sort((a, b) => a.updatedAt - b.updatedAt);
+    case "created-desc":
+      return sorted.sort((a, b) => b.createdAt - a.createdAt);
+    case "created-asc":
+      return sorted.sort((a, b) => a.createdAt - b.createdAt);
+    case "number-desc":
+      return sorted.sort((a, b) => b.number - a.number);
+    case "number-asc":
+      return sorted.sort((a, b) => a.number - b.number);
+    case "title-asc":
+      return sorted.sort((a, b) => a.title.localeCompare(b.title));
+  }
+}
+
+export function PullRequestSelector({
+  project,
+  pullRequest,
+  onSelect,
+}: {
+  project: ProjectSummary | null;
+  pullRequest: ProjectPullRequestSummary | null;
+  onSelect: (number: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [pullRequests, setPullRequests] = useState<ProjectPullRequestListItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [selecting, setSelecting] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pullRequestSort, setPullRequestSort] =
+    useState<PullRequestSort>("updated-desc");
+  const label = pullRequest ? `PR #${pullRequest.number}` : "PR";
+
+  const filteredPullRequests = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    const filtered = needle
+      ? pullRequests.filter((item) =>
+          [
+            `#${item.number}`,
+            item.title,
+            item.authorLogin,
+            item.baseBranch,
+            item.headBranch,
+          ].some((value) => value.toLowerCase().includes(needle)),
+        )
+      : pullRequests;
+    return sortPullRequests(filtered, pullRequestSort);
+  }, [pullRequests, pullRequestSort, query]);
+
+  const loadPullRequests = useCallback(async () => {
+    if (!project || project.provider !== "github" || project.status !== "ready") return;
+    setLoading(true);
+    try {
+      const data = await getJson<{ pullRequests: ProjectPullRequestListItem[] }>(
+        `/api/projects/${project.id}/github/pull-requests`,
+      );
+      setPullRequests(data.pullRequests);
+      setError(null);
+    } catch (err) {
+      setPullRequests([]);
+      setError(errorMessage(err, "Failed to load pull requests"));
+    } finally {
+      setLoading(false);
+    }
+  }, [project]);
+
+  const selectPullRequest = (item: ProjectPullRequestListItem) => {
+    setSelecting(item.number);
+    onSelect(item.number);
+    setOpen(false);
+    window.setTimeout(() => setSelecting(null), 600);
+  };
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) void loadPullRequests();
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center gap-0.5 rounded-sm px-1 py-0.5 font-mono text-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          aria-label={pullRequest ? `Select pull request, current ${label}` : "Select pull request"}
+        >
+          <span className="truncate">{label}</span>
+          <ChevronDown className="size-3 shrink-0 opacity-70" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" side="bottom" className="w-80 overflow-hidden p-0">
+        <div className="border-b border-border p-1.5">
+          <div className="grid grid-cols-[0.75rem_1fr_auto] items-center gap-1.5 rounded-md bg-background/70 px-1.5 py-1 ring-1 ring-border">
+            <Search className="size-3 text-muted-foreground" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search pull requests"
+              className="min-w-0 bg-transparent font-mono text-[11px] outline-none placeholder:text-muted-foreground"
+              aria-label="Search pull requests"
+            />
+            <button
+              type="button"
+              onClick={() => void loadPullRequests()}
+              disabled={loading}
+              className="inline-flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-60"
+              aria-label="Refresh pull requests"
+              title="Refresh pull requests"
+            >
+              {loading ? (
+                <Loader2 className="size-3 animate-spin" />
+              ) : (
+                <RefreshCw className="size-3" />
+              )}
+            </button>
+          </div>
+        </div>
+        <div className="max-h-72 overflow-y-auto p-0.5">
+          <PopupSectionHeader
+            title="Pull requests"
+            action={
+              <PopupSortSelect
+                value={pullRequestSort}
+                options={PULL_REQUEST_SORT_OPTIONS}
+                onChange={setPullRequestSort}
+                aria-label="Sort pull requests"
+              />
+            }
+          />
+          {error ? (
+            <div className="mx-1 rounded-md bg-destructive/10 px-1.5 py-1 text-[11px] text-destructive">
+              {error}
+            </div>
+          ) : filteredPullRequests.length === 0 ? (
+            <div className="px-2 py-3 text-center text-[11px] text-muted-foreground">
+              {loading ? "Loading pull requests..." : "No pull requests found."}
+            </div>
+          ) : (
+            <ul className="grid gap-0.5">
+              {filteredPullRequests.map((item) => {
+                const selected = pullRequest?.number === item.number;
+                const stateLabel = item.merged
+                  ? "Merged"
+                  : item.state === "open"
+                    ? "Open"
+                    : "Closed";
+                return (
+                  <li key={item.number}>
+                    <button
+                      type="button"
+                      onClick={() => selectPullRequest(item)}
+                      className="grid w-full grid-cols-[0.75rem_minmax(0,1fr)_0.75rem] items-start gap-1.5 rounded-md px-1.5 py-1 text-left text-[11px] transition-colors hover:bg-accent disabled:opacity-60"
+                    >
+                      {selecting === item.number ? (
+                        <Loader2 className="mt-0.5 size-3 animate-spin text-primary" />
+                      ) : (
+                        <GitBranch
+                          className={cn(
+                            "mt-0.5 size-3",
+                            item.merged
+                              ? "text-purple-400"
+                              : item.state === "open"
+                                ? "text-emerald-400"
+                                : "text-muted-foreground",
+                          )}
+                        />
+                      )}
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium">
+                          #{item.number} {item.title}
+                        </span>
+                        <span className="block truncate font-mono text-[10px] text-muted-foreground">
+                          {item.headBranch} {"->"} {item.baseBranch} | {stateLabel} |{" "}
+                          {relativePullRequestTime(item.updatedAt)}
+                        </span>
+                      </span>
+                      {selected ? <Check className="mt-0.5 size-3 text-primary" /> : null}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 function StateBadge({

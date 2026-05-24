@@ -110,36 +110,39 @@ async function branchSummary(
   defaultBranch: string,
   root: string,
 ): Promise<ProjectBranchesSummary> {
+  const branchRefFormat = "%(refname:short)|%(committerdate:unix)";
   const [currentBranch, localRaw, remoteRaw] = await Promise.all([
     gitOutput(root, ["branch", "--show-current"]).catch(() => ""),
-    gitOutput(root, ["for-each-ref", "--format=%(refname:short)", "refs/heads"]),
+    gitOutput(root, ["for-each-ref", `--format=${branchRefFormat}`, "refs/heads"]),
     gitOutput(root, [
       "for-each-ref",
-      "--format=%(refname:short)",
+      `--format=${branchRefFormat}`,
       "refs/remotes/origin",
     ]).catch(() => ""),
   ]);
   const current = currentBranch.trim() || null;
-  const localBranches = splitLines(localRaw);
-  const localNames = new Set(localBranches);
-  const remoteBranches = splitLines(remoteRaw)
-    .filter((branch) => branch !== "origin" && branch !== "origin/HEAD")
-    .filter((branch) => !localNames.has(branch.replace(/^origin\//, "")));
+  const localBranches = parseBranchRefs(localRaw);
+  const localNames = new Set(localBranches.map((branch) => branch.name));
+  const remoteBranches = parseBranchRefs(remoteRaw)
+    .filter((branch) => branch.name !== "origin" && branch.name !== "origin/HEAD")
+    .filter((branch) => !localNames.has(branch.name.replace(/^origin\//, "")));
 
   return {
     projectId,
     currentBranch: current,
     defaultBranch,
     branches: [
-      ...localBranches.map((name) => ({
-        name,
+      ...localBranches.map((branch) => ({
+        name: branch.name,
         kind: "local" as const,
-        current: name === current,
+        current: branch.name === current,
+        lastCommitAt: branch.lastCommitAt,
       })),
-      ...remoteBranches.map((name) => ({
-        name,
+      ...remoteBranches.map((branch) => ({
+        name: branch.name,
         kind: "remote" as const,
         current: false,
+        lastCommitAt: branch.lastCommitAt,
       })),
     ].sort(compareBranches(defaultBranch)),
   };
@@ -200,6 +203,19 @@ function normalizeRemoteBranchName(name: string): string {
 
 function splitLines(value: string): string[] {
   return value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+}
+
+function parseBranchRefs(value: string): { name: string; lastCommitAt: number | null }[] {
+  return splitLines(value).map((line) => {
+    const separator = line.lastIndexOf("|");
+    if (separator === -1) {
+      return { name: line, lastCommitAt: null };
+    }
+    const name = line.slice(0, separator).trim();
+    const parsed = Number.parseInt(line.slice(separator + 1).trim(), 10);
+    const lastCommitAt = Number.isFinite(parsed) ? parsed * 1000 : null;
+    return { name, lastCommitAt };
+  });
 }
 
 function compareBranches(defaultBranch: string) {

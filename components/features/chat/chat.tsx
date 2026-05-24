@@ -592,12 +592,20 @@ function ChatSession({
         <div
           className={cn(
             "relative hidden shrink-0 overflow-hidden xl:block",
-            !worklogResizing && "transition-[width] duration-200 ease-in",
+            !worklogResizing && "transition-[width] duration-200 ease-in-out",
             !worklogOpen && "pointer-events-none xl:border-l-0",
           )}
           style={{ width: worklogOpen ? worklogWidth : 0 }}
         >
-          <div className="relative h-full" style={{ width: worklogWidth }}>
+          <div
+            className={cn(
+              "relative h-full",
+              !worklogResizing &&
+                worklogOpen &&
+                "transition-[width] duration-200 ease-in-out",
+            )}
+            style={{ width: worklogWidth }}
+          >
             {worklogOpen ? (
               <WorklogResizeHandle
                 onResizeStart={startWorklogResize}
