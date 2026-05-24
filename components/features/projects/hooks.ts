@@ -1,12 +1,51 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import type { ProjectGitStatusSummary, ProjectStatusSummary, ProjectSummary } from "@/src/lib/api-types";
-import { getJson } from "@/src/lib/client-fetch";
+import { errorMessage, getJson } from "@/src/lib/client-fetch";
 
 export const PROJECT_GIT_CHANGED_EVENT = "anton-project-git-change";
 const PROJECT_GIT_STATUS_POLL_INTERVAL_MS = 120_000;
+
+export function useProjectsList(): {
+  projects: ProjectSummary[];
+  readyProjects: ProjectSummary[];
+  loading: boolean;
+  error: string | null;
+  refresh: () => Promise<void>;
+} {
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await getJson<{ projects: ProjectSummary[] }>("/api/projects");
+      setProjects(data.projects);
+      setError(null);
+    } catch (err) {
+      setError(errorMessage(err, "Failed to load projects"));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Initial project list hydration updates state after async requests settle.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void refresh();
+  }, [refresh]);
+
+  return {
+    projects,
+    readyProjects: projects.filter((project) => project.status === "ready"),
+    loading,
+    error,
+    refresh,
+  };
+}
 
 export function useProjectSummary(projectId: string | null): ProjectSummary | null {
   const [loadedProject, setLoadedProject] = useState<{

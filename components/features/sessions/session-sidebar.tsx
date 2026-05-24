@@ -12,7 +12,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { SettingsDialog } from "@/components/features/settings/settings-dialog";
-import { useActiveProjectIdState } from "@/src/lib/client-state/active-project";
 
 import { generateChatId } from "@/components/features/chat/chat-utils";
 import { SessionRow } from "./session-row";
@@ -28,7 +27,6 @@ export function SessionSidebar() {
   const activeId = params?.sessionId;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const { open, setOpen } = useSidebar();
-  const [activeProjectId, setActiveProjectId] = useActiveProjectIdState();
 
   useEffect(() => {
     if (!activeId || loading || error) return;
@@ -67,8 +65,6 @@ export function SessionSidebar() {
       <SettingsDialog
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
-        activeProjectId={activeProjectId}
-        onActiveProjectChange={setActiveProjectId}
       />
     </aside>
   );

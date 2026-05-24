@@ -17,16 +17,12 @@ import { WorkspaceSettingsPanel } from "./workspace-settings-panel";
 interface SettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  activeProjectId: string | null;
-  onActiveProjectChange: (projectId: string | null) => void;
   initialSection?: SettingsSection;
 }
 
 export function SettingsDialog({
   open,
   onOpenChange,
-  activeProjectId,
-  onActiveProjectChange,
   initialSection = "workspaces",
 }: SettingsDialogProps) {
   const [section, setSection] = useState<SettingsSection>(initialSection);
@@ -54,12 +50,7 @@ export function SettingsDialog({
       onSectionChange={setSection}
       onClose={() => onOpenChange(false)}
     >
-      {section === "workspaces" && (
-        <WorkspaceSettingsPanel
-          activeProjectId={activeProjectId}
-          onActiveProjectChange={onActiveProjectChange}
-        />
-      )}
+      {section === "workspaces" && <WorkspaceSettingsPanel />}
       {section === "agent" && <AgentSettingsPanel />}
       {section === "mcp" && <McpSettingsPanel />}
       {section === "memories" && (

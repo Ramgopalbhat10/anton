@@ -126,6 +126,15 @@ export function setSessionProject(
   return getSession(id);
 }
 
+export function sessionHasStoredMessages(sessionId: string): boolean {
+  const row = db
+    .select({ count: sql<number>`count(*)` })
+    .from(messages)
+    .where(eq(messages.sessionId, sessionId))
+    .get();
+  return (row?.count ?? 0) > 0;
+}
+
 export function renameSession(id: string, title: string): Session | undefined {
   const trimmed = title.trim();
   if (!trimmed) return getSession(id);
