@@ -6,8 +6,18 @@ import {
   type McpServerConfig,
 } from "@/src/agent/mcp-config";
 import { getMcpTrustDecision } from "@/src/db/queries";
-import type { Memory, McpServer, Project } from "@/src/db/schema";
-import type { McpServerSummary, ProjectMemory, ProjectSummary } from "./api-types";
+import type {
+  BackgroundCommandSession,
+  Memory,
+  McpServer,
+  Project,
+} from "@/src/db/schema";
+import type {
+  BackgroundCommandSessionSummary,
+  McpServerSummary,
+  ProjectMemory,
+  ProjectSummary,
+} from "./api-types";
 
 export function serializeProject(project: Project): ProjectSummary {
   return {
@@ -34,6 +44,28 @@ export function serializeMemory(memory: Memory): ProjectMemory {
     content: memory.content,
     createdAt: memory.createdAt.getTime(),
     updatedAt: memory.updatedAt.getTime(),
+  };
+}
+
+export function serializeBackgroundCommandSession(
+  session: BackgroundCommandSession,
+): BackgroundCommandSessionSummary {
+  return {
+    id: session.id,
+    projectId: session.projectId,
+    command: session.command,
+    commandKind: session.commandKind,
+    status: session.status,
+    pid: session.pid,
+    startedAt: session.startedAt?.getTime() ?? null,
+    finishedAt: session.finishedAt?.getTime() ?? null,
+    exitCode: session.exitCode,
+    signal: session.signal,
+    stdoutTail: session.stdoutTail,
+    stderrTail: session.stderrTail,
+    detectedUrls: session.detectedUrls,
+    createdAt: session.createdAt.getTime(),
+    updatedAt: session.updatedAt.getTime(),
   };
 }
 

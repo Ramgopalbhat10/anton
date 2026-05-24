@@ -22,12 +22,12 @@ import {
 } from "@pierre/trees/react";
 
 import { Button } from "@/components/ui/button";
-import { errorMessage, getJson } from "@/src/lib/client-fetch";
+import { useProjectFileTree } from "@/components/features/projects/hooks";
 import type {
   ProjectFileContentSummary,
-  ProjectFileTreeSummary,
   ProjectSummary,
 } from "@/src/lib/api-types";
+import { errorMessage, getJson } from "@/src/lib/client-fetch";
 import { cn } from "@/lib/utils";
 import { ProjectFileCodeView } from "./project-file-code-view";
 
@@ -43,14 +43,6 @@ function countBadgeGitChanges(
 
 const projectFilesHeaderRowClass =
   "flex shrink-0 items-center border-b border-border p-1.5";
-
-type ProjectFileTreeState = {
-  fileTree: ProjectFileTreeSummary | null;
-  loading: boolean;
-  refreshing: boolean;
-  error: string | null;
-  refresh: () => void;
-};
 
 type OpenFileState = {
   path: string;
@@ -71,11 +63,11 @@ export function ProjectFilesPanel({
   expanded: boolean;
   onFileOpen?: () => void;
 }) {
-  const state = useProjectFileTree(project, { enabled: visible });
   const readyProject = project?.status === "ready";
+  const projectId = readyProject ? project.id : null;
+  const state = useProjectFileTree(visible ? projectId : null);
   const [openFiles, setOpenFiles] = useState<OpenFileState[]>([]);
   const [activePath, setActivePath] = useState<string | null>(null);
-  const projectId = readyProject ? project.id : null;
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -136,7 +128,7 @@ export function ProjectFilesPanel({
         <ProjectFilesEmptyState message="Select an active project to browse files." />
       ) : !readyProject ? (
         <ProjectFilesEmptyState message="Project files are available after the workspace is ready." />
-      ) : state.loading ? (
+      ) : state.loading && !state.fileTree ? (
         <ProjectFilesEmptyState message="Loading project files..." loading />
       ) : state.fileTree && state.fileTree.paths.length > 0 ? (
         <div
@@ -151,7 +143,7 @@ export function ProjectFilesPanel({
             gitStatus={state.fileTree.gitStatus}
             truncated={state.fileTree.truncated}
             refreshing={state.refreshing}
-            onRefresh={state.refresh}
+            onRefresh={() => void state.refresh()}
             onFileOpen={openFile}
             selectedPath={activePath}
             className={cn(
@@ -390,73 +382,6 @@ function ProjectFileViewer({
       )}
     </div>
   );
-}
-
-function useProjectFileTree(
-  project: ProjectSummary | null,
-  options: { enabled: boolean },
-): ProjectFileTreeState {
-  const [fileTree, setFileTree] = useState<ProjectFileTreeSummary | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const projectId = project?.status === "ready" ? project.id : null;
-
-  const loadFileTree = useCallback(
-    async (mode: "initial" | "refresh" = "initial") => {
-      if (!projectId) return;
-      if (mode === "initial") {
-        setLoading(true);
-      } else {
-        setRefreshing(true);
-      }
-      setError(null);
-      try {
-        const data = await getJson<{ fileTree: ProjectFileTreeSummary }>(
-          `/api/projects/${projectId}/files`,
-        );
-        setFileTree(data.fileTree);
-      } catch (err) {
-        setError(errorMessage(err, "Failed to load project files"));
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    },
-    [projectId],
-  );
-
-  useEffect(() => {
-    if (!options.enabled || !projectId) {
-      queueMicrotask(() => {
-        setFileTree(null);
-        setLoading(false);
-        setRefreshing(false);
-        setError(null);
-      });
-      return;
-    }
-    queueMicrotask(() => void loadFileTree("initial"));
-  }, [loadFileTree, options.enabled, projectId]);
-
-  useEffect(() => {
-    if (!options.enabled || !projectId) return;
-    const refreshGitStatus = () => void loadFileTree("refresh");
-    window.addEventListener("focus", refreshGitStatus);
-    const intervalId = window.setInterval(refreshGitStatus, 15_000);
-    return () => {
-      window.removeEventListener("focus", refreshGitStatus);
-      window.clearInterval(intervalId);
-    };
-  }, [loadFileTree, options.enabled, projectId]);
-
-  return {
-    fileTree,
-    loading,
-    refreshing,
-    error,
-    refresh: () => void loadFileTree(fileTree ? "refresh" : "initial"),
-  };
 }
 
 async function loadProjectFile(

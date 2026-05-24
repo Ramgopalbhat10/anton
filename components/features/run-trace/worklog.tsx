@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   FileText,
   GitBranch,
+  GitCompareArrows,
   FolderTree,
   Info,
   ListTodo,
@@ -57,11 +58,11 @@ import { getSessionTodoSnapshots } from "./trace-data";
 import { PullRequestEmptyPanel, PullRequestPanel } from "./pr-sidebar";
 import { ProjectFilesPanel } from "./project-files-panel";
 import { ProjectStatusPanel } from "./project-status-panel";
+import { ProjectDiffPanel } from "./project-diff-panel";
 import { errorMessage, getJson, jsonHeaders, requestJson } from "@/src/lib/client-fetch";
-import { PROJECT_GIT_CHANGED_EVENT } from "@/components/features/projects/hooks";
+import { PROJECT_GIT_CHANGED_EVENT, OPEN_WORKLOG_STATUS_EVENT } from "@/components/features/projects/hooks";
 import type {
   ProjectGitStatusSummary,
-  ProjectLocalDiffSummary,
   ProjectPullRequestListItem,
   ProjectPullRequestSummary,
   ProjectSummary,
@@ -80,7 +81,7 @@ const traceWorkspaceTabLabelButtonClass =
   "min-w-0 rounded pl-0 pr-1.5 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
 export type WorklogEntry = ToolTraceEntry;
-type SidebarTab = "worklog" | "plans" | "todos" | "pr" | "files" | "status";
+type SidebarTab = "worklog" | "plans" | "todos" | "pr" | "files" | "diff" | "status";
 
 interface WorklogProps {
   messages: AntonUIMessage[];
@@ -134,6 +135,20 @@ export function Worklog({
   };
 
   useEffect(() => {
+    const onOpenStatus = () => {
+      setTabs((current) =>
+        current.includes("status") ? current : [...current, "status"],
+      );
+      setActiveTab("status");
+      setMenuOpen(false);
+    };
+    window.addEventListener(OPEN_WORKLOG_STATUS_EVENT, onOpenStatus);
+    return () => {
+      window.removeEventListener(OPEN_WORKLOG_STATUS_EVENT, onOpenStatus);
+    };
+  }, []);
+
+  useEffect(() => {
     if (pullRequestNumber === null && !hasGithubProject) {
       queueMicrotask(() => {
         setTabs((current) => current.filter((tab) => tab !== "pr"));
@@ -166,7 +181,7 @@ export function Worklog({
       )}
       aria-label="Trace workspace"
     >
-      <div className="flex h-full min-w-0 w-full shrink-0 flex-col xl:min-w-[420px]">
+      <div className="flex h-full min-w-0 w-full shrink-0 flex-col">
         <header className={cn(traceWorkspaceHeaderRowClass, "justify-between gap-1")}>
           <div className="flex min-w-0 items-center gap-1 overflow-x-auto overflow-y-hidden scrollbar-hide">
             {tabs.map((tab) => {
@@ -230,21 +245,26 @@ export function Worklog({
                 <Plus />
               </Button>
               {menuOpen && availableTabs.length > 0 && (
-                <div className="absolute right-0 top-full z-50 mt-1 w-36 rounded-md bg-popover p-1 text-xs text-popover-foreground shadow-lg ring-1 ring-border">
-                  {availableTabs.map((tab) => {
-                    const meta = tabMeta(tab.id, prState.pullRequest);
-                    return (
-                      <button
-                        key={tab.id}
-                        type="button"
-                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-accent"
-                        onClick={() => addTab(tab.id)}
-                      >
-                        <meta.Icon className="size-3.5 text-muted-foreground" />
-                        {meta.label}
-                      </button>
-                    );
-                  })}
+                <div className="absolute right-0 top-full z-50 mt-1 w-36 min-w-36 overflow-hidden rounded-md bg-popover text-popover-foreground shadow-none ring-1 ring-border">
+                  <ul className="p-0.5">
+                    {availableTabs.map((tab) => {
+                      const meta = tabMeta(tab.id, prState.pullRequest);
+                      return (
+                        <li key={tab.id}>
+                          <button
+                            type="button"
+                            className="flex w-full cursor-default select-none items-center rounded-sm py-1 pr-2 pl-1.5 text-left text-xs leading-4 outline-none hover:bg-accent hover:text-accent-foreground"
+                            onClick={() => addTab(tab.id)}
+                          >
+                            <span className="inline-flex items-center gap-1.5">
+                              <meta.Icon className="size-3.5 shrink-0" />
+                              {meta.label}
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
                 </div>
               )}
             </div>
@@ -289,6 +309,8 @@ export function Worklog({
           />
         ) : activeTab === "status" ? (
           <ProjectStatusPanel project={project} />
+        ) : activeTab === "diff" ? (
+          <ProjectDiffPanel project={project} visible={visible} />
         ) : activeTab === "pr" && prState.pullRequest ? (
           <PullRequestPanel
             pullRequest={prState.pullRequest}
@@ -301,7 +323,6 @@ export function Worklog({
         ) : activeTab === "pr" && hasGithubProject ? (
           <PullRequestEmptyPanel
             gitStatus={prState.gitStatus}
-            localFiles={prState.localDiff?.files ?? []}
             loading={prState.loading}
             creating={prState.creating}
             error={prState.error}
@@ -322,6 +343,7 @@ const SIDEBAR_TABS = [
   { id: "todos", label: "Todos", Icon: ListTodo },
   { id: "pr", label: "PR", Icon: GitBranch },
   { id: "files", label: "Files", Icon: FolderTree },
+  { id: "diff", label: "Diff", Icon: GitCompareArrows },
   { id: "status", label: "Status", Icon: Info },
 ] as const satisfies readonly {
   id: SidebarTab;
@@ -667,7 +689,6 @@ function useProjectPullRequest(
   options: { enabled: boolean; poll: boolean },
 ): {
   gitStatus: ProjectGitStatusSummary | null;
-  localDiff: ProjectLocalDiffSummary | null;
   pullRequest: ProjectPullRequestSummary | null;
   loading: boolean;
   creating: boolean;
@@ -677,7 +698,6 @@ function useProjectPullRequest(
   createPullRequest: () => void;
 } {
   const [gitStatus, setGitStatus] = useState<ProjectGitStatusSummary | null>(null);
-  const [localDiff, setLocalDiff] = useState<ProjectLocalDiffSummary | null>(null);
   const [pullRequest, setPullRequest] = useState<ProjectPullRequestSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -709,7 +729,6 @@ function useProjectPullRequest(
     ) {
       queueMicrotask(() => {
         setGitStatus(null);
-        setLocalDiff(null);
         setCurrentPullRequest(null);
         setError(null);
         setLoading(false);
@@ -731,23 +750,6 @@ function useProjectPullRequest(
         );
         if (cancelled) return;
         setGitStatus(statusData.status);
-        let localDiffError: string | null = null;
-        if (statusData.status.dirtyCount > 0) {
-          try {
-            const diffData = await getJson<{ diff: ProjectLocalDiffSummary }>(
-              `/api/projects/${project.id}/git/diff`,
-            );
-            if (cancelled) return;
-            setLocalDiff(diffData.diff);
-          } catch (err) {
-            if (cancelled) return;
-            setLocalDiff(null);
-            localDiffError =
-              err instanceof Error ? err.message : "Failed to load local diff";
-          }
-        } else {
-          setLocalDiff(null);
-        }
         if (selectedPullRequestNumber !== null) {
           let prData: { pullRequest: ProjectPullRequestSummary };
           try {
@@ -763,12 +765,12 @@ function useProjectPullRequest(
           }
           if (cancelled) return;
           setCurrentPullRequest(prData.pullRequest);
-          setError(localDiffError);
+          setError(null);
           return;
         }
         if (!statusData.status.branch || statusData.status.isDefaultBranch) {
           setCurrentPullRequest(null);
-          setError(localDiffError);
+          setError(null);
           return;
         }
         let prData: { pullRequest: ProjectPullRequestSummary | null };
@@ -787,7 +789,7 @@ function useProjectPullRequest(
         }
         if (cancelled) return;
         setCurrentPullRequest(prData.pullRequest);
-        setError(localDiffError);
+        setError(null);
       } catch (err) {
         if (!cancelled) {
           setError(errorMessage(err, "Failed to load PR"));
@@ -835,7 +837,6 @@ function useProjectPullRequest(
 
   return {
     gitStatus,
-    localDiff,
     pullRequest,
     loading,
     creating,

@@ -39,12 +39,16 @@ import { Composer } from "./composer";
 import { sessionTokenUsage } from "./message-metrics";
 import { generateChatId } from "./chat-utils";
 import { Worklog } from "@/components/features/run-trace/worklog";
+import { WorklogResizeHandle } from "@/components/features/run-trace/worklog-resize-handle";
+import { useWorklogWidth } from "@/components/features/run-trace/use-worklog-width";
 import { useSessionStore } from "@/components/features/sessions/session-store";
 import { useSidebar } from "@/components/features/sessions/session-sidebar";
 import {
   useProjectGitStatus,
+  useProjectCommands,
   useProjectSummary,
   useProjectsList,
+  notifyOpenWorklogStatus,
 } from "@/components/features/projects/hooks";
 
 interface ChatProps {
@@ -105,8 +109,16 @@ function ChatSession({
     [sessionId],
   );
   const [worklogOpen, setWorklogOpen] = useState(false);
-  const [worklogExpanded, setWorklogExpanded] = useState(false);
   const [mobileWorklogOpen, setMobileWorklogOpen] = useState(false);
+  const layoutRef = useRef<HTMLDivElement>(null);
+  const {
+    width: worklogWidth,
+    expanded: worklogExpanded,
+    isResizing: worklogResizing,
+    setToMax: expandWorklog,
+    toggleExpanded: toggleWorklogExpanded,
+    startResize: startWorklogResize,
+  } = useWorklogWidth(layoutRef);
   const [restoreVersion, setRestoreVersion] = useState(0);
   const [messageDisplayOverride, setMessageDisplayOverride] = useState<
     AntonUIMessage[] | null
@@ -142,6 +154,9 @@ function ChatSession({
   const effectiveProjectId = initialProjectId ?? selectedProjectId;
   const project = useProjectSummary(effectiveProjectId);
   const projectGitStatus = useProjectGitStatus(project ? effectiveProjectId : null);
+  const projectCommands = useProjectCommands(
+    project?.status === "ready" ? project.id : null,
+  );
 
   const transport = useMemo(
     () =>
@@ -463,13 +478,22 @@ function ChatSession({
       typeof window !== "undefined" &&
       window.matchMedia("(min-width: 1280px)").matches
     ) {
-      if (worklogOpen) {
-        setWorklogExpanded(false);
-      }
       setWorklogOpen((open) => !open);
     } else {
       setMobileWorklogOpen((open) => !open);
     }
+  };
+
+  const openProjectStatus = () => {
+    if (
+      typeof window !== "undefined" &&
+      window.matchMedia("(min-width: 1280px)").matches
+    ) {
+      setWorklogOpen(true);
+    } else {
+      setMobileWorklogOpen(true);
+    }
+    notifyOpenWorklogStatus();
   };
 
   return (
@@ -511,7 +535,10 @@ function ChatSession({
         </div>
       </header>
 
-      <div className="relative flex min-h-0 max-w-full flex-1 overflow-hidden">
+      <div
+        ref={layoutRef}
+        className="relative flex min-h-0 max-w-full flex-1 overflow-hidden"
+      >
         <section className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden">
           <MessageList
             messages={displayMessages}
@@ -557,29 +584,42 @@ function ChatSession({
             mcpServers={mcpServers}
             selectedMcpServerIds={selectedMcpServerIds}
             onSelectedMcpServerIdsChange={setSelectedMcpServerIds}
+            runningCommandCount={projectCommands.runningCount}
+            onOpenProjectStatus={openProjectStatus}
           />
         </section>
 
-        <Worklog
-          messages={displayMessages}
-          onApproval={approveTool}
-          project={project}
-          visible={worklogOpen}
-          expanded={worklogExpanded}
-          onFileOpen={() => {
-            sidebar.setOpen(false);
-            setWorklogExpanded(true);
-          }}
-          onExpandToggle={() => setWorklogExpanded((value) => !value)}
+        <div
           className={cn(
-            "hidden shrink-0 overflow-hidden transition-[width] duration-200 ease-in xl:flex",
-            worklogOpen
-              ? worklogExpanded
-                ? "xl:w-[65%]"
-                : "xl:w-[420px]"
-              : "xl:w-0 xl:border-l-0",
+            "relative hidden shrink-0 overflow-hidden xl:block",
+            !worklogResizing && "transition-[width] duration-200 ease-in",
+            !worklogOpen && "pointer-events-none xl:border-l-0",
           )}
-        />
+          style={{ width: worklogOpen ? worklogWidth : 0 }}
+        >
+          <div className="relative h-full" style={{ width: worklogWidth }}>
+            {worklogOpen ? (
+              <WorklogResizeHandle
+                onResizeStart={startWorklogResize}
+                active={worklogResizing}
+              />
+            ) : null}
+            <Worklog
+              messages={displayMessages}
+              onApproval={approveTool}
+              project={project}
+              visible={worklogOpen}
+              expanded={worklogExpanded}
+              onFileOpen={() => {
+                sidebar.setOpen(false);
+                expandWorklog();
+                setWorklogOpen(true);
+              }}
+              onExpandToggle={toggleWorklogExpanded}
+              className="h-full w-full min-w-0"
+            />
+          </div>
+        </div>
 
         {mobileWorklogOpen && (
           <div

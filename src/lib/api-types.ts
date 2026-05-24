@@ -247,6 +247,41 @@ export type ProjectMemory = {
   updatedAt: number;
 };
 
+export type BackgroundCommandStatus =
+  | "starting"
+  | "running"
+  | "stopping"
+  | "exited"
+  | "failed"
+  | "stopped"
+  | "stale";
+
+export type BackgroundCommandKind = "script" | "custom";
+
+export type BackgroundCommandSessionSummary = {
+  id: string;
+  projectId: string;
+  command: string;
+  commandKind: BackgroundCommandKind;
+  status: BackgroundCommandStatus;
+  pid: number | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+  exitCode: number | null;
+  signal: string | null;
+  stdoutTail: string;
+  stderrTail: string;
+  detectedUrls: string[];
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type ProjectBackgroundCommandsSummary = {
+  running: BackgroundCommandSessionSummary[];
+  recent: BackgroundCommandSessionSummary[];
+  runningCount: number;
+};
+
 export type SkillSummary = {
   slug: string;
   name: string;
