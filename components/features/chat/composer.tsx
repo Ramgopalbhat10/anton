@@ -66,6 +66,8 @@ interface ComposerProps {
   mcpServers: McpServerSummary[];
   selectedMcpServerIds: string[];
   onSelectedMcpServerIdsChange: (ids: string[]) => void;
+  runningCommandCount?: number;
+  onOpenProjectStatus?: () => void;
 }
 
 const MIN_HEIGHT = 24;
@@ -97,6 +99,8 @@ export function Composer({
   mcpServers,
   selectedMcpServerIds,
   onSelectedMcpServerIdsChange,
+  runningCommandCount = 0,
+  onOpenProjectStatus,
 }: ComposerProps) {
   const [input, setInput] = useState("");
   const [mcpOpen, setMcpOpen] = useState(false);
@@ -232,6 +236,15 @@ export function Composer({
             className="max-w-[20rem]"
             contentAlign="start"
           />
+          {runningCommandCount > 0 ? (
+            <button
+              type="button"
+              onClick={onOpenProjectStatus}
+              className="inline-flex items-center gap-1 rounded-full bg-emerald-400/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400 ring-1 ring-emerald-400/30 hover:bg-emerald-400/15"
+            >
+              {runningCommandCount} running
+            </button>
+          ) : null}
         </div>
       </div>
     </form>

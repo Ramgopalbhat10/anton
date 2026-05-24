@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import type { UIMessage } from "ai";
 import { randomUUID } from "node:crypto";
 
@@ -10,6 +10,7 @@ import {
 } from "@/src/lib/trace";
 import { db } from "./client";
 import {
+  backgroundCommandSessions,
   githubInstallations,
   memories,
   messages,
@@ -23,10 +24,12 @@ import {
   toolApprovals,
   toolCalls,
   workspaceSettings,
+  type BackgroundCommandSession,
   type GithubInstallation,
   type Memory,
   type McpServer,
   type McpTrustDecision,
+  type NewBackgroundCommandSession,
   type NewMcpServer,
   type NewRun,
   type NewRunContextSummary,
@@ -1079,5 +1082,130 @@ function uniqueMcpNamespace(base: string, currentId?: string): string {
   let suffix = 2;
   while (namespaces.has(`${base}_${suffix}`)) suffix += 1;
   return `${base}_${suffix}`;
+}
+
+const ACTIVE_BACKGROUND_COMMAND_STATUSES = [
+  "starting",
+  "running",
+  "stopping",
+] as const;
+
+export function markStaleBackgroundCommandSessions(): void {
+  const now = new Date();
+  db.update(backgroundCommandSessions)
+    .set({
+      status: "stale",
+      pid: null,
+      finishedAt: now,
+      updatedAt: now,
+    })
+    .where(
+      inArray(backgroundCommandSessions.status, [...ACTIVE_BACKGROUND_COMMAND_STATUSES]),
+    )
+    .run();
+}
+
+export function createBackgroundCommandSession(
+  input: NewBackgroundCommandSession,
+): BackgroundCommandSession {
+  const now = new Date();
+  const row: BackgroundCommandSession = {
+    ...input,
+    pid: input.pid ?? null,
+    startedAt: input.startedAt ?? now,
+    finishedAt: input.finishedAt ?? null,
+    exitCode: input.exitCode ?? null,
+    signal: input.signal ?? null,
+    stdoutTail: input.stdoutTail ?? "",
+    stderrTail: input.stderrTail ?? "",
+    detectedUrls: input.detectedUrls ?? [],
+    createdBy: input.createdBy ?? null,
+    createdAt: input.createdAt ?? now,
+    updatedAt: input.updatedAt ?? now,
+  };
+  db.insert(backgroundCommandSessions).values(row).run();
+  return row;
+}
+
+export function getBackgroundCommandSession(
+  id: string,
+): BackgroundCommandSession | undefined {
+  return db
+    .select()
+    .from(backgroundCommandSessions)
+    .where(eq(backgroundCommandSessions.id, id))
+    .get();
+}
+
+export function getRunningBackgroundCommandForProject(
+  projectId: string,
+  command: string,
+): BackgroundCommandSession | undefined {
+  return db
+    .select()
+    .from(backgroundCommandSessions)
+    .where(
+      and(
+        eq(backgroundCommandSessions.projectId, projectId),
+        eq(backgroundCommandSessions.command, command),
+        inArray(backgroundCommandSessions.status, [
+          ...ACTIVE_BACKGROUND_COMMAND_STATUSES,
+        ]),
+      ),
+    )
+    .orderBy(desc(backgroundCommandSessions.startedAt))
+    .get();
+}
+
+export function listBackgroundCommandSessionsForProject(
+  projectId: string,
+  limit: number,
+): BackgroundCommandSession[] {
+  return db
+    .select()
+    .from(backgroundCommandSessions)
+    .where(eq(backgroundCommandSessions.projectId, projectId))
+    .orderBy(desc(backgroundCommandSessions.startedAt))
+    .limit(limit)
+    .all();
+}
+
+export function updateBackgroundCommandSession(
+  id: string,
+  patch: Partial<
+    Pick<
+      BackgroundCommandSession,
+      | "status"
+      | "pid"
+      | "startedAt"
+      | "finishedAt"
+      | "exitCode"
+      | "signal"
+      | "stdoutTail"
+      | "stderrTail"
+      | "detectedUrls"
+    >
+  >,
+): BackgroundCommandSession | undefined {
+  db.update(backgroundCommandSessions)
+    .set({ ...patch, updatedAt: new Date() })
+    .where(eq(backgroundCommandSessions.id, id))
+    .run();
+  return getBackgroundCommandSession(id);
+}
+
+export function clearRecentBackgroundCommandSessions(projectId: string): number {
+  const result = db
+    .delete(backgroundCommandSessions)
+    .where(
+      and(
+        eq(backgroundCommandSessions.projectId, projectId),
+        notInArray(backgroundCommandSessions.status, [
+          ...ACTIVE_BACKGROUND_COMMAND_STATUSES,
+        ]),
+      ),
+    )
+    .run();
+  return result.changes;
 }
 

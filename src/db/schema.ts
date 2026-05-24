@@ -314,6 +314,55 @@ export const memories = sqliteTable(
   (table) => [index("memories_updated_at_idx").on(table.updatedAt)],
 );
 
+export const backgroundCommandSessions = sqliteTable(
+  "background_command_sessions",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    command: text("command").notNull(),
+    commandKind: text("command_kind", { enum: ["script", "custom"] }).notNull(),
+    status: text("status", {
+      enum: [
+        "starting",
+        "running",
+        "stopping",
+        "exited",
+        "failed",
+        "stopped",
+        "stale",
+      ],
+    }).notNull(),
+    pid: integer("pid"),
+    startedAt: integer("started_at", { mode: "timestamp_ms" }),
+    finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
+    exitCode: integer("exit_code"),
+    signal: text("signal"),
+    stdoutTail: text("stdout_tail").notNull().default(""),
+    stderrTail: text("stderr_tail").notNull().default(""),
+    detectedUrls: text("detected_urls", { mode: "json" })
+      .notNull()
+      .$type<string[]>()
+      .default(sql`'[]'`),
+    createdBy: text("created_by"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch('now') * 1000)`),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch('now') * 1000)`),
+  },
+  (table) => [
+    index("background_command_sessions_project_id_idx").on(table.projectId),
+    index("background_command_sessions_status_idx").on(table.status),
+    index("background_command_sessions_project_started_idx").on(
+      table.projectId,
+      table.startedAt,
+    ),
+  ],
+);
+
 export type WorkspaceSettings = typeof workspaceSettings.$inferSelect;
 export type NewWorkspaceSettings = typeof workspaceSettings.$inferInsert;
 export type GithubInstallation = typeof githubInstallations.$inferSelect;
@@ -340,3 +389,7 @@ export type McpTrustDecision = typeof mcpTrustDecisions.$inferSelect;
 export type NewMcpTrustDecision = typeof mcpTrustDecisions.$inferInsert;
 export type Memory = typeof memories.$inferSelect;
 export type NewMemory = typeof memories.$inferInsert;
+export type BackgroundCommandSession =
+  typeof backgroundCommandSessions.$inferSelect;
+export type NewBackgroundCommandSession =
+  typeof backgroundCommandSessions.$inferInsert;

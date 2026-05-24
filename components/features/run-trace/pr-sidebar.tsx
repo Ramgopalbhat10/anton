@@ -138,7 +138,7 @@ export function PullRequestPanel({
           </TabsList>
         </div>
         <TabsContent value="changes" className="m-0 min-w-0">
-          <ChangesView
+          <LocalChangesView
             files={pullRequest.files}
             selected={selected}
             onSelect={setSelectedFile}
@@ -167,7 +167,6 @@ export function PullRequestPanel({
 
 export function PullRequestEmptyPanel({
   gitStatus,
-  localFiles,
   loading,
   creating,
   error,
@@ -175,7 +174,6 @@ export function PullRequestEmptyPanel({
   onCreatePullRequest,
 }: {
   gitStatus: ProjectGitStatusSummary | null;
-  localFiles: ProjectPullRequestFileSummary[];
   loading: boolean;
   creating: boolean;
   error: string | null;
@@ -188,11 +186,6 @@ export function PullRequestEmptyPanel({
     gitStatus && canShowCreateAction && !createReady
       ? pullRequestCreateBlocker(gitStatus)
       : null;
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const selected =
-    localFiles.find((file) => file.filename === selectedFile) ??
-    localFiles[0] ??
-    null;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <section className="border-b border-border px-3 py-3">
@@ -253,18 +246,6 @@ export function PullRequestEmptyPanel({
           </div>
         ) : null}
       </section>
-      {localFiles.length > 0 ? (
-        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-          <div className="border-b border-border px-3 py-2 text-[11px] font-medium text-muted-foreground">
-            Local changes
-          </div>
-          <ChangesView
-            files={localFiles}
-            selected={selected}
-            onSelect={setSelectedFile}
-          />
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -303,7 +284,7 @@ function emptyPullRequestMessage(gitStatus: ProjectGitStatusSummary | null): str
   return `No GitHub pull request matches ${gitStatus.branch}.`;
 }
 
-function ChangesView({
+export function LocalChangesView({
   files,
   selected,
   onSelect,

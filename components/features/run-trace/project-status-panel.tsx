@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import {
-  Activity,
   CheckCircle2,
   Clock,
   Copy,
@@ -18,6 +17,7 @@ import {
   ErrorBanner,
   LoadingState,
 } from "@/components/shared/feedback-states";
+import { BackgroundCommandsPanel } from "@/components/features/projects/background-commands-panel";
 import { cn } from "@/lib/utils";
 import type { ProjectStatusSummary, ProjectSummary } from "@/src/lib/api-types";
 import { notifyProjectGitChanged, useProjectStatus } from "@/components/features/projects/hooks";
@@ -49,18 +49,9 @@ export function ProjectStatusPanel({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <section className="border-b border-border px-3 py-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-[10px] text-muted-foreground ring-1 ring-border">
-              <Activity className="size-3" />
-              Project status
-            </div>
-            <h2 className="mt-2 text-sm font-semibold">{project.fullName}</h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Workspace root, git state, scripts, and last agent run.
-            </p>
-          </div>
+      <section className="border-b border-border px-3 py-2">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="truncate text-sm font-medium">{project.fullName}</h2>
           <Button
             type="button"
             size="icon-sm"
@@ -77,7 +68,7 @@ export function ProjectStatusPanel({
           </Button>
         </div>
         {error ? (
-          <div className="mt-3">
+          <div className="mt-2">
             <ErrorBanner message={error} />
           </div>
         ) : null}
@@ -90,66 +81,21 @@ export function ProjectStatusPanel({
       ) : status ? (
         <div className="space-y-0">
           <StatusSection title="Overview">
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              <Metric label="Branch" value={status.git.branch ?? "—"} />
-              <Metric label="Dirty" value={status.git.dirtyCount} />
-              <Metric
-                label="Package manager"
-                value={status.packageManager ?? "none"}
-              />
+            <div className="space-y-1.5 text-[11px] text-muted-foreground">
+              <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                <span className="font-mono text-foreground">
+                  {status.git.branch ?? "—"}
+                </span>
+                <span>·</span>
+                <span>{status.git.dirtyCount} dirty</span>
+                <span>·</span>
+                <span>{status.packageManager ?? "no pm"}</span>
+              </p>
+              <PathRow path={status.project.localPath} />
             </div>
           </StatusSection>
 
-          <StatusSection title="Root path">
-            <PathRow path={status.project.localPath} />
-          </StatusSection>
-
-          <StatusSection title="Git">
-            <div className="space-y-2 text-xs text-muted-foreground">
-              <div className="flex flex-wrap gap-2">
-                {status.git.upstream ? (
-                  <span className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[10px]">
-                    {status.git.upstream}
-                  </span>
-                ) : (
-                  <span>No upstream configured</span>
-                )}
-                {status.git.ahead !== null && status.git.behind !== null ? (
-                  <span>
-                    {status.git.ahead} ahead · {status.git.behind} behind origin
-                  </span>
-                ) : null}
-              </div>
-              {status.dirtyFiles.length > 0 ? (
-                <ul className="max-h-40 space-y-1 overflow-y-auto rounded-md bg-background/35 p-2 font-mono text-[10px] ring-1 ring-border/70">
-                  {status.dirtyFiles.map((file) => (
-                    <li key={file} className="truncate">
-                      {file}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p>Working tree clean</p>
-              )}
-            </div>
-          </StatusSection>
-
-          <StatusSection title="Scripts">
-            {status.scripts.length > 0 ? (
-              <div className="flex flex-wrap gap-1.5">
-                {status.scripts.map((script) => (
-                  <span
-                    key={script}
-                    className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
-                  >
-                    {script}
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">No npm scripts detected</p>
-            )}
-          </StatusSection>
+          <BackgroundCommandsPanel projectId={project.id} status={status} />
 
           <StatusSection title="Last run">
             {status.lastRun ? (
@@ -178,8 +124,8 @@ function StatusSection({
   children: ReactNode;
 }) {
   return (
-    <section className="border-b border-border px-3 py-3">
-      <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+    <section className="border-b border-border px-3 py-2">
+      <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         {title}
       </h3>
       {children}
@@ -187,26 +133,17 @@ function StatusSection({
   );
 }
 
-function Metric({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="rounded-md bg-background/45 px-2 py-1.5 ring-1 ring-border">
-      <div className="text-[10px] uppercase text-muted-foreground">{label}</div>
-      <div className="truncate font-mono text-xs font-semibold">{value}</div>
-    </div>
-  );
-}
-
 function PathRow({ path }: { path: string }) {
   const [copied, setCopied] = useState(false);
 
   return (
-    <div className="flex items-start gap-2">
-      <code className="min-w-0 flex-1 break-all rounded-md bg-background/35 px-2 py-1.5 font-mono text-[10px] text-muted-foreground ring-1 ring-border/70">
+    <div className="flex min-w-0 items-center gap-1">
+      <code className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground">
         {path}
       </code>
       <Button
         type="button"
-        size="icon-sm"
+        size="icon-xs"
         variant="ghost"
         aria-label="Copy root path"
         title="Copy root path"
@@ -220,8 +157,17 @@ function PathRow({ path }: { path: string }) {
           }
         }}
       >
-        {copied ? <CheckCircle2 className="size-3.5" /> : <Copy className="size-3.5" />}
+        {copied ? <CheckCircle2 className="size-3" /> : <Copy className="size-3" />}
       </Button>
+    </div>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-md bg-background/45 px-2 py-1.5 ring-1 ring-border">
+      <div className="text-[10px] uppercase text-muted-foreground">{label}</div>
+      <div className="truncate font-mono text-xs font-semibold">{value}</div>
     </div>
   );
 }
@@ -233,7 +179,7 @@ function LastRunCard({
 }) {
   const statusMeta = runStatusMeta(lastRun.status);
   return (
-    <div className="rounded-md bg-background/35 p-2.5 ring-1 ring-border/70">
+    <>
       <div className="flex flex-wrap items-center gap-2">
         <span
           className={cn(
@@ -277,7 +223,7 @@ function LastRunCard({
           <ExternalLink className="size-3" />
         </Link>
       </div>
-    </div>
+    </>
   );
 }
 
