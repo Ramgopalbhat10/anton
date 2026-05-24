@@ -58,6 +58,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Added Agent defaults settings for model, max steps cap, and approval strictness with server-side enforcement.
 - [✔️] Polished trace workspace file tabs, headers, and Pierre code view scrolling/gutter behavior.
 - [✔️] Synced file tree git status badges with local `git status`, including header dirty counts and refresh on focus.
+- [✔️] Replaced global active-project localStorage with session-scoped composer project picker that locks after the first message (#107).
 
 ## Phase 1: Trust Boundaries And Safety
 
@@ -175,4 +176,4 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [] Message persistence still deletes and reinserts the full session transcript in some recovery paths.
 - [] GitHub clone/fetch runs synchronously inside request handling and may exceed request duration for large repositories.
 - [] Installation tokens are injected into git through extra headers; keep redaction behavior current as clone/fetch behavior evolves.
-- [] Active project selection is client-local and not yet a durable user/workspace preference.
+- [] New chats require explicit project selection; there is no default or durable user/workspace project preference yet.
