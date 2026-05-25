@@ -1,5 +1,7 @@
 "use client";
 
+import { ListFilter } from "lucide-react";
+
 import { cn } from "@/lib/utils";
 import {
   Select,
@@ -34,15 +36,23 @@ export function PopupSortSelect<T extends string>({
   return (
     <Select value={value} onValueChange={(next) => onChange(next as T)}>
       <SelectTrigger
-        aria-label={ariaLabel}
+        hideChevron
+        aria-label={`${ariaLabel}: ${selected?.label ?? "Sort"}`}
+        title={selected?.label ?? "Sort"}
         className={cn(
-          "h-5 min-w-0 max-w-[6.5rem] shrink-0 gap-0.5 border-0 bg-transparent px-1 py-0 text-[10px] font-medium leading-4 text-muted-foreground shadow-none hover:bg-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring [&_svg]:size-2.5",
+          "inline-flex size-5 shrink-0 items-center justify-center rounded border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring [&_[data-slot=select-value]]:sr-only",
           className,
         )}
       >
-        <SelectValue className="truncate">{selected?.label ?? "Sort"}</SelectValue>
+        <ListFilter className="size-3" />
+        <SelectValue />
       </SelectTrigger>
-      <SelectContent align="end" className="min-w-32">
+      <SelectContent
+        align="start"
+        side="right"
+        sideOffset={6}
+        className="z-[100] min-w-32"
+      >
         <SelectViewport className="p-0.5">
           {options.map((option) => (
             <SelectItem

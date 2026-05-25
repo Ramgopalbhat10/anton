@@ -62,13 +62,13 @@ const traceWorkspaceHeaderRowClass =
   "flex shrink-0 items-center border-b border-border p-1.5";
 
 const traceWorkspaceTabClass =
-  "inline-flex h-6 min-w-0 max-w-44 shrink-0 items-center rounded text-[11px] font-normal transition-colors";
+  "inline-flex h-6 min-w-0 max-w-44 shrink-0 items-center gap-1.5 rounded pl-1.5 pr-2 text-[11px] font-normal transition-colors";
 
 const traceWorkspaceTabCloseButtonClass =
-  "group/close relative ml-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded transition-colors hover:bg-background/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+  "group/close relative inline-flex size-4 shrink-0 items-center justify-center rounded transition-colors hover:bg-background/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
 const traceWorkspaceTabLabelButtonClass =
-  "min-w-0 rounded pl-0 pr-1.5 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+  "min-w-0 rounded text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
 export type WorklogEntry = ToolTraceEntry;
 type SidebarTab = "worklog" | "plans" | "todos" | "pr" | "files" | "diff" | "status";

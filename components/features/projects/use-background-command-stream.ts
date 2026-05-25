@@ -46,6 +46,17 @@ const MAX_OUTPUT_CHARS = 64 * 1024;
 const RECONNECT_DELAY_MS = 1_000;
 const CLOSE_GRACE_MS = 500;
 
+const TERMINAL_STATUSES = new Set([
+  "exited",
+  "failed",
+  "stopped",
+  "stale",
+]);
+
+function isTerminalStatus(status: string, finished?: boolean): boolean {
+  return finished === true || TERMINAL_STATUSES.has(status);
+}
+
 const stores = new Map<string, BackgroundCommandStreamStore>();
 
 export function useBackgroundCommandStream(
@@ -161,15 +172,18 @@ function connectStore(
       return;
     }
 
+    const finished = isTerminalStatus(data.status, data.finished);
     setStoreState(store, {
       ...store.state,
       status: data.status,
       exitCode: data.exitCode,
       signal: data.signal,
       detectedUrls: data.detectedUrls ?? store.state.detectedUrls,
-      finished: true,
+      finished,
     });
-    closeEventSource(store, eventSource);
+    if (finished) {
+      closeEventSource(store, eventSource);
+    }
   };
 
   eventSource.onerror = () => {
