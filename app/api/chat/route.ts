@@ -861,6 +861,7 @@ function createTraceWriter({
   let stepCount = 0;
   let finalized = false;
   const events = new Map<string, AntonActivityEvent>();
+  const reasoningBuffers = new Map<string, string>();
 
   const metadata = (
     status: AntonRunStatus,
@@ -1368,6 +1369,12 @@ function createTraceWriter({
       if (todos) writeTodos(todos);
     },
     handleStreamPart(part: TextStreamPart<ToolSet>) {
+      if (part.type === "reasoning-delta") {
+        reasoningBuffers.set(
+          part.id,
+          `${reasoningBuffers.get(part.id) ?? ""}${part.text}`,
+        );
+      }
       if (part.type === "reasoning-start") {
         startEvent({
           id: `${runId}:reasoning:${part.id}`,
@@ -1376,9 +1383,12 @@ function createTraceWriter({
         });
       }
       if (part.type === "reasoning-end") {
+        const summary = reasoningBuffers.get(part.id)?.trim();
+        reasoningBuffers.delete(part.id);
         finishEvent(`${runId}:reasoning:${part.id}`, {
           status: "completed",
           label: "Thought",
+          ...(summary ? { summary: redactText(summary) } : {}),
         });
       }
       if (part.type === "error") {

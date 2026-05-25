@@ -36,6 +36,7 @@ const TERMINATION_GRACE_MS = 3_000;
 const TERMINAL_WAIT_MS = 10_000;
 
 const ACTIVE_STATUSES = new Set(["starting", "running", "stopping"]);
+const FINALIZABLE_STATUSES = new Set([...ACTIVE_STATUSES, "stale"]);
 const LOCALHOST_URL_RE =
   /https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(?::\d+)?(?:\/[^\s"'<>]*)?/gi;
 
@@ -46,11 +47,13 @@ type ActiveProcess = {
 const activeProcesses = new Map<string, ActiveProcess>();
 const userStopRequestedSessions = new Set<string>();
 
-let bootstrapped = false;
+const globalForBackgroundCommands = globalThis as typeof globalThis & {
+  __antonBackgroundCommandsBootstrapped?: boolean;
+};
 
 function ensureBootstrapped(): void {
-  if (bootstrapped) return;
-  bootstrapped = true;
+  if (globalForBackgroundCommands.__antonBackgroundCommandsBootstrapped) return;
+  globalForBackgroundCommands.__antonBackgroundCommandsBootstrapped = true;
   markStaleBackgroundCommandSessions();
 }
 
@@ -621,18 +624,21 @@ function finalizeProcess(
     return;
   }
 
-  if (!ACTIVE_STATUSES.has(current.status)) {
+  if (!FINALIZABLE_STATUSES.has(current.status)) {
     userStopRequestedSessions.delete(sessionId);
     return;
   }
+
+  const recoveringStale = current.status === "stale";
 
   const userStopped = userStopRequestedSessions.has(sessionId);
   userStopRequestedSessions.delete(sessionId);
 
   if (
-    userStopped ||
-    current.status === "stopped" ||
-    current.status === "stopping"
+    !recoveringStale &&
+    (userStopped ||
+      current.status === "stopped" ||
+      current.status === "stopping")
   ) {
     updateBackgroundCommandSession(sessionId, {
       status: "stopped",

@@ -30,6 +30,7 @@ import {
 } from "@/components/features/run-trace/trace-data";
 import {
   StatusPill,
+  TraceExpandPanel,
   TraceLogBlock,
   TraceThreadChildren,
   TraceThreadHeaderRow,
@@ -92,7 +93,7 @@ export function ProjectRunDetails({
 
   if (loading && !details) {
     return (
-      <div className="mt-3 flex items-center gap-2 border-l-2 border-border/60 pl-3 text-xs text-muted-foreground">
+      <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
         <Loader2 className="size-3.5 animate-spin text-sky-400" />
         Loading run details...
       </div>
@@ -101,7 +102,7 @@ export function ProjectRunDetails({
 
   if (error && !details) {
     return (
-      <div className="mt-3 space-y-2 border-l-2 border-destructive/40 pl-3">
+      <div className="mt-3 space-y-2">
         <ErrorBanner message={error} />
         <Button
           type="button"
@@ -134,7 +135,7 @@ export function ProjectRunDetails({
   };
 
   return (
-    <div className="mt-3 space-y-3 border-l-2 border-border/50 pl-3">
+    <div className="mt-3 space-y-3">
       {error ? (
         <div className="space-y-2">
           <ErrorBanner message={error} />
@@ -156,31 +157,25 @@ export function ProjectRunDetails({
         onCopy={() => void copyRunSummary()}
       />
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="min-w-0 gap-0">
-        <div className="border-b border-border pb-1.5">
-          <TabsList className="w-full gap-1">
-            <TabsTrigger value="usage" className="h-6 flex-1 px-2 py-0 text-[11px]">
-              Usage
-            </TabsTrigger>
-            <TabsTrigger value="trace" className="h-6 flex-1 px-2 py-0 text-[11px]">
-              Trace
-              {traceEventCount > 0 ? (
-                <span className="ml-1 font-mono text-[9px] text-muted-foreground">
-                  {traceEventCount}
-                </span>
-              ) : null}
-            </TabsTrigger>
-            <TabsTrigger value="context" className="h-6 flex-1 px-2 py-0 text-[11px]">
-              Context
-            </TabsTrigger>
-          </TabsList>
-        </div>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="min-w-0 gap-2">
+        <TabsList size="md" className="w-full">
+          <TabsTrigger value="usage">Usage</TabsTrigger>
+          <TabsTrigger value="trace">
+            Trace
+            {traceEventCount > 0 ? (
+              <span className="font-mono text-[10px] text-muted-foreground tabular-nums">
+                {traceEventCount}
+              </span>
+            ) : null}
+          </TabsTrigger>
+          <TabsTrigger value="context">Context</TabsTrigger>
+        </TabsList>
 
-        <TabsContent value="usage" className="m-0 pt-2">
+        <TabsContent value="usage" className="m-0">
           <TokenUsagePanel run={run} />
         </TabsContent>
 
-        <TabsContent value="trace" className="m-0 pt-2">
+        <TabsContent value="trace" className="m-0">
           {traceEventCount === 0 ? (
             <EmptyHint>No events recorded.</EmptyHint>
           ) : (
@@ -194,7 +189,7 @@ export function ProjectRunDetails({
           )}
         </TabsContent>
 
-        <TabsContent value="context" className="m-0 pt-2">
+        <TabsContent value="context" className="m-0">
           {context ? (
             <ContextPanel
               context={context}
@@ -339,7 +334,9 @@ function TraceTimeline({
                         ? findApprovalForToolCall(toolCall, approvals)
                         : undefined;
                       const expandable =
-                        event.kind === "tool" && toolCall !== undefined;
+                        (event.kind === "tool" && toolCall !== undefined) ||
+                        (event.kind === "reasoning" &&
+                          Boolean(event.summary?.trim()));
                       const expanded = expandedEventId === event.id;
 
                       return (
@@ -368,6 +365,15 @@ function TraceTimeline({
                                 toolCall={toolCall}
                                 approval={approval}
                               />
+                            ) : expandable &&
+                              expanded &&
+                              event.kind === "reasoning" &&
+                              event.summary ? (
+                              <TraceExpandPanel>
+                                <pre className="max-h-48 overflow-y-auto font-mono text-[10px] leading-relaxed text-foreground/80 whitespace-pre-wrap">
+                                  {event.summary}
+                                </pre>
+                              </TraceExpandPanel>
                             ) : null}
                           </TraceTimelineRow>
                         </TraceThreadNode>

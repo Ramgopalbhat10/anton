@@ -233,13 +233,11 @@ function LastRunCard({
         <Clock className="size-3 shrink-0" />
         <span>{new Date(lastRun.startedAt).toLocaleString()}</span>
         <div className="ml-auto flex items-center gap-1.5">
-          <Button
+          <button
             type="button"
-            size="xs"
-            variant={detailsOpen ? "secondary" : "outline"}
             className={cn(
-              "h-5 min-h-0 gap-0.5 px-1.5 py-0 text-[9px]",
-              detailsOpen && "ring-1 ring-border/80",
+              "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] text-foreground transition-colors hover:bg-secondary/60",
+              detailsOpen && "bg-secondary/40",
             )}
             onClick={() => {
               setDetailsEverOpened(true);
@@ -248,15 +246,15 @@ function LastRunCard({
             aria-expanded={detailsOpen}
           >
             {detailsOpen ? (
-              <ChevronDown className="size-2.5" />
+              <ChevronDown className="size-3 shrink-0" />
             ) : (
-              <ChevronRight className="size-2.5" />
+              <ChevronRight className="size-3 shrink-0" />
             )}
             Details
-          </Button>
+          </button>
           <Link
             href={`/s/${lastRun.sessionId}`}
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-foreground transition-colors hover:bg-secondary/60 hover:underline"
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] text-foreground transition-colors hover:bg-secondary/60 hover:underline"
           >
             Open session
             <ExternalLink className="size-3" />
