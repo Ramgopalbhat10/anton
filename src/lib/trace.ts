@@ -270,6 +270,18 @@ export type AssistantTextDisplay = {
   finalText: string;
 };
 
+const LEAKED_MARKUP_BLOCK =
+  /<\|DSML\|[^>]*>[\s\S]*?<\/\|DSML\|[^>]*>/gi;
+const LEAKED_MARKUP_TAG =
+  /<\|(?:DSML|tool_call|tool_calls|function_call|invoke)[^|]*\|[^>]*>/gi;
+
+export function stripLeakedProviderMarkup(text: string): string {
+  let next = text.replace(LEAKED_MARKUP_BLOCK, "");
+  next = next.replace(LEAKED_MARKUP_TAG, "");
+  next = next.replace(/<\|DSML\|[^>]*>[\s\S]*$/gi, "");
+  return next.trim();
+}
+
 export function getAssistantTextDisplay(
   message: AntonUIMessage,
   options: { progressOnly?: boolean } = {},
@@ -280,7 +292,7 @@ export function getAssistantTextDisplay(
 
   for (const [index, part] of message.parts.entries()) {
     if (part.type !== "text") continue;
-    const text = part.text.trim();
+    const text = stripLeakedProviderMarkup(part.text);
     if (!text) continue;
     if (options.progressOnly || (lastToolIndex !== -1 && index < lastToolIndex)) {
       progressText.push(text);
@@ -1049,6 +1061,44 @@ export function getReasoningTexts(message: AntonUIMessage): string[] {
     .filter(isReasoningUIPart)
     .map((part) => part.text.trim())
     .filter((text) => text.length > 0);
+}
+
+export function buildReasoningTextByEventId(
+  message: AntonUIMessage,
+): ReadonlyMap<string, string> {
+  const map = new Map<string, string>();
+  const reasoningActivities = getActivityEvents(message)
+    .filter((event) => event.kind === "reasoning")
+    .slice()
+    .sort(
+      (left, right) =>
+        left.startedAt - right.startedAt ||
+        left.sequence - right.sequence ||
+        left.id.localeCompare(right.id),
+    );
+  let reasoningIndex = 0;
+
+  for (const part of message.parts) {
+    if (!isReasoningUIPart(part)) continue;
+    const text = part.text.trim();
+    if (!text) continue;
+
+    if ("id" in part && typeof part.id === "string") {
+      for (const event of reasoningActivities) {
+        if (event.id.endsWith(`:reasoning:${part.id}`)) {
+          map.set(event.id, text);
+        }
+      }
+    }
+
+    const event = reasoningActivities[reasoningIndex];
+    if (event && !map.has(event.id)) {
+      map.set(event.id, text);
+    }
+    reasoningIndex += 1;
+  }
+
+  return map;
 }
 
 export function isReasoningPart(

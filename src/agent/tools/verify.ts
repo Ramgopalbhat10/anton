@@ -111,7 +111,7 @@ export function createVerifyTool(workspaceRoot?: string) {
             ok: false,
             error: "Verification command is empty.",
           });
-          continue;
+          break;
         }
 
         const result = await runWorkspaceProcess(file, args, root, {
@@ -138,6 +138,7 @@ export function createVerifyTool(workspaceRoot?: string) {
                     : "Verification command failed."),
               }),
         });
+        if (!ok) break;
       }
 
       const ranCount = results.filter((result) => !result.skipped).length;

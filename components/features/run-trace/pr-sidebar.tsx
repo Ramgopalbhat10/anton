@@ -142,20 +142,20 @@ export function PullRequestPanel({
 
       <Tabs defaultValue="changes" className="min-w-0 gap-0">
         <div className="border-b border-border px-2 py-1.5">
-          <TabsList className="gap-1">
-            <TabsTrigger value="changes" className="h-6 px-2 py-0 text-[11px]">
+          <TabsList variant="line" className="h-auto w-full justify-start gap-1 p-0">
+            <TabsTrigger value="changes" className="h-6 flex-none px-2 py-0 text-[11px]">
               Changes
             </TabsTrigger>
-            <TabsTrigger value="description" className="h-6 px-2 py-0 text-[11px]">
+            <TabsTrigger value="description" className="h-6 flex-none px-2 py-0 text-[11px]">
               Description
             </TabsTrigger>
-            <TabsTrigger value="discussion" className="h-6 px-2 py-0 text-[11px]">
+            <TabsTrigger value="discussion" className="h-6 flex-none px-2 py-0 text-[11px]">
               Discussion {pullRequest.discussion.length}
             </TabsTrigger>
-            <TabsTrigger value="commits" className="h-6 px-2 py-0 text-[11px]">
+            <TabsTrigger value="commits" className="h-6 flex-none px-2 py-0 text-[11px]">
               Commits {pullRequest.commitItems.length}
             </TabsTrigger>
-            <TabsTrigger value="checks" className="h-6 px-2 py-0 text-[11px]">
+            <TabsTrigger value="checks" className="h-6 flex-none px-2 py-0 text-[11px]">
               Checks
             </TabsTrigger>
           </TabsList>

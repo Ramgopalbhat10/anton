@@ -1,11 +1,12 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   MessageSquare,
   PanelLeftClose,
   Plus,
+  Search,
   Settings,
 } from "lucide-react";
 
@@ -87,6 +88,15 @@ function ExpandedSidebar({
   onOpenSettings: () => void;
   onNewChat: () => void;
 }) {
+  const [query, setQuery] = useState("");
+  const filteredSessions = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return sessions;
+    return sessions.filter((session) =>
+      session.title.toLowerCase().includes(needle),
+    );
+  }, [query, sessions]);
+
   return (
     <div className="flex h-full w-[300px] shrink-0 flex-col">
       <div className="flex h-10 items-center justify-between px-2">
@@ -126,11 +136,26 @@ function ExpandedSidebar({
         </Button>
       </div>
 
+      <div className="px-2 pb-1.5">
+        <div className="grid grid-cols-[0.75rem_1fr] items-center gap-1.5 rounded-md bg-background/70 px-1.5 py-1 ring-1 ring-border">
+          <Search className="size-3 text-muted-foreground" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search chats"
+            className="min-w-0 bg-transparent text-[11px] outline-none placeholder:text-muted-foreground"
+            aria-label="Search recent chats"
+          />
+        </div>
+      </div>
+
       <SessionList
         activeId={activeId}
         loading={loading}
         error={error}
-        sessions={sessions}
+        sessions={filteredSessions}
+        totalCount={sessions.length}
+        query={query}
       />
 
       <div className="border-t border-sidebar-border p-1.5">
@@ -202,21 +227,29 @@ function SessionList({
   loading,
   error,
   sessions,
+  totalCount,
+  query,
 }: {
   activeId: string | undefined;
   loading: boolean;
   error: string | null;
   sessions: ReturnType<typeof useSessionStore>["sessions"];
+  totalCount: number;
+  query: string;
 }) {
   return (
     <div className="flex-1 overflow-y-auto pb-2">
-      {loading && sessions.length === 0 ? (
+      {loading && totalCount === 0 ? (
         <div className="px-3 py-2 text-xs text-muted-foreground">
           Loading...
         </div>
-      ) : sessions.length === 0 ? (
+      ) : totalCount === 0 ? (
         <div className="px-3 py-2 text-xs text-muted-foreground">
           No sessions yet. Send a message to start one.
+        </div>
+      ) : sessions.length === 0 ? (
+        <div className="px-3 py-2 text-xs text-muted-foreground">
+          No chats match &ldquo;{query.trim()}&rdquo;.
         </div>
       ) : (
         <ul className="space-y-0.5 px-2">

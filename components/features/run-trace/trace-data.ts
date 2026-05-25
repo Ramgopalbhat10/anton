@@ -1,4 +1,5 @@
 import {
+  buildReasoningTextByEventId,
   getActivityEvents,
   getAssistantTextDisplay,
   getLatestBudgetGate,
@@ -13,6 +14,7 @@ import {
   isReasoningPart,
   isTodosDataPart,
   normalizeTodoSnapshotForDisplay,
+  stripLeakedProviderMarkup,
   type AntonActivityKind,
   type AntonActivityStatus,
   type AntonBudgetGateData,
@@ -297,6 +299,7 @@ function buildRunTimelineItems(
   );
   const seenToolIds = new Set<string>();
   const items: SessionTimelineItem[] = [];
+  const reasoningByEventId = buildReasoningTextByEventId(message);
 
   const events = getActivityEvents(message)
     .filter(
@@ -335,7 +338,11 @@ function buildRunTimelineItems(
     }
 
     if (event.kind === "reasoning") {
-      const reasoningText = reasoningTextForEvent(message, event);
+      const reasoningText = reasoningTextForEvent(
+        message,
+        event,
+        reasoningByEventId,
+      );
       items.push({
         ...base,
         kind: "reasoning",
@@ -433,33 +440,10 @@ function compareTimelineItems(
 function reasoningTextForEvent(
   message: AntonUIMessage,
   event: AntonActivityEvent,
+  reasoningByEventId?: ReadonlyMap<string, string>,
 ): string | undefined {
-  const marker = ":reasoning:";
-  const markerIndex = event.id.indexOf(marker);
-  if (markerIndex !== -1) {
-    const partId = event.id.slice(markerIndex + marker.length);
-    for (const part of message.parts) {
-      if (!isReasoningPart(part)) continue;
-      if ("id" in part && typeof part.id === "string" && part.id === partId) {
-        const text = part.text.trim();
-        if (text.length > 0) return text;
-      }
-    }
-  }
-
-  const reasoningEvents = getActivityEvents(message)
-    .filter((candidate) => candidate.kind === "reasoning")
-    .sort(compareTimelineEvents);
-  const reasoningTexts = message.parts.flatMap((part) =>
-    isReasoningPart(part) && part.text.trim().length > 0
-      ? [part.text.trim()]
-      : [],
-  );
-  const eventIndex = reasoningEvents.findIndex(
-    (candidate) => candidate.id === event.id,
-  );
-  if (eventIndex === -1 || eventIndex >= reasoningTexts.length) return undefined;
-  return reasoningTexts[eventIndex];
+  const map = reasoningByEventId ?? buildReasoningTextByEventId(message);
+  return map.get(event.id);
 }
 
 function todoSnapshotFromEventDetails(
@@ -587,7 +571,6 @@ export function getTodoTraceDisplay(
     if (message.role === "assistant") {
       lastAssistantByTurn.set(userTurn, message);
     }
-    const firstFailedToolIndex = message.parts.findIndex(isFailedToolPart);
     const firstTodoPartIndex = message.parts.findIndex(isTodosDataPart);
     const firstTodoPartKey =
       firstTodoPartIndex === -1
@@ -595,7 +578,6 @@ export function getTodoTraceDisplay(
         : todoPartKey(message, firstTodoPartIndex);
     message.parts.forEach((part, partIndex) => {
       if (!isTodosDataPart(part)) return;
-      if (firstFailedToolIndex !== -1 && partIndex > firstFailedToolIndex) return;
       const order = messageIndex * 10_000 + partIndex;
       updateTurnSnapshot(userTurn, part.data, order, todoPartKey(message, partIndex));
     });
@@ -676,7 +658,7 @@ export function getTraceRows(
       lastToolIndex !== -1 &&
       index < lastToolIndex
     ) {
-      const text = part.text.trim();
+      const text = stripLeakedProviderMarkup(part.text);
       if (!text) return;
       rows.push({
         id: `${message.id}:progress:${index}`,
@@ -791,12 +773,6 @@ function eventHasTodos(event: AntonActivityEvent): boolean {
 
 function isTokenBudgetActivity(event: AntonActivityEvent): boolean {
   return event.label === "Token budget reached";
-}
-
-function isFailedToolPart(part: AntonUIMessage["parts"][number]): boolean {
-  if (!("toolCallId" in part)) return false;
-  if ("state" in part && part.state === "output-error") return true;
-  return "output" in part && isFailedToolOutput(part.output);
 }
 
 function toolCallIdForPart(
