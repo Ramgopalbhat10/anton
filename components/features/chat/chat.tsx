@@ -18,7 +18,7 @@ import {
 } from "@/src/lib/models";
 import { CHAT_MODES, DEFAULT_CHAT_MODE, type ChatMode } from "@/src/lib/chat-modes";
 import type { PermissionMode } from "@/src/agent/permissions";
-import type { AntonUIMessage } from "@/src/lib/trace";
+import { isBudgetGateDataPart, type AntonUIMessage } from "@/src/lib/trace";
 import type { McpPreflightServer, McpServerSummary } from "@/src/lib/api-types";
 import { getJson, jsonHeaders, requestJson } from "@/src/lib/client-fetch";
 import { useWorkspaceAgentDefaults } from "@/components/features/settings/use-workspace-agent-defaults";
@@ -49,6 +49,7 @@ import {
   useProjectSummary,
   useProjectsList,
   notifyOpenWorklogStatus,
+  notifyProjectStatusChanged,
 } from "@/components/features/projects/hooks";
 
 interface ChatProps {
@@ -203,6 +204,9 @@ function ChatSession({
         router.replace(`/s/${sessionId}`);
       }
       void refresh();
+      if (effectiveProjectId) {
+        notifyProjectStatusChanged(effectiveProjectId);
+      }
     },
   });
   const previousStatusRef = useRef(status);
@@ -401,6 +405,21 @@ function ChatSession({
     [addToolApprovalResponse, mode, requestBodyForMode],
   );
 
+  const extendTokenBudget = useCallback(
+    (runId: string, multiplier: 2 | 3 | 5) => {
+      if (lastNonEmptyMessagesRef.current.length > 0) {
+        setMessageDisplayOverride(lastNonEmptyMessagesRef.current);
+      }
+      void sendMessage(undefined, {
+        body: {
+          ...requestBodyForMode(mode),
+          extendTokenBudget: { runId, multiplier },
+        },
+      });
+    },
+    [mode, requestBodyForMode, sendMessage],
+  );
+
   const sendWithMcp = async (
     text: string,
     requestedMode: ChatMode = mode,
@@ -550,6 +569,7 @@ function ChatSession({
               void sendWithMcp("Implement plan", "agent");
             }}
             acceptPlanDisabled={streaming || !effectiveProjectId}
+            onExtendTokenBudget={extendTokenBudget}
           />
 
           {error && (
@@ -792,6 +812,7 @@ function hasVisibleMessageParts(message: AntonUIMessage): boolean {
     if (part.type === "text" || part.type === "reasoning") {
       return part.text.trim().length > 0;
     }
+    if (isBudgetGateDataPart(part)) return true;
     return part.type !== "step-start";
   });
 }

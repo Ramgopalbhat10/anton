@@ -16,10 +16,17 @@ import {
   buildTokenUsageMetrics,
   openRouterCostFromMetadata,
 } from "@/src/lib/token-usage";
+import {
+  estimateTokensFromBytes,
+  estimateTokensFromText,
+  estimateToolDefinitionsTokens,
+  type ContextCompositionAudit,
+} from "@/src/lib/context-composition";
 import { listMemories } from "@/src/db/queries";
 import {
   budgetForProfile,
   capRunBudget,
+  applyTokenBudgetMultiplier,
   costBudgetStopCondition,
   tokenBudgetStopCondition,
   type RunBudget,
@@ -63,6 +70,7 @@ export type TokenAudit = {
     activeCount: number;
   };
   budget: RunBudgetAudit;
+  contextComposition: ContextCompositionAudit;
   usage?: UsageAudit;
   steps: StepUsageAudit[];
 };
@@ -169,19 +177,25 @@ const PROFILE_NATIVE_TOOLS = {
   "approval-continuation": NATIVE_ANTON_TOOL_NAMES,
 } as const satisfies Record<AgentRunProfile, readonly NativeAntonToolName[]>;
 
-function systemPrompt(
-  mcpTools: LoadedMcpTools,
-  workspaceRoot?: string,
-  mode: AgentRunMode = "ask",
-  profile: AgentRunProfile = profileForMode(mode),
-): string {
-  if (profile === "pure-chat") return pureChatSystemPrompt();
+type SystemPromptParts = {
+  base: string;
+  mcp: string;
+  memory: string;
+  skills: string;
+  profile: string;
+};
 
+function buildSystemPromptParts(
+  mcpTools: LoadedMcpTools,
+  workspaceRoot: string | undefined,
+  mode: AgentRunMode,
+  profile: AgentRunProfile,
+): SystemPromptParts {
   const root = workspaceRoot
     ? ensureWorkspaceRootAt(workspaceRoot)
     : ensureWorkspaceRoot();
   const rel = workspaceRoot ? workspaceRelativeTo(root, root) : workspaceRelative(root);
-  return [
+  const base = [
     "You are Anton, a minimal coding-agent harness. Your job is to explore, read,",
     "and modify code inside a sandboxed workspace directory on the user's machine.",
     "",
@@ -209,15 +223,39 @@ function systemPrompt(
     "- When you finish, report changed files, verification results, and unresolved risks or skipped checks. If the run reaches the max step limit, stop and say what remains instead of implying completion.",
     "- Do not guess file contents - read them first.",
     "- Model-only prior run context may appear as an assistant message before the latest user request. Use it for continuity, but re-read files or rerun commands when exact current state matters.",
-    "",
-    ...mcpToolPromptLines(mcpTools),
-    "",
-    ...projectMemoryPromptLines(),
-    "",
-    ...projectSkillPromptLines(workspaceRoot),
-    "",
-    ...runProfilePromptLines(mode, profile),
   ].join("\n");
+
+  return {
+    base,
+    mcp: mcpToolPromptLines(mcpTools).join("\n"),
+    memory: projectMemoryPromptLines().join("\n"),
+    skills: projectSkillPromptLines(workspaceRoot).join("\n"),
+    profile: runProfilePromptLines(mode, profile).join("\n"),
+  };
+}
+
+function buildContextCompositionAudit({
+  systemParts,
+  tools,
+  messageBytes,
+  priorRunContextBytes,
+}: {
+  systemParts: SystemPromptParts;
+  tools: ToolSet;
+  messageBytes: number;
+  priorRunContextBytes: number;
+}): ContextCompositionAudit {
+  return {
+    systemPromptTokens: estimateTokensFromText(systemParts.base),
+    toolDefinitionsTokens: estimateToolDefinitionsTokens(tools),
+    memoryTokens: estimateTokensFromText(systemParts.memory),
+    skillsTokens: estimateTokensFromText(systemParts.skills),
+    mcpPromptTokens: estimateTokensFromText(systemParts.mcp),
+    runProfileTokens: estimateTokensFromText(systemParts.profile),
+    priorRunContextTokens: estimateTokensFromBytes(priorRunContextBytes),
+    conversationTokens: estimateTokensFromBytes(messageBytes),
+    source: "estimated",
+  };
 }
 
 function pureChatSystemPrompt(): string {
@@ -358,6 +396,9 @@ export async function runAgent({
   maxStepsCap,
   requestBodyBytes,
   contextBudget,
+  tokenBudgetMultiplier = 1,
+  priorTokensUsed = 0,
+  priorCostUsd = 0,
   onStepStart,
   onStepFinish,
   onToolCallStart,
@@ -378,6 +419,9 @@ export async function runAgent({
   maxStepsCap?: number | null;
   requestBodyBytes?: number;
   contextBudget?: ContextBudgetAudit;
+  tokenBudgetMultiplier?: number;
+  priorTokensUsed?: number;
+  priorCostUsd?: number;
   onStepStart?: (event: { stepNumber: number }) => void;
   onStepFinish?: (event: { stepNumber: number }) => void;
   onToolCallStart?: (event: {
@@ -407,14 +451,18 @@ export async function runAgent({
     stepCount: number;
     maxSteps: number;
     maxTotalTokens: number;
+    baseMaxTotalTokens: number;
     maxCostUsd: number;
+    priorTokensUsed: number;
+    priorCostUsd: number;
     maxStepLimitReached: boolean;
     tokenBudgetReached: boolean;
     costBudgetReached: boolean;
     tokenAudit: TokenAudit;
   }) => void;
 }) {
-  const budget = capRunBudget(budgetForProfile(profile), maxStepsCap);
+  const baseBudget = capRunBudget(budgetForProfile(profile), maxStepsCap);
+  const budget = applyTokenBudgetMultiplier(baseBudget, tokenBudgetMultiplier);
   const nativeToolNames = PROFILE_NATIVE_TOOLS[profile];
   const allowMcpTools = profileAllowsMcp(profile);
   const mcpTools = allowMcpTools
@@ -446,18 +494,39 @@ export async function runAgent({
     includeMcpTools: allowMcpTools,
     executionCache,
   });
-  const system = systemPrompt(
-    mcpTools,
-    workspaceRoot,
-    mode,
-    profile,
-  );
+  const systemParts =
+    profile === "pure-chat"
+      ? {
+          base: pureChatSystemPrompt(),
+          mcp: "",
+          memory: "",
+          skills: "",
+          profile: "",
+        }
+      : buildSystemPromptParts(mcpTools, workspaceRoot, mode, profile);
+  const system =
+    profile === "pure-chat"
+      ? systemParts.base
+      : [
+          systemParts.base,
+          systemParts.mcp,
+          systemParts.memory,
+          systemParts.skills,
+          systemParts.profile,
+        ].join("\n\n");
   const activeTools = Object.keys(tools);
+  const messageBytes = utf8Bytes(stableJson(messages));
+  const contextComposition = buildContextCompositionAudit({
+    systemParts,
+    tools,
+    messageBytes,
+    priorRunContextBytes: contextBudget?.contextDigestBytes ?? 0,
+  });
   const tokenAuditBase = {
     profile,
     mode,
     ...(requestBodyBytes !== undefined ? { requestBytes: requestBodyBytes } : {}),
-    messageBytes: utf8Bytes(stableJson(messages)),
+    messageBytes,
     systemPromptBytes: utf8Bytes(system),
     tools: {
       nativeCount: nativeToolNames.length,
@@ -476,6 +545,7 @@ export async function runAgent({
       priorRunContextChars: budget.priorRunContextChars,
       workspaceContextChars: budget.workspaceContextChars,
     },
+    contextComposition,
     ...(contextBudget ? { contextBudget } : {}),
   };
 
@@ -488,8 +558,8 @@ export async function runAgent({
     activeTools,
     stopWhen: [
       stepCountIs(budget.maxSteps),
-      tokenBudgetStopCondition(budget.maxTotalTokens),
-      costBudgetStopCondition(budget.maxCostUsd),
+      tokenBudgetStopCondition(budget.maxTotalTokens, priorTokensUsed),
+      costBudgetStopCondition(budget.maxCostUsd, priorCostUsd),
     ],
     providerOptions: {
       openrouter: openRouterProviderOptions(profile, thinkingEnabled),
@@ -586,6 +656,9 @@ export async function runAgent({
         usage: usageAudit(totalUsage, providerMetadata),
         steps: stepUsage,
       };
+      const segmentTokens = finiteNumber(totalUsage.totalTokens) ?? 0;
+      const segmentCost =
+        openRouterCostFromMetadata(undefined, stepProviderMetadata) ?? 0;
       onFinish?.({
         totalUsage,
         finishReason,
@@ -594,15 +667,17 @@ export async function runAgent({
         stepCount: observedStepCount,
         maxSteps: budget.maxSteps,
         maxTotalTokens: budget.maxTotalTokens,
+        baseMaxTotalTokens: baseBudget.maxTotalTokens,
         maxCostUsd: budget.maxCostUsd,
+        priorTokensUsed,
+        priorCostUsd,
         maxStepLimitReached:
           observedStepCount >= budget.maxSteps && finishReason === "tool-calls",
         tokenBudgetReached:
-          finiteNumber(totalUsage.totalTokens) !== undefined &&
-          (totalUsage.totalTokens ?? 0) >= budget.maxTotalTokens,
+          priorTokensUsed + segmentTokens >= budget.maxTotalTokens,
         costBudgetReached:
-          (openRouterCostFromMetadata(undefined, stepProviderMetadata) ?? 0) >=
-          budget.maxCostUsd,
+          priorCostUsd + segmentCost >= budget.maxCostUsd &&
+          segmentCost > 0,
         tokenAudit,
       });
       await closeMcpTools();

@@ -12,6 +12,7 @@ import type {
 import { errorMessage, getJson } from "@/src/lib/client-fetch";
 
 export const PROJECT_GIT_CHANGED_EVENT = "anton-project-git-change";
+export const PROJECT_STATUS_CHANGED_EVENT = "anton-project-status-change";
 const PROJECT_GIT_STATUS_POLL_INTERVAL_MS = 120_000;
 
 export function useProjectsList(): {
@@ -147,6 +148,12 @@ export function useProjectGitStatus(
 
 export function notifyProjectGitChanged(projectId: string): void {
   window.dispatchEvent(new CustomEvent(PROJECT_GIT_CHANGED_EVENT, { detail: projectId }));
+}
+
+export function notifyProjectStatusChanged(projectId: string): void {
+  window.dispatchEvent(
+    new CustomEvent(PROJECT_STATUS_CHANGED_EVENT, { detail: projectId }),
+  );
 }
 
 const PROJECT_STATUS_POLL_INTERVAL_MS = 120_000;
@@ -293,12 +300,25 @@ function subscribeProjectStatus(
       });
     }
   };
+  const onProjectStatusChanged = (event: Event) => {
+    if (
+      event instanceof CustomEvent &&
+      typeof event.detail === "string" &&
+      event.detail === projectId
+    ) {
+      void loadProjectStatus(projectId, store, { background: true }).finally(() => {
+        scheduleProjectStatusPoll(projectId, store);
+      });
+    }
+  };
   window.addEventListener(PROJECT_GIT_CHANGED_EVENT, onProjectGitChanged);
+  window.addEventListener(PROJECT_STATUS_CHANGED_EVENT, onProjectStatusChanged);
 
   return () => {
     store.listeners.delete(listener);
     store.subscribers = Math.max(0, store.subscribers - 1);
     window.removeEventListener(PROJECT_GIT_CHANGED_EVENT, onProjectGitChanged);
+    window.removeEventListener(PROJECT_STATUS_CHANGED_EVENT, onProjectStatusChanged);
     if (store.subscribers === 0) {
       clearProjectStatusPoll(store);
     }

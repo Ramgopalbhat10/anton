@@ -168,12 +168,18 @@ export function effectiveToolState(entry: ToolTraceEntry): ToolState {
 }
 
 export function isFailedToolOutput(output: unknown): boolean {
-  return (
-    typeof output === "object" &&
-    output !== null &&
-    "ok" in output &&
-    (output as { ok: unknown }).ok === false
-  );
+  if (typeof output !== "object" || output === null) return false;
+  const record = output as Record<string, unknown>;
+  if (record.ok === false) return true;
+  if (record.timedOut === true) return true;
+  if (
+    typeof record.failedReason === "string" &&
+    record.failedReason.length > 0
+  ) {
+    return true;
+  }
+  const exitCode = record.exitCode;
+  return typeof exitCode === "number" && exitCode !== 0;
 }
 
 export function toolStateBadge(state: ToolState): {

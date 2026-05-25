@@ -14,13 +14,14 @@ import {
 import { redactText } from "@/src/lib/redaction";
 
 const MAX_OUTPUT_BYTES = 64 * 1024;
-const DEFAULT_TIMEOUT_MS = 120_000;
+const DEFAULT_TIMEOUT_MS = 180_000;
 const MAX_TIMEOUT_MS = 300_000;
+const SEARCH_COMMAND_TIMEOUT_MS = 240_000;
 
 export function createBashTool(workspaceRoot?: string) {
   return tool({
     description:
-      "Run a shell command inside the workspace directory. The command is classified by risk category before execution, runs with a timeout, and has its output truncated. `sudo` is forbidden. Requires user approval.",
+      "Run a shell command inside the workspace directory. The command is classified by risk category before execution, runs with a timeout, and has its output truncated. Prefer the `grep` tool for workspace text search instead of shell `grep`. `sudo` is forbidden. Requires user approval.",
     inputSchema: z.object({
       command: z.string().describe("Shell command to execute via `bash -lc`."),
       timeoutMs: z
@@ -51,7 +52,11 @@ export function createBashTool(workspaceRoot?: string) {
         };
       }
 
-      const timeout = timeoutMs ?? DEFAULT_TIMEOUT_MS;
+      const timeout =
+        timeoutMs ??
+        (looksLikeSearchCommand(command)
+          ? SEARCH_COMMAND_TIMEOUT_MS
+          : DEFAULT_TIMEOUT_MS);
       const classification = policy.classification;
 
       return executeWithStreaming(command, root, timeout, toolCallId, classification);
@@ -100,7 +105,7 @@ async function executeWithStreaming(
   timeout: number,
   streamId: string,
   classification: ReturnType<typeof classifyBashCommand>,
-): Promise<BashToolOkOutput | BashToolErrorOutput> {
+): Promise<BashToolOutput | BashToolErrorOutput> {
   bashProgress.startStream(streamId);
 
   const stdoutChunks: string[] = [];
@@ -149,8 +154,11 @@ async function executeWithStreaming(
     });
     sentExit = true;
 
+    const commandFailed =
+      failedReason !== undefined ||
+      (exitCode !== null && exitCode !== 0);
     return {
-      ok: true as const,
+      ok: !commandFailed,
       classification,
       riskCategories: classification.categories as string[],
       exitCode,
@@ -160,6 +168,13 @@ async function executeWithStreaming(
       stdout: truncate(stdoutChunks.join("")),
       stderr: truncate(stderrChunks.join("")),
       streamId,
+      ...(commandFailed
+        ? {
+            error:
+              failedReason ??
+              (exitCode !== null ? `Command exited with code ${exitCode}.` : "Command failed"),
+          }
+        : {}),
     };
   } catch (err) {
     const error = redactText(errorMessage(err));
@@ -201,8 +216,8 @@ async function executeWithStreaming(
   }
 }
 
-type BashToolOkOutput = {
-  ok: true;
+type BashToolOutput = {
+  ok: boolean;
   classification: ReturnType<typeof classifyBashCommand>;
   riskCategories: string[];
   exitCode: number | null;
@@ -212,6 +227,7 @@ type BashToolOkOutput = {
   stdout: string;
   stderr: string;
   streamId: string;
+  error?: string;
 };
 
 type BashToolErrorOutput = {
@@ -241,6 +257,11 @@ function failedReasonForResult({
   if (killed) return "killed";
   if (isMaxBuffer) return "max_buffer";
   return undefined;
+}
+
+function looksLikeSearchCommand(command: string): boolean {
+  const trimmed = command.trim();
+  return /^(grep|rg|find)\b/.test(trimmed);
 }
 
 function errorMessage(err: unknown): string {

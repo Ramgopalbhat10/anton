@@ -15,8 +15,10 @@ import {
   getMessageRunDurationMs,
   getRunData,
   hasPendingToolApproval,
+  messageHasBudgetLimit,
   type AntonUIMessage,
   type AntonRunStatus,
+  type TokenBudgetMultiplierOption,
 } from "@/src/lib/trace";
 import { Disclosure } from "@/components/shared/disclosure";
 
@@ -51,6 +53,10 @@ interface RunTraceAccordionProps {
   status: "submitted" | "streaming" | "ready" | "error";
   todoDisplay?: TodoTraceDisplay;
   onApproval: ChatAddToolApproveResponseFunction;
+  onExtendTokenBudget?: (
+    runId: string,
+    multiplier: TokenBudgetMultiplierOption,
+  ) => void;
 }
 
 export function RunTraceAccordion({
@@ -58,6 +64,7 @@ export function RunTraceAccordion({
   status,
   todoDisplay,
   onApproval,
+  onExtendTokenBudget,
 }: RunTraceAccordionProps) {
   const run = getRunData(message);
   const metadata = message.metadata;
@@ -67,6 +74,7 @@ export function RunTraceAccordion({
     transportRunning,
   );
   const isRunning = runStatus === "running";
+  const budgetLimited = messageHasBudgetLimit(message);
 
   const pendingApproval = useMemo(
     () => hasPendingToolApproval(message),
@@ -138,6 +146,7 @@ export function RunTraceAccordion({
                 key={`step-${item.group.stepNumber}`}
                 group={item.group}
                 runStatus={runStatus}
+                budgetLimited={budgetLimited}
                 onApproval={onApproval}
               />
             ) : (
@@ -145,6 +154,14 @@ export function RunTraceAccordion({
                 <TraceRowView
                   row={item.row}
                   runStatus={runStatus}
+                  budgetLimited={budgetLimited}
+                  budgetGateDisabled={
+                    isRunning ||
+                    pendingApproval ||
+                    (item.row.kind === "budget-gate" &&
+                      item.row.gate.status !== "open")
+                  }
+                  onExtendTokenBudget={onExtendTokenBudget}
                   onApproval={onApproval}
                 />
               </div>
