@@ -8,6 +8,7 @@ import {
   buildBashEnvironment,
   evaluateBashCommandPolicy,
 } from "@/src/agent/command-policy";
+import type { ToolRiskCategory } from "@/src/agent/permissions";
 import { ensureWorkspaceRootAt } from "@/src/agent/sandbox";
 import {
   detectPackageManager,
@@ -31,6 +32,8 @@ const execFileAsync = promisify(execFile);
 
 const MAX_TAIL_BYTES = 64 * 1024;
 const RECENT_LIMIT = 20;
+const TERMINATION_GRACE_MS = 3_000;
+const TERMINAL_WAIT_MS = 10_000;
 
 const ACTIVE_STATUSES = new Set(["starting", "running", "stopping"]);
 const LOCALHOST_URL_RE =
@@ -58,6 +61,49 @@ export type StartBackgroundCommandInput =
 export type StartBackgroundCommandResult =
   | { ok: true; session: BackgroundCommandSession; streamToken: string }
   | { ok: false; error: string; status?: number };
+
+export type PreflightBackgroundCommandResult =
+  | {
+      ok: true;
+      allowed: boolean;
+      risky: boolean;
+      categories: ToolRiskCategory[];
+      reason: string;
+    }
+  | { ok: false; error: string; status?: number };
+
+export function preflightProjectBackgroundCommand(
+  projectRoot: string,
+  command: string,
+): PreflightBackgroundCommandResult {
+  ensureBootstrapped();
+  const trimmed = command.trim();
+  if (!trimmed) {
+    return { ok: false, error: "Command is required.", status: 400 };
+  }
+
+  const root = ensureWorkspaceRootAt(projectRoot);
+  const policy = evaluateBashCommandPolicy(trimmed, { workspaceRoot: root });
+  const categories = [...policy.classification.categories];
+  if (!policy.allowed) {
+    return {
+      ok: true,
+      allowed: false,
+      risky: false,
+      categories,
+      reason: policy.reason,
+    };
+  }
+
+  const risky = categories.some((category) => category !== "read-only");
+  return {
+    ok: true,
+    allowed: true,
+    risky,
+    categories,
+    reason: policy.classification.reason,
+  };
+}
 
 export function listProjectBackgroundCommands(projectId: string): {
   running: BackgroundCommandSession[];
@@ -202,7 +248,8 @@ export async function stopProjectBackgroundCommand(
   updateBackgroundCommandSession(commandId, { status: "stopping" });
   backgroundCommandStream.emitEvent(commandId, { type: "status", status: "stopping" });
 
-  void terminateProcess(commandId);
+  await terminateProcess(commandId);
+  await waitForSessionTerminal(commandId);
 
   const updated = getBackgroundCommandSession(commandId);
   if (!updated) {
@@ -224,7 +271,10 @@ export async function restartProjectBackgroundCommand(
 
   if (ACTIVE_STATUSES.has(session.status)) {
     userStopRequestedSessions.add(commandId);
+    updateBackgroundCommandSession(commandId, { status: "stopping" });
+    backgroundCommandStream.emitEvent(commandId, { type: "status", status: "stopping" });
     await terminateProcess(commandId);
+    await waitForSessionTerminal(commandId);
   }
 
   const duplicate = getRunningBackgroundCommandForProject(projectId, session.command);
@@ -370,33 +420,121 @@ async function spawnSessionProcess(
 async function terminateProcess(sessionId: string): Promise<void> {
   const active = activeProcesses.get(sessionId);
   if (!active) {
-    const session = getBackgroundCommandSession(sessionId);
-    if (session && ACTIVE_STATUSES.has(session.status)) {
-      updateBackgroundCommandSession(sessionId, {
-        status: "stopped",
-        finishedAt: new Date(),
-        pid: null,
-        signal: "SIGKILL",
-      });
-      backgroundCommandStream.emitEvent(sessionId, {
-        type: "status",
-        status: "stopped",
-        exitCode: session.exitCode,
-        signal: "SIGKILL",
-        detectedUrls: session.detectedUrls,
-      });
-      backgroundCommandStream.endStream(sessionId);
-    }
-    userStopRequestedSessions.delete(sessionId);
+    forceFinalizeStoppedSession(sessionId);
     return;
   }
 
   const { subprocess } = active;
-  await killProcessTree(subprocess.pid, subprocess);
+  const session = getBackgroundCommandSession(sessionId);
+  await killProcessTreeGracefully(subprocess.pid, subprocess);
+
+  const exit = await readSubprocessExit(subprocess);
   activeProcesses.delete(sessionId);
+
+  if (session && ACTIVE_STATUSES.has(session.status)) {
+    finalizeProcess(sessionId, {
+      exitCode: exit.exitCode,
+      signal: exit.signal,
+      stdoutTail: session.stdoutTail,
+      stderrTail: session.stderrTail,
+      detectedUrls: session.detectedUrls,
+    });
+    return;
+  }
+
+  await waitForSessionTerminal(sessionId);
 }
 
-async function killProcessTree(
+function forceFinalizeStoppedSession(sessionId: string): void {
+  const session = getBackgroundCommandSession(sessionId);
+  if (!session || !ACTIVE_STATUSES.has(session.status)) {
+    userStopRequestedSessions.delete(sessionId);
+    return;
+  }
+
+  finalizeProcess(sessionId, {
+    exitCode: session.exitCode,
+    signal: toProcessSignal(session.signal),
+    stdoutTail: session.stdoutTail,
+    stderrTail: session.stderrTail,
+    detectedUrls: session.detectedUrls,
+  });
+}
+
+async function readSubprocessExit(
+  subprocess: ResultPromise,
+): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }> {
+  try {
+    const result = await Promise.race([
+      subprocess,
+      new Promise<null>((resolve) => {
+        setTimeout(() => resolve(null), TERMINATION_GRACE_MS);
+      }),
+    ]);
+    if (result && typeof result === "object" && "exitCode" in result) {
+      return {
+        exitCode: result.exitCode ?? null,
+        signal: result.signal ?? null,
+      };
+    }
+  } catch {
+    // Process was rejected or interrupted.
+  }
+
+  return { exitCode: null, signal: "SIGKILL" };
+}
+
+async function killProcessTreeGracefully(
+  pid: number | undefined,
+  subprocess: ResultPromise,
+): Promise<void> {
+  await sendGracefulTermination(pid, subprocess);
+  if (await waitForSubprocessExit(subprocess, TERMINATION_GRACE_MS)) {
+    return;
+  }
+
+  await sendForceTermination(pid, subprocess);
+  await waitForSubprocessExit(subprocess, TERMINATION_GRACE_MS);
+}
+
+async function sendGracefulTermination(
+  pid: number | undefined,
+  subprocess: ResultPromise,
+): Promise<void> {
+  if (pid !== undefined && process.platform === "win32") {
+    try {
+      await execFileAsync("taskkill", ["/PID", String(pid), "/T"], {
+        windowsHide: true,
+      });
+      return;
+    } catch {
+      // Fall through to subprocess.kill below.
+    }
+  }
+
+  if (pid !== undefined && process.platform !== "win32") {
+    try {
+      process.kill(-pid, "SIGTERM");
+      return;
+    } catch {
+      // Fall through to subprocess.kill below.
+    }
+  }
+
+  try {
+    subprocess.kill("SIGTERM");
+  } catch {
+    if (pid !== undefined && process.platform !== "win32") {
+      try {
+        process.kill(pid, "SIGTERM");
+      } catch {
+        // Process already exited.
+      }
+    }
+  }
+}
+
+async function sendForceTermination(
   pid: number | undefined,
   subprocess: ResultPromise,
 ): Promise<void> {
@@ -433,6 +571,36 @@ async function killProcessTree(
   }
 }
 
+async function waitForSubprocessExit(
+  subprocess: ResultPromise,
+  timeoutMs: number,
+): Promise<boolean> {
+  return Promise.race([
+    subprocess
+      .then(() => true)
+      .catch(() => true),
+    new Promise<boolean>((resolve) => {
+      setTimeout(() => resolve(false), timeoutMs);
+    }),
+  ]);
+}
+
+async function waitForSessionTerminal(
+  sessionId: string,
+  timeoutMs = TERMINAL_WAIT_MS,
+): Promise<void> {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const session = getBackgroundCommandSession(sessionId);
+    if (!session || !ACTIVE_STATUSES.has(session.status)) {
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 100);
+    });
+  }
+}
+
 function finalizeProcess(
   sessionId: string,
   input: {
@@ -445,14 +613,21 @@ function finalizeProcess(
   },
 ): void {
   activeProcesses.delete(sessionId);
-  const userStopped = userStopRequestedSessions.has(sessionId);
-  userStopRequestedSessions.delete(sessionId);
 
   const current = getBackgroundCommandSession(sessionId);
   if (!current) {
+    userStopRequestedSessions.delete(sessionId);
     backgroundCommandStream.endStream(sessionId);
     return;
   }
+
+  if (!ACTIVE_STATUSES.has(current.status)) {
+    userStopRequestedSessions.delete(sessionId);
+    return;
+  }
+
+  const userStopped = userStopRequestedSessions.has(sessionId);
+  userStopRequestedSessions.delete(sessionId);
 
   if (
     userStopped ||
@@ -464,7 +639,7 @@ function finalizeProcess(
       finishedAt: current.finishedAt ?? new Date(),
       pid: null,
       exitCode: input.exitCode ?? current.exitCode,
-      signal: input.signal ?? current.signal ?? "SIGKILL",
+      signal: input.signal ?? current.signal ?? "SIGTERM",
       stdoutTail: input.stdoutTail || current.stdoutTail,
       stderrTail: input.stderrTail || current.stderrTail,
       detectedUrls: input.detectedUrls.length > 0 ? input.detectedUrls : current.detectedUrls,
@@ -473,7 +648,7 @@ function finalizeProcess(
       type: "status",
       status: "stopped",
       exitCode: input.exitCode ?? current.exitCode,
-      signal: input.signal ?? current.signal ?? "SIGKILL",
+      signal: input.signal ?? current.signal ?? "SIGTERM",
       detectedUrls:
         input.detectedUrls.length > 0 ? input.detectedUrls : current.detectedUrls,
     });
@@ -553,4 +728,8 @@ function capTail(output: string): string {
 function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+function toProcessSignal(signal: string | null): NodeJS.Signals | null {
+  return signal as NodeJS.Signals | null;
 }

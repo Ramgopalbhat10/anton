@@ -1,6 +1,6 @@
 # Anton Roadmap
 
-Last reviewed: 2026-05-23
+Last reviewed: 2026-05-25
 
 This roadmap is the working backlog for turning Anton from a learning harness into a reliable local AI coding agent. Use each checklist item as the source for future GitHub issues. Mark finished items as `[✔️]` after the related GitHub issue or PR is resolved.
 
@@ -134,7 +134,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 
 - [✔️] Add file tree and file search panel for the active project.
 - [✔️] Add project status panel showing root path, git branch, dirty files, package manager, scripts, and last run.
-- [] Add live terminal output streaming for long-running commands.
+- [✔️] Add live terminal output streaming for long-running commands.
 - [✔️] Add cancellable background command sessions for dev servers and watchers.
 - [] Add command history with rerun support.
 - [✔️] Add settings for default model, max steps, approval strictness, and workspace root.

@@ -283,6 +283,13 @@ export type ProjectBackgroundCommandsSummary = {
   runningCount: number;
 };
 
+export type BackgroundCommandPreflightResult = {
+  allowed: boolean;
+  risky: boolean;
+  categories: string[];
+  reason: string;
+};
+
 export type SkillSummary = {
   slug: string;
   name: string;

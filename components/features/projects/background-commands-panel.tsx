@@ -12,10 +12,21 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { ErrorBanner } from "@/components/shared/feedback-states";
 import { TerminalOutput } from "@/components/features/run-trace/terminal-output";
 import { cn } from "@/lib/utils";
 import type {
+  BackgroundCommandPreflightResult,
   BackgroundCommandSessionSummary,
   ProjectStatusSummary,
 } from "@/src/lib/api-types";
@@ -51,6 +62,10 @@ export function BackgroundCommandsPanel({
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [openLogsId, setOpenLogsId] = useState<string | null>(null);
   const [streamTokens, setStreamTokens] = useState<Record<string, string>>({});
+  const [riskyCommandPrompt, setRiskyCommandPrompt] = useState<{
+    command: string;
+    preflight: BackgroundCommandPreflightResult;
+  } | null>(null);
 
   const runningCommands = commands?.running ?? [];
   const recentCommands = commands?.recent ?? [];
@@ -73,6 +88,46 @@ export function BackgroundCommandsPanel({
     }
     return ordered;
   }, [status.scripts]);
+
+  const submitCustomCommand = async (command: string) => {
+    const trimmed = command.trim();
+    if (!trimmed || activeCommands.has(trimmed)) return;
+
+    setPendingAction(`custom:${trimmed}`);
+    setActionError(null);
+    try {
+      const preflight = await requestJson<BackgroundCommandPreflightResult>(
+        `/api/projects/${projectId}/commands/preflight`,
+        {
+          method: "POST",
+          headers: jsonHeaders(),
+          body: JSON.stringify({ command: trimmed }),
+        },
+      );
+      if (!preflight.allowed) {
+        setActionError(preflight.reason);
+        return;
+      }
+      if (preflight.risky) {
+        setRiskyCommandPrompt({ command: trimmed, preflight });
+        return;
+      }
+      await runCommand({ kind: "custom", command: trimmed }, `custom:${trimmed}`);
+    } catch (err) {
+      setActionError(
+        err instanceof Error ? err.message : "Failed to validate command",
+      );
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
+  const confirmRiskyCommand = async () => {
+    if (!riskyCommandPrompt) return;
+    const { command } = riskyCommandPrompt;
+    setRiskyCommandPrompt(null);
+    await runCommand({ kind: "custom", command }, `custom:${command}`);
+  };
 
   const runCommand = async (
     input: StartBackgroundCommandInput,
@@ -268,7 +323,7 @@ export function BackgroundCommandsPanel({
               event.preventDefault();
               const trimmed = customCommand.trim();
               if (!trimmed || activeCommands.has(trimmed)) return;
-              void runCommand({ kind: "custom", command: trimmed }, `custom:${trimmed}`);
+              void submitCustomCommand(trimmed);
             }}
           >
             <Input
@@ -329,6 +384,7 @@ export function BackgroundCommandsPanel({
                     )
                   }
                   onRerun={() => void rerunCommand(session)}
+                  onRestart={() => void restartCommand(session)}
                 />
               ))}
             </div>
@@ -337,6 +393,48 @@ export function BackgroundCommandsPanel({
           )}
         </CommandGroup>
       </div>
+
+      <AlertDialog
+        open={riskyCommandPrompt !== null}
+        onOpenChange={(open) => {
+          if (!open) setRiskyCommandPrompt(null);
+        }}
+      >
+        <AlertDialogContent size="default" className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Run risky command?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-left">
+                <p>
+                  This custom command was classified as risky and needs confirmation
+                  before it starts.
+                </p>
+                {riskyCommandPrompt ? (
+                  <>
+                    <code className="block rounded-md bg-muted px-2 py-1 font-mono text-[11px] text-foreground">
+                      {riskyCommandPrompt.command}
+                    </code>
+                    <p className="text-[11px]">
+                      {riskyCommandPrompt.preflight.reason}
+                    </p>
+                    {riskyCommandPrompt.preflight.categories.length > 0 ? (
+                      <p className="text-[11px]">
+                        Risk: {riskyCommandPrompt.preflight.categories.join(", ")}
+                      </p>
+                    ) : null}
+                  </>
+                ) : null}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void confirmRiskyCommand()}>
+              Run command
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }
@@ -382,7 +480,7 @@ function RunningCommandCard({
   onStop: () => void;
   onRestart: () => void;
 }) {
-  const now = useElapsedClock();
+  const now = useElapsedClock(session.status !== "stopping");
   const primaryUrl = session.detectedUrls[0] ?? null;
   return (
     <div className="rounded-md bg-background/25 px-2 py-1.5 ring-1 ring-border/50">
@@ -424,7 +522,10 @@ function RunningCommandCard({
             type="button"
             size="icon-xs"
             variant="ghost"
-            disabled={pendingAction === `stop:${session.id}`}
+            disabled={
+              pendingAction === `stop:${session.id}` ||
+              session.status === "stopping"
+            }
             onClick={onStop}
             aria-label="Stop command"
             title="Stop"
@@ -467,6 +568,7 @@ function RecentCommandCard({
   rerunDisabled,
   onToggleLogs,
   onRerun,
+  onRestart,
 }: {
   session: BackgroundCommandSessionSummary;
   pendingAction: string | null;
@@ -476,7 +578,13 @@ function RecentCommandCard({
   rerunDisabled: boolean;
   onToggleLogs: () => void;
   onRerun: () => void;
+  onRestart: () => void;
 }) {
+  const useRestart = session.status === "stale";
+  const actionPending = useRestart
+    ? pendingAction === `restart:${session.id}`
+    : pendingAction === `rerun:${session.id}`;
+
   return (
     <div className="rounded-md bg-background/25 px-2 py-1.5 ring-1 ring-border/50">
       <div className="flex flex-wrap items-start gap-2">
@@ -508,10 +616,10 @@ function RecentCommandCard({
             type="button"
             size="icon-xs"
             variant="ghost"
-            disabled={rerunDisabled || pendingAction === `rerun:${session.id}`}
-            onClick={onRerun}
-            aria-label="Rerun command"
-            title="Rerun"
+            disabled={rerunDisabled || actionPending}
+            onClick={useRestart ? onRestart : onRerun}
+            aria-label={useRestart ? "Restart command" : "Rerun command"}
+            title={useRestart ? "Restart" : "Rerun"}
           >
             <RotateCcw className="size-3" />
           </Button>
@@ -544,11 +652,13 @@ function CommandLogViewer({
 }) {
   const [polledSession, setPolledSession] =
     useState<BackgroundCommandSessionSummary>(session);
+  const source = live ? polledSession : session;
+  const isActive = ["starting", "running", "stopping"].includes(source.status);
   const streamState = useBackgroundCommandStream(
     projectId,
     session.id,
     streamToken,
-    live && Boolean(streamToken),
+    live && Boolean(streamToken) && isActive,
   );
 
   useEffect(() => {
@@ -556,7 +666,8 @@ function CommandLogViewer({
   }, [session]);
 
   useEffect(() => {
-    if (!live || streamToken) return;
+    const terminal = !["starting", "running", "stopping"].includes(polledSession.status);
+    if (!live || terminal) return;
 
     let cancelled = false;
     const poll = async () => {
@@ -571,20 +682,24 @@ function CommandLogViewer({
     };
 
     void poll();
+    const intervalMs = streamToken ? 3_000 : 2_000;
     const interval = window.setInterval(() => {
       void poll();
-    }, 2_000);
+    }, intervalMs);
     return () => {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [live, projectId, session.id, streamToken]);
+  }, [live, projectId, session.id, streamToken, polledSession.status]);
 
-  const source = live && !streamToken ? polledSession : session;
   const stdout =
-    live && streamToken ? streamState.stdout || source.stdoutTail : source.stdoutTail;
+    live && streamToken
+      ? streamState.stdout || source.stdoutTail
+      : source.stdoutTail;
   const stderr =
-    live && streamToken ? streamState.stderr || source.stderrTail : source.stderrTail;
+    live && streamToken
+      ? streamState.stderr || source.stderrTail
+      : source.stderrTail;
 
   return (
     <TerminalOutput
@@ -670,15 +785,16 @@ function formatElapsed(startedAt: number | null, now: number): string {
   return `${minutes}m ${rem}s`;
 }
 
-function useElapsedClock(intervalMs = 1_000): number {
+function useElapsedClock(active = true, intervalMs = 1_000): number {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
+    if (!active) return;
     const interval = window.setInterval(() => {
       setNow(Date.now());
     }, intervalMs);
     return () => window.clearInterval(interval);
-  }, [intervalMs]);
+  }, [active, intervalMs]);
 
   return now;
 }
