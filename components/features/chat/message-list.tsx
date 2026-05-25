@@ -18,10 +18,13 @@ import {
 import {
   failedToolOutputMessage,
   getAssistantTextDisplay,
+  getLatestOpenBudgetGate,
   getRunData,
   getToolTraceEntries,
   hasPendingToolApproval,
+  messageHasBudgetLimit,
   type AntonUIMessage,
+  type TokenBudgetMultiplierOption,
 } from "@/src/lib/trace";
 import type { ChatMode } from "@/src/lib/chat-modes";
 import { cn } from "@/lib/utils";
@@ -36,6 +39,7 @@ import {
   type ResponseMetrics,
 } from "./message-metrics";
 import { RunTraceAccordion } from "@/components/features/run-trace/run-trace";
+import { isFailedToolOutput } from "@/components/features/run-trace/tool-display";
 import { getTodoTraceDisplay } from "@/components/features/run-trace/trace-data";
 import {
   HoverCard,
@@ -51,6 +55,10 @@ interface MessageListProps {
   onApproval: ChatAddToolApproveResponseFunction;
   onAcceptPlan: (plan: string) => void;
   acceptPlanDisabled?: boolean;
+  onExtendTokenBudget?: (
+    runId: string,
+    multiplier: TokenBudgetMultiplierOption,
+  ) => void;
 }
 
 export function MessageList({
@@ -61,6 +69,7 @@ export function MessageList({
   onApproval,
   onAcceptPlan,
   acceptPlanDisabled = false,
+  onExtendTokenBudget,
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const todoDisplay = useMemo(() => getTodoTraceDisplay(messages), [messages]);
@@ -83,6 +92,7 @@ export function MessageList({
   const latestMessage = messages.at(-1);
   const activeAssistantMessageId =
     latestMessage?.role === "assistant" ? latestMessage.id : undefined;
+  const streaming = status === "submitted" || status === "streaming";
 
   return (
     <div
@@ -106,6 +116,12 @@ export function MessageList({
             onApproval={onApproval}
             onAcceptPlan={onAcceptPlan}
             acceptPlanDisabled={acceptPlanDisabled}
+            showBudgetGate={
+              !streaming &&
+              message.id === activeAssistantMessageId &&
+              onExtendTokenBudget !== undefined
+            }
+            onExtendTokenBudget={onExtendTokenBudget}
           />
         ))}
       </div>
@@ -127,6 +143,8 @@ function MessageEvent({
   onApproval,
   onAcceptPlan,
   acceptPlanDisabled,
+  showBudgetGate,
+  onExtendTokenBudget,
 }: {
   message: AntonUIMessage;
   status: "submitted" | "streaming" | "ready" | "error";
@@ -135,6 +153,11 @@ function MessageEvent({
   onApproval: ChatAddToolApproveResponseFunction;
   onAcceptPlan: (plan: string) => void;
   acceptPlanDisabled: boolean;
+  showBudgetGate: boolean;
+  onExtendTokenBudget?: (
+    runId: string,
+    multiplier: TokenBudgetMultiplierOption,
+  ) => void;
 }) {
   const isUser = message.role === "user";
   const streaming = status === "submitted" || status === "streaming";
@@ -171,19 +194,23 @@ function MessageEvent({
     !pendingApproval &&
     assistantFinal &&
     responseKind !== "plan";
-  const showToolFailure =
-    !isUser &&
-    failedToolText.length > 0 &&
-    assistantText.length === 0 &&
-    !pendingApproval &&
-    assistantFinal &&
-    responseKind !== "plan";
   const showPlanCard =
     !isUser &&
     responseKind === "plan" &&
     responseText.length > 0 &&
     assistantFinal &&
     !streaming;
+  const openBudgetGate = showBudgetGate ? getLatestOpenBudgetGate(message) : undefined;
+  const suppressToolFailure =
+    openBudgetGate !== undefined || messageHasBudgetLimit(message);
+  const showToolFailure =
+    !isUser &&
+    !suppressToolFailure &&
+    failedToolText.length > 0 &&
+    assistantText.length === 0 &&
+    !pendingApproval &&
+    assistantFinal &&
+    responseKind !== "plan";
 
   return (
     <div
@@ -206,6 +233,9 @@ function MessageEvent({
             status={status}
             todoDisplay={todoDisplay}
             onApproval={onApproval}
+            onExtendTokenBudget={
+              showBudgetGate ? onExtendTokenBudget : undefined
+            }
           />
         )}
         {isUser ? (
@@ -323,15 +353,6 @@ function toolFailureFallbackText(message: AntonUIMessage): string {
     failed.errorText ??
     failedToolOutputMessage(failed.output) ??
     `${failed.name} failed`
-  );
-}
-
-function isFailedToolOutput(output: unknown): boolean {
-  return (
-    typeof output === "object" &&
-    output !== null &&
-    "ok" in output &&
-    (output as { ok: unknown }).ok === false
   );
 }
 

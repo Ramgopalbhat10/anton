@@ -1,0 +1,1 @@
+ALTER TABLE `sessions` ADD `token_budget_multiplier` integer DEFAULT 1 NOT NULL;

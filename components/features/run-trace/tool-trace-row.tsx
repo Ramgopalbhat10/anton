@@ -34,13 +34,15 @@ import { DiffView } from "./diff-view";
 export function ToolTraceRow({
   entry,
   runStatus,
+  budgetLimited = false,
   onApproval,
 }: {
   entry: ToolTraceEntry;
   runStatus: AntonRunStatus;
+  budgetLimited?: boolean;
   onApproval: ChatAddToolApproveResponseFunction;
 }) {
-  const displayState = displayToolState(entry, runStatus);
+  const displayState = displayToolState(entry, runStatus, budgetLimited);
   const meta = traceToolStateMeta(displayState);
   const approvalId =
     entry.state === "approval-requested" &&
@@ -166,6 +168,7 @@ export function ToolTraceRow({
 function displayToolState(
   entry: ToolTraceEntry,
   runStatus: AntonRunStatus,
+  budgetLimited: boolean,
 ): ToolState {
   const effectiveState = effectiveToolState(entry);
   if (
@@ -173,7 +176,7 @@ function displayToolState(
     entry.activity?.status === "running" &&
     (effectiveState === "input-streaming" || effectiveState === "input-available")
   ) {
-    return "output-error";
+    return budgetLimited ? effectiveState : "output-error";
   }
   return effectiveState;
 }

@@ -4,6 +4,11 @@ import {
   upsertRunContextSummary,
 } from "@/src/db/queries";
 import { redactText } from "@/src/lib/redaction";
+import {
+  outputExitCode,
+  summarizeToolInput,
+  summarizeToolOutput,
+} from "@/src/lib/tool-summaries";
 
 const RECENT_CONTEXT_COUNT = 5;
 const DEFAULT_CONTEXT_BUDGET_CHARS = 6_000;
@@ -59,8 +64,13 @@ export class RunContextCollector {
   }): void {
     const error = toolError(event.success, event.output, event.error);
     const status = error ? "error" : "completed";
-    const inputSummary = summarizeInput(event.input);
-    const outputSummary = summarizeOutput(event.output, event.error);
+    const inputSummary = summarizeToolInput(event.input, compactLine);
+    const outputSummary = summarizeToolOutput(
+      event.toolName,
+      event.output,
+      event.error,
+      compactLine,
+    );
     const exitCode = outputExitCode(event.output);
 
     this.tools.push({
@@ -181,28 +191,6 @@ export class RunContextCollector {
     }
     if (finalText?.trim()) {
       lines.push(`Final answer: ${compactBlock(finalText, MAX_SUMMARY_CHARS)}`);
-    }
-    const facts = Array.from(this.facts).slice(0, 8);
-    if (facts.length > 0) lines.push(`Facts: ${facts.join("; ")}`);
-    if (this.commands.length > 0) {
-      lines.push(
-        `Commands: ${this.commands
-          .slice(-5)
-          .map((command) => {
-            const status =
-              command.exitCode === null ? "no exit" : `exit ${command.exitCode}`;
-            return `${command.command} (${status})`;
-          })
-          .join("; ")}`,
-      );
-    }
-    if (this.files.size > 0) {
-      lines.push(
-        `Files: ${Array.from(this.files.values())
-          .slice(-12)
-          .map((file) => `${file.action} ${file.path}`)
-          .join("; ")}`,
-      );
     }
     return compactBlock(lines.join("\n"), MAX_SUMMARY_CHARS);
   }
@@ -350,27 +338,6 @@ function readPath(input: unknown): string | undefined {
   return path || undefined;
 }
 
-function summarizeInput(input: unknown): string | undefined {
-  if (!isRecord(input)) return undefined;
-  for (const key of ["command", "path", "sourcePath", "pattern", "slug", "task"]) {
-    const value = stringValue(input[key]);
-    if (value) return compactLine(value, 500);
-  }
-  return undefined;
-}
-
-function summarizeOutput(output: unknown, error: unknown): string | undefined {
-  const message = errorMessageOrUndefined(error);
-  if (message) return compactLine(message, 500);
-  if (!isRecord(output)) return undefined;
-  for (const key of ["error", "failedReason", "path", "summary", "stdout"]) {
-    const value = stringValue(output[key]);
-    if (value) return compactLine(value, 500);
-  }
-  const exitCode = outputExitCode(output);
-  return exitCode !== undefined ? `exit ${exitCode}` : undefined;
-}
-
 function toolError(
   success: boolean,
   output: unknown,
@@ -387,14 +354,6 @@ function toolError(
   const exitCode = outputExitCode(output);
   if (exitCode !== undefined && exitCode !== 0) return `exit ${exitCode}`;
   return undefined;
-}
-
-function outputExitCode(output: unknown): number | undefined {
-  if (!isRecord(output)) return undefined;
-  const exitCode = output.exitCode;
-  return typeof exitCode === "number" && Number.isInteger(exitCode)
-    ? exitCode
-    : undefined;
 }
 
 function commandArray(value: unknown): RunContextCommand[] {
@@ -445,7 +404,7 @@ function optionalString<K extends string>(
   return text ? ({ [key]: text } as Partial<Record<K, string>>) : {};
 }
 
-function compactLine(value: string, maxLength: number): string {
+function compactLine(value: string, maxLength = 500): string {
   return truncate(redactText(value).replace(/\s+/g, " ").trim(), maxLength);
 }
 

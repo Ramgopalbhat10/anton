@@ -184,7 +184,7 @@ export function AgentSettingsPanel() {
                 placeholder="Profile default"
                 onChange={(event) => {
                   const next = event.target.value.replace(/\D/g, "");
-                  if (next === "" || Number(next) <= 50) {
+                  if (next === "" || Number(next) <= 64) {
                     setMaxSteps(next);
                   }
                 }}

@@ -1,4 +1,9 @@
-import type { StopCondition, ToolSet } from "ai";
+import {
+  stepCountIs,
+  type ProviderMetadata,
+  type StopCondition,
+  type ToolSet,
+} from "ai";
 
 import { openRouterCostFromMetadata } from "@/src/lib/token-usage";
 import type { AgentRunProfile } from "./loop";
@@ -38,7 +43,7 @@ const RUN_BUDGETS = {
     workspaceContextChars: 4_000,
   },
   plan: {
-    maxSteps: 8,
+    maxSteps: 16,
     maxOutputTokens: 4_096,
     maxInputTokens: 48_000,
     maxTotalTokens: 64_000,
@@ -47,7 +52,7 @@ const RUN_BUDGETS = {
     workspaceContextChars: 5_000,
   },
   "accepted-plan-simple": {
-    maxSteps: 8,
+    maxSteps: 16,
     maxOutputTokens: 4_096,
     maxInputTokens: 32_000,
     maxTotalTokens: 48_000,
@@ -56,7 +61,7 @@ const RUN_BUDGETS = {
     workspaceContextChars: 3_000,
   },
   "accepted-plan-general": {
-    maxSteps: 16,
+    maxSteps: 32,
     maxOutputTokens: 8_192,
     maxInputTokens: 64_000,
     maxTotalTokens: 96_000,
@@ -74,7 +79,7 @@ const RUN_BUDGETS = {
     workspaceContextChars: 2_500,
   },
   "general-chat": {
-    maxSteps: 20,
+    maxSteps: 32,
     maxOutputTokens: 8_192,
     maxInputTokens: 64_000,
     maxTotalTokens: 96_000,
@@ -83,7 +88,7 @@ const RUN_BUDGETS = {
     workspaceContextChars: 6_000,
   },
   "approval-continuation": {
-    maxSteps: 20,
+    maxSteps: 32,
     maxOutputTokens: 8_192,
     maxInputTokens: 64_000,
     maxTotalTokens: 96_000,
@@ -118,26 +123,67 @@ export function capRunBudget(
   };
 }
 
+export function applyTokenBudgetMultiplier(
+  budget: RunBudget,
+  multiplier: number,
+): RunBudget {
+  const scale = Math.max(1, Math.floor(multiplier));
+  return {
+    ...budget,
+    maxTotalTokens: budget.maxTotalTokens * scale,
+    maxCostUsd: budget.maxCostUsd * scale,
+  };
+}
+
+export const TOKEN_BUDGET_MULTIPLIER_OPTIONS = [2, 3, 5] as const;
+
+export type TokenBudgetMultiplierOption =
+  (typeof TOKEN_BUDGET_MULTIPLIER_OPTIONS)[number];
+
+export function availableTokenBudgetMultipliers(
+  currentMultiplier: number,
+): TokenBudgetMultiplierOption[] {
+  return TOKEN_BUDGET_MULTIPLIER_OPTIONS.filter(
+    (option) => option > currentMultiplier,
+  );
+}
+
 export function tokenBudgetStopCondition(
   maxTotalTokens: number,
+  priorTokensUsed = 0,
 ): StopCondition<ToolSet> {
   return ({ steps }) => {
-    return totalStepTokens(steps) >= maxTotalTokens;
+    return priorTokensUsed + totalStepTokens(steps) >= maxTotalTokens;
   };
 }
 
 export function costBudgetStopCondition(
   maxCostUsd: number,
+  priorCostUsd = 0,
 ): StopCondition<ToolSet> {
   return ({ steps }) => {
-    const costUsd = openRouterCostFromMetadata(
-      undefined,
-      steps
-        .map((step) => step.providerMetadata)
-        .filter((metadata) => metadata !== undefined),
+    const segmentCost = totalStepCostUsd(steps);
+    return (
+      segmentCost !== undefined && priorCostUsd + segmentCost >= maxCostUsd
     );
-    return costUsd !== undefined && costUsd >= maxCostUsd;
   };
+}
+
+export function remainingStepsStopCondition(
+  maxSteps: number,
+  priorStepCount: number,
+): StopCondition<ToolSet> {
+  const remaining = Math.max(1, maxSteps - priorStepCount);
+  return stepCountIs(remaining);
+}
+
+function totalStepCostUsd(
+  steps: readonly { providerMetadata?: ProviderMetadata }[],
+): number | undefined {
+  const stepProviderMetadata = steps.flatMap((step) =>
+    step.providerMetadata ? [step.providerMetadata] : [],
+  );
+  return openRouterCostFromMetadata(undefined, stepProviderMetadata);
 }
 
 function totalStepTokens(

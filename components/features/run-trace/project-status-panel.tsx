@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import {
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Clock,
   Copy,
   ExternalLink,
@@ -18,6 +20,7 @@ import {
   LoadingState,
 } from "@/components/shared/feedback-states";
 import { BackgroundCommandsPanel } from "@/components/features/projects/background-commands-panel";
+import { ProjectRunDetails } from "@/components/features/run-trace/project-run-details";
 import { cn } from "@/lib/utils";
 import type { ProjectStatusSummary, ProjectSummary } from "@/src/lib/api-types";
 import { notifyProjectGitChanged, useProjectStatus } from "@/components/features/projects/hooks";
@@ -30,6 +33,7 @@ export function ProjectStatusPanel({
   const { status, loading, error, refresh } = useProjectStatus(
     project?.status === "ready" ? project.id : null,
   );
+  const [detailsRefreshToken, setDetailsRefreshToken] = useState(0);
 
   if (!project) {
     return (
@@ -58,7 +62,9 @@ export function ProjectStatusPanel({
             variant="ghost"
             onClick={() => {
               notifyProjectGitChanged(project.id);
-              void refresh();
+              void refresh().then(() => {
+                setDetailsRefreshToken((value) => value + 1);
+              });
             }}
             disabled={loading}
             aria-label="Refresh project status"
@@ -97,9 +103,13 @@ export function ProjectStatusPanel({
 
           <BackgroundCommandsPanel projectId={project.id} status={status} />
 
-          <StatusSection title="Last run">
+          <StatusSection title="Last project run">
             {status.lastRun ? (
-              <LastRunCard lastRun={status.lastRun} />
+              <LastRunCard
+                projectId={project.id}
+                lastRun={status.lastRun}
+                detailsRefreshToken={detailsRefreshToken}
+              />
             ) : (
               <p className="text-xs text-muted-foreground">
                 No agent runs recorded for this project yet.
@@ -173,11 +183,18 @@ function Metric({ label, value }: { label: string; value: string | number }) {
 }
 
 function LastRunCard({
+  projectId,
   lastRun,
+  detailsRefreshToken,
 }: {
+  projectId: string;
   lastRun: NonNullable<ProjectStatusSummary["lastRun"]>;
+  detailsRefreshToken: number;
 }) {
-  const statusMeta = runStatusMeta(lastRun.status);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsEverOpened, setDetailsEverOpened] = useState(false);
+  const statusMeta = runStatusMeta(lastRun);
+  const budgetReached = lastRun.finishReason === "token_budget_limit";
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
@@ -188,7 +205,7 @@ function LastRunCard({
           )}
         >
           <statusMeta.Icon className="size-3" />
-          {statusMeta.label}
+          {budgetReached ? "Budget reached" : statusMeta.label}
         </span>
         <span className="font-mono text-[10px] text-muted-foreground">
           {lastRun.model}
@@ -212,23 +229,72 @@ function LastRunCard({
           }
         />
       </div>
-      <div className="mt-2 flex items-center gap-2 text-[10px] text-muted-foreground">
-        <Clock className="size-3" />
-        {new Date(lastRun.startedAt).toLocaleString()}
-        <Link
-          href={`/s/${lastRun.sessionId}`}
-          className="ml-auto inline-flex items-center gap-1 text-foreground hover:underline"
-        >
-          Open session
-          <ExternalLink className="size-3" />
-        </Link>
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
+        <Clock className="size-3 shrink-0" />
+        <span>{new Date(lastRun.startedAt).toLocaleString()}</span>
+        <div className="ml-auto flex items-center gap-1.5">
+          <Button
+            type="button"
+            size="xs"
+            variant={detailsOpen ? "secondary" : "outline"}
+            className={cn(
+              "h-5 min-h-0 gap-0.5 px-1.5 py-0 text-[9px]",
+              detailsOpen && "ring-1 ring-border/80",
+            )}
+            onClick={() => {
+              setDetailsEverOpened(true);
+              setDetailsOpen((open) => !open);
+            }}
+            aria-expanded={detailsOpen}
+          >
+            {detailsOpen ? (
+              <ChevronDown className="size-2.5" />
+            ) : (
+              <ChevronRight className="size-2.5" />
+            )}
+            Details
+          </Button>
+          <Link
+            href={`/s/${lastRun.sessionId}`}
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-foreground transition-colors hover:bg-secondary/60 hover:underline"
+          >
+            Open session
+            <ExternalLink className="size-3" />
+          </Link>
+        </div>
       </div>
+      {detailsEverOpened ? (
+        <div
+          className={cn(
+            "grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none",
+            detailsOpen
+              ? "grid-rows-[1fr] opacity-100"
+              : "grid-rows-[0fr] opacity-0",
+          )}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <ProjectRunDetails
+              key={`${lastRun.runId}:${detailsRefreshToken}`}
+              projectId={projectId}
+              runId={lastRun.runId}
+              refreshToken={detailsRefreshToken}
+            />
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }
 
-function runStatusMeta(status: NonNullable<ProjectStatusSummary["lastRun"]>["status"]) {
-  switch (status) {
+function runStatusMeta(lastRun: NonNullable<ProjectStatusSummary["lastRun"]>) {
+  if (lastRun.finishReason === "token_budget_limit") {
+    return {
+      Icon: Clock,
+      label: "Budget reached",
+      className: "text-amber-400 ring-amber-400/30 bg-amber-400/10",
+    };
+  }
+  switch (lastRun.status) {
     case "completed":
       return {
         Icon: CheckCircle2,

@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 
 import { cn } from "@/lib/utils";
+import { BashCommandBar } from "./bash-command-bar";
 import {
   parseBashOutput,
   renderAnsiToHtml,
@@ -38,12 +39,7 @@ export function TerminalOutput({ command, output, className }: TerminalOutputPro
         className,
       )}
     >
-      {command && (
-        <div className="flex items-start gap-1.5 border-b border-white/8 px-2 py-1">
-          <span className="shrink-0 select-none text-emerald-400">$</span>
-          <span className="text-foreground/90 whitespace-pre-wrap break-all">{command}</span>
-        </div>
-      )}
+      {command ? <BashCommandBar command={command} /> : null}
       {hasOutput ? (
         <div className="max-h-64 overflow-y-auto px-3 py-2 space-y-1">
           {stdoutHtml && (

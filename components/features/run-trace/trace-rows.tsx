@@ -21,21 +21,33 @@ import {
 import { formatDuration, type TraceRow, type StepGroup } from "./trace-data";
 import { ToolTraceRow } from "./tool-trace-row";
 import { TodoCard } from "./todo-card";
+import { BudgetGateCard } from "@/components/features/chat/budget-gate-card";
+import type { TokenBudgetMultiplierOption } from "@/src/lib/trace";
 
 export function TraceRowView({
   row,
   runStatus,
   onApproval,
+  budgetGateDisabled,
+  onExtendTokenBudget,
+  budgetLimited = false,
 }: {
   row: TraceRow;
   runStatus: AntonRunStatus;
   onApproval: ChatAddToolApproveResponseFunction;
+  budgetGateDisabled?: boolean;
+  onExtendTokenBudget?: (
+    runId: string,
+    multiplier: TokenBudgetMultiplierOption,
+  ) => void;
+  budgetLimited?: boolean;
 }) {
   if (row.kind === "tool") {
     return (
       <ToolTraceRow
         entry={row.tool}
         runStatus={runStatus}
+        budgetLimited={budgetLimited}
         onApproval={onApproval}
       />
     );
@@ -50,6 +62,17 @@ export function TraceRowView({
   }
   if (row.kind === "todos") {
     return <TodoCard snapshot={row.snapshot} compact />;
+  }
+  if (row.kind === "budget-gate") {
+    if (!onExtendTokenBudget) return null;
+    return (
+      <BudgetGateCard
+        gate={row.gate}
+        compact
+        disabled={budgetGateDisabled}
+        onExtend={onExtendTokenBudget}
+      />
+    );
   }
   return <ActivityRow event={row.event} runStatus={runStatus} />;
 }
@@ -172,10 +195,12 @@ export function StepGroupView({
   group,
   runStatus,
   onApproval,
+  budgetLimited = false,
 }: {
   group: StepGroup;
   runStatus: AntonRunStatus;
   onApproval: ChatAddToolApproveResponseFunction;
+  budgetLimited?: boolean;
 }) {
   const hasPendingApproval = group.toolRows.some(
     (row) => row.kind === "tool" && row.tool.state === "approval-requested",
@@ -203,6 +228,7 @@ export function StepGroupView({
                 <ToolTraceRow
                   entry={row.tool}
                   runStatus={runStatus}
+                  budgetLimited={budgetLimited}
                   onApproval={onApproval}
                 />
               </li>

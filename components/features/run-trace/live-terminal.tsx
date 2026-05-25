@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { Loader2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { BashCommandBar } from "./bash-command-bar";
 import { useBashStream } from "./use-bash-stream";
 import {
   renderAnsiToHtml,
@@ -60,15 +61,16 @@ export function LiveTerminalOutput({
         className,
       )}
     >
-      {command && (
-        <div className="flex items-start gap-1.5 border-b border-white/8 px-2 py-1">
-          <span className="shrink-0 select-none text-emerald-400">$</span>
-          <span className="text-foreground/90 whitespace-pre-wrap break-all flex-1">{command}</span>
-          {isRunning && (
-            <Loader2 className="size-3.5 animate-spin text-sky-400 shrink-0 mt-0.5" />
-          )}
-        </div>
-      )}
+      {command ? (
+        <BashCommandBar
+          command={command}
+          trailing={
+            isRunning ? (
+              <Loader2 className="mt-0.5 size-3.5 shrink-0 animate-spin text-sky-400" />
+            ) : undefined
+          }
+        />
+      ) : null}
       {hasOutput ? (
         <div className="max-h-64 overflow-y-auto px-3 py-2 space-y-1">
           {stdoutHtml && (

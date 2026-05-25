@@ -1,13 +1,21 @@
 import {
   getActivityEvents,
   getAssistantTextDisplay,
+  getLatestBudgetGate,
   getRunData,
+  getRunDataList,
   getTodoSnapshots,
+  type AntonRunData,
   getToolTraceEntries,
   hasFailedToolOutput,
   hasPendingToolApproval,
+  isAssistantTurnActive,
   isReasoningPart,
   isTodosDataPart,
+  normalizeTodoSnapshotForDisplay,
+  type AntonActivityKind,
+  type AntonActivityStatus,
+  type AntonBudgetGateData,
   type AntonRunStatus,
   type AntonActivityEvent,
   type AntonTodoSnapshot,
@@ -53,11 +61,485 @@ export type TraceRow =
   | {
       id: string;
       order: number;
+      kind: "budget-gate";
+      gate: AntonBudgetGateData;
+    }
+  | {
+      id: string;
+      order: number;
       kind: "tool";
       tool: ToolTraceEntry;
     };
 
 export type TodoTraceDisplay = ReadonlyMap<string, AntonTodoSnapshot>;
+
+export type SessionTimelineItem = {
+  id: string;
+  order: number;
+  startedAt: number;
+  runId: string;
+  kind: AntonActivityKind | "progress" | "todos";
+  label: string;
+  summary?: string;
+  durationMs?: number;
+  status: AntonActivityStatus;
+  expandable: boolean;
+  tool?: ToolTraceEntry;
+  reasoningText?: string;
+  todoSnapshot?: AntonTodoSnapshot;
+  messageId: string;
+  runStatus: AntonRunStatus;
+};
+
+export type TimelineStepGroup<T extends TimelineStepBoundaryItem> = {
+  id: string;
+  label: string;
+  durationMs?: number;
+  items: T[];
+};
+
+export type TimelineStepBoundaryItem = {
+  kind: string;
+  id: string;
+  label: string;
+  startedAt?: number;
+  durationMs?: number | null;
+};
+
+export type SessionTimelineStepGroup = TimelineStepGroup<SessionTimelineItem>;
+
+export type SessionTimelineRunGroup = {
+  runId: string;
+  messageId: string;
+  run: AntonRunData;
+  segmentIndex: number;
+  segmentCount: number;
+  items: SessionTimelineItem[];
+  steps: SessionTimelineStepGroup[];
+};
+
+export function groupTimelineItemsByStep<T extends TimelineStepBoundaryItem>(
+  items: readonly T[],
+  options?: { tailLabel?: string; activityLabel?: string },
+): TimelineStepGroup<T>[] {
+  const activityLabel = options?.activityLabel ?? "Activity";
+  const tailLabel = options?.tailLabel ?? "In progress";
+
+  if (items.length === 0) return [];
+
+  const stepEvents = items
+    .filter((item) => item.kind === "step")
+    .slice()
+    .sort(
+      (left, right) =>
+        (left.startedAt ?? 0) - (right.startedAt ?? 0) ||
+        left.id.localeCompare(right.id),
+    );
+  const nonStepItems = items.filter((item) => item.kind !== "step");
+
+  if (stepEvents.length === 0) {
+    return [
+      {
+        id: `activity:${items[0]?.id ?? "unknown"}`,
+        label: activityLabel,
+        items: nonStepItems.slice(),
+      },
+    ];
+  }
+
+  const steps: TimelineStepGroup<T>[] = stepEvents.map((step, index) => {
+    const stepStart = step.startedAt ?? 0;
+    const nextStepStart = stepEvents[index + 1]?.startedAt ?? Number.POSITIVE_INFINITY;
+    const stepItems = nonStepItems
+      .filter(
+        (item) =>
+          (item.startedAt ?? 0) >= stepStart &&
+          (item.startedAt ?? 0) < nextStepStart,
+      )
+      .slice()
+      .sort(
+        (left, right) =>
+          (left.startedAt ?? 0) - (right.startedAt ?? 0) ||
+          left.id.localeCompare(right.id),
+      );
+
+    return {
+      id: step.id,
+      label: step.label,
+      durationMs: stepDisplayDurationMs(step, stepItems),
+      items: stepItems,
+    };
+  });
+
+  const assigned = new Set(steps.flatMap((step) => step.items));
+  const leading = nonStepItems
+    .filter((item) => !assigned.has(item))
+    .filter((item) => (item.startedAt ?? 0) < (stepEvents[0]?.startedAt ?? 0));
+  if (leading.length > 0) {
+    steps.unshift({
+      id: `leading:${leading[0]?.id ?? "unknown"}`,
+      label: activityLabel,
+      items: leading,
+    });
+  }
+
+  const leadingIds = new Set(leading.map((item) => item.id));
+  const trailing = nonStepItems.filter(
+    (item) => !assigned.has(item) && !leadingIds.has(item.id),
+  );
+  if (trailing.length > 0) {
+    steps.push({
+      id: `tail:${trailing[0]?.id ?? "unknown"}`,
+      label: tailLabel,
+      items: trailing,
+    });
+  }
+
+  return steps;
+}
+
+function stepDisplayDurationMs(
+  step: TimelineStepBoundaryItem,
+  items: readonly TimelineStepBoundaryItem[],
+): number | undefined {
+  const stepStart = step.startedAt;
+  const harnessDuration =
+    typeof step.durationMs === "number" && Number.isFinite(step.durationMs)
+      ? step.durationMs
+      : undefined;
+
+  if (stepStart === undefined) return harnessDuration;
+
+  let envelopeEnd = stepStart + (harnessDuration ?? 0);
+  for (const item of items) {
+    const itemStart = item.startedAt;
+    if (itemStart === undefined) continue;
+    const itemEnd =
+      typeof item.durationMs === "number" && Number.isFinite(item.durationMs)
+        ? itemStart + item.durationMs
+        : itemStart;
+    envelopeEnd = Math.max(envelopeEnd, itemEnd);
+  }
+
+  const envelopeDuration = Math.max(0, envelopeEnd - stepStart);
+  if (harnessDuration === undefined) {
+    return envelopeDuration > 0 ? envelopeDuration : undefined;
+  }
+  return Math.max(harnessDuration, envelopeDuration);
+}
+
+export function getSessionTimelineRunGroups(
+  messages: AntonUIMessage[],
+): SessionTimelineRunGroup[] {
+  const groups: SessionTimelineRunGroup[] = [];
+
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+
+    const runs = getRunsForTimelineMessage(message);
+    runs.forEach((run, index) => {
+      const items = buildRunTimelineItems(message, run);
+      if (items.length === 0) return;
+      groups.push({
+        runId: run.runId,
+        messageId: message.id,
+        run,
+        segmentIndex: index + 1,
+        segmentCount: runs.length,
+        items,
+        steps: groupTimelineItemsByStep(items),
+      });
+    });
+  }
+
+  return groups;
+}
+
+export function getSessionTimelineItems(
+  messages: AntonUIMessage[],
+): SessionTimelineItem[] {
+  return getSessionTimelineRunGroups(messages).flatMap((group) => group.items);
+}
+
+function getRunsForTimelineMessage(message: AntonUIMessage): AntonRunData[] {
+  const fromParts = getRunDataList(message);
+  if (fromParts.length > 0) {
+    return fromParts.slice().sort((left, right) => left.startedAt - right.startedAt);
+  }
+
+  const fallbackStartedAt = new Map<string, number>();
+  for (const event of getActivityEvents(message)) {
+    const current = fallbackStartedAt.get(event.runId);
+    if (current === undefined || event.startedAt < current) {
+      fallbackStartedAt.set(event.runId, event.startedAt);
+    }
+  }
+
+  return Array.from(fallbackStartedAt.entries())
+    .sort((left, right) => left[1] - right[1])
+    .map(([runId, startedAt]) => ({
+      runId,
+      model: message.metadata?.model ?? "unknown",
+      status: message.metadata?.status ?? "completed",
+      startedAt,
+    }));
+}
+
+function buildRunTimelineItems(
+  message: AntonUIMessage,
+  run: AntonRunData,
+): SessionTimelineItem[] {
+  const runStatus = run.status;
+  const toolByCallId = new Map(
+    getToolTraceEntries([message])
+      .filter((tool) => tool.activity?.runId === run.runId)
+      .map((tool) => [tool.id, tool]),
+  );
+  const seenToolIds = new Set<string>();
+  const items: SessionTimelineItem[] = [];
+
+  const events = getActivityEvents(message)
+    .filter(
+      (event) =>
+        event.runId === run.runId &&
+        event.kind !== "approval" &&
+        !isTokenBudgetActivity(event),
+    )
+    .sort(compareTimelineEvents);
+
+  for (const event of events) {
+    const base = {
+      id: event.id,
+      order: event.sequence,
+      startedAt: event.startedAt,
+      runId: run.runId,
+      messageId: message.id,
+      runStatus,
+    };
+
+    if (event.kind === "tool" && event.toolCallId) {
+      const tool = toolByCallId.get(event.toolCallId);
+      if (!tool) continue;
+      seenToolIds.add(tool.id);
+      items.push({
+        ...base,
+        kind: "tool",
+        label: event.label,
+        summary: event.summary,
+        durationMs: event.durationMs,
+        status: event.status,
+        tool,
+        expandable: true,
+      });
+      continue;
+    }
+
+    if (event.kind === "reasoning") {
+      const reasoningText = reasoningTextForEvent(message, event);
+      items.push({
+        ...base,
+        kind: "reasoning",
+        label:
+          event.durationMs !== undefined
+            ? `Thought for ${formatDuration(event.durationMs)}`
+            : event.label,
+        durationMs: event.durationMs,
+        status: event.status,
+        reasoningText,
+        expandable: Boolean(reasoningText),
+      });
+      continue;
+    }
+
+    if (event.kind === "progress" && eventHasTodos(event)) {
+      const todoSnapshot = todoSnapshotFromEventDetails(event.details?.todos);
+      items.push({
+        ...base,
+        kind: "todos",
+        label: event.label || "Todos updated",
+        summary: event.summary,
+        durationMs: event.durationMs,
+        status: event.status,
+        todoSnapshot,
+        expandable: Boolean(todoSnapshot),
+      });
+      continue;
+    }
+
+    items.push({
+      ...base,
+      kind: event.kind,
+      label: event.label,
+      summary: event.summary,
+      durationMs: event.durationMs,
+      status: event.status,
+      expandable:
+        (event.kind === "error" && Boolean(event.summary)) ||
+        (event.kind === "progress" && Boolean(event.summary)),
+    });
+  }
+
+  for (const tool of toolByCallId.values()) {
+    if (seenToolIds.has(tool.id)) continue;
+    const title = toolTitle(tool, runStatus);
+    const label = title.target ? `${title.verb} ${title.target}` : title.verb;
+    items.push({
+      id: tool.activity?.id ?? tool.id,
+      order: tool.activity?.sequence ?? items.length,
+      startedAt: tool.activity?.startedAt ?? run.startedAt,
+      runId: run.runId,
+      kind: "tool",
+      label: tool.activity?.label ?? label,
+      durationMs: tool.activity?.durationMs,
+      status:
+        tool.activity?.status ??
+        (runStatus === "running" ? "running" : "completed"),
+      tool,
+      expandable: true,
+      messageId: message.id,
+      runStatus,
+    });
+  }
+
+  return items.sort(compareTimelineItems);
+}
+
+function compareTimelineEvents(
+  left: AntonActivityEvent,
+  right: AntonActivityEvent,
+): number {
+  if (left.startedAt !== right.startedAt) {
+    return left.startedAt - right.startedAt;
+  }
+  if (left.sequence !== right.sequence) {
+    return left.sequence - right.sequence;
+  }
+  return left.id.localeCompare(right.id);
+}
+
+function compareTimelineItems(
+  left: SessionTimelineItem,
+  right: SessionTimelineItem,
+): number {
+  if (left.startedAt !== right.startedAt) {
+    return left.startedAt - right.startedAt;
+  }
+  if (left.order !== right.order) {
+    return left.order - right.order;
+  }
+  return left.id.localeCompare(right.id);
+}
+
+function reasoningTextForEvent(
+  message: AntonUIMessage,
+  event: AntonActivityEvent,
+): string | undefined {
+  const marker = ":reasoning:";
+  const markerIndex = event.id.indexOf(marker);
+  if (markerIndex !== -1) {
+    const partId = event.id.slice(markerIndex + marker.length);
+    for (const part of message.parts) {
+      if (!isReasoningPart(part)) continue;
+      if ("id" in part && typeof part.id === "string" && part.id === partId) {
+        const text = part.text.trim();
+        if (text.length > 0) return text;
+      }
+    }
+  }
+
+  const reasoningEvents = getActivityEvents(message)
+    .filter((candidate) => candidate.kind === "reasoning")
+    .sort(compareTimelineEvents);
+  const reasoningTexts = message.parts.flatMap((part) =>
+    isReasoningPart(part) && part.text.trim().length > 0
+      ? [part.text.trim()]
+      : [],
+  );
+  const eventIndex = reasoningEvents.findIndex(
+    (candidate) => candidate.id === event.id,
+  );
+  if (eventIndex === -1 || eventIndex >= reasoningTexts.length) return undefined;
+  return reasoningTexts[eventIndex];
+}
+
+function todoSnapshotFromEventDetails(
+  value: unknown,
+): AntonTodoSnapshot | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const record = value as Record<string, unknown>;
+  const runId = record.runId;
+  const updatedAt = record.updatedAt;
+  const items = record.items;
+  if (
+    typeof runId !== "string" ||
+    typeof updatedAt !== "number" ||
+    !Array.isArray(items)
+  ) {
+    return undefined;
+  }
+
+  const parsedItems = items.flatMap((item): AntonTodoSnapshot["items"] => {
+    if (typeof item !== "object" || item === null) return [];
+    const row = item as Record<string, unknown>;
+    const id = row.id;
+    const text = row.text;
+    const status = row.status;
+    if (
+      typeof id !== "string" ||
+      typeof text !== "string" ||
+      (status !== "pending" &&
+        status !== "in_progress" &&
+        status !== "completed")
+    ) {
+      return [];
+    }
+    return [{ id, text, status }];
+  });
+
+  if (parsedItems.length === 0) return undefined;
+  return { runId, updatedAt, items: parsedItems };
+}
+
+export function runIdFromEventId(eventId: string): string {
+  const match = eventId.match(
+    /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i,
+  );
+  return match?.[1] ?? eventId;
+}
+
+/** Harness / AI SDK step indices are 0-based; step timeline headers use 1-based labels. */
+export function harnessStepDisplayNumber(stepNumber: number): number {
+  return stepNumber + 1;
+}
+
+export function isTimelineHarnessStepGroup(stepId: string): boolean {
+  return !stepId.startsWith("leading:") && !stepId.startsWith("tail:");
+}
+
+export function runTimelineGroupLabel(group: SessionTimelineRunGroup): string {
+  const { run, segmentIndex, segmentCount } = group;
+  const segmentLabel =
+    segmentCount > 1 ? `Segment ${segmentIndex}/${segmentCount}` : "Run";
+  const duration =
+    run.durationMs !== undefined ? formatDuration(run.durationMs) : undefined;
+  const finishLabel =
+    run.finishReason === "token_budget_limit"
+      ? "budget reached"
+      : run.finishReason === "max_step_limit"
+        ? "step limit"
+        : run.finishReason === "cost_budget_limit"
+          ? "cost limit"
+          : undefined;
+
+  return [
+    segmentLabel,
+    segmentIndex > 1 ? "continued" : undefined,
+    duration,
+    finishLabel,
+  ]
+    .filter((part): part is string => part !== undefined)
+    .join(" · ");
+}
 
 export function getTodoTraceDisplay(
   messages: AntonUIMessage[],
@@ -72,6 +554,7 @@ export function getTodoTraceDisplay(
     }
   >();
   let userTurn = 0;
+  const lastAssistantByTurn = new Map<number, AntonUIMessage>();
 
   const updateTurnSnapshot = (
     turn: number,
@@ -101,7 +584,10 @@ export function getTodoTraceDisplay(
 
   messages.forEach((message, messageIndex) => {
     if (message.role === "user") userTurn += 1;
-    const messageHasFailedTool = hasFailedToolOutput(message);
+    if (message.role === "assistant") {
+      lastAssistantByTurn.set(userTurn, message);
+    }
+    const firstFailedToolIndex = message.parts.findIndex(isFailedToolPart);
     const firstTodoPartIndex = message.parts.findIndex(isTodosDataPart);
     const firstTodoPartKey =
       firstTodoPartIndex === -1
@@ -109,7 +595,7 @@ export function getTodoTraceDisplay(
         : todoPartKey(message, firstTodoPartIndex);
     message.parts.forEach((part, partIndex) => {
       if (!isTodosDataPart(part)) return;
-      if (messageHasFailedTool) return;
+      if (firstFailedToolIndex !== -1 && partIndex > firstFailedToolIndex) return;
       const order = messageIndex * 10_000 + partIndex;
       updateTurnSnapshot(userTurn, part.data, order, todoPartKey(message, partIndex));
     });
@@ -135,8 +621,13 @@ export function getTodoTraceDisplay(
     }
   });
 
-  for (const item of turnTodos.values()) {
-    displayByFirstPart.set(item.firstPartKey, item.latestSnapshot);
+  for (const [turn, item] of turnTodos.entries()) {
+    const lastAssistant = lastAssistantByTurn.get(turn);
+    const active = lastAssistant ? isAssistantTurnActive(lastAssistant) : false;
+    displayByFirstPart.set(
+      item.firstPartKey,
+      normalizeTodoSnapshotForDisplay(item.latestSnapshot, active),
+    );
   }
 
   return displayByFirstPart;
@@ -230,11 +721,22 @@ export function getTraceRows(
     if (event.kind === "tool" || event.kind === "reasoning") continue;
     if (event.kind === "step") continue;
     if (event.kind === "progress" && eventHasTodos(event)) continue;
+    if (isTokenBudgetActivity(event)) continue;
     rows.push({
       id: event.id,
       order: 10_000 + event.sequence,
       kind: "activity",
       event,
+    });
+  }
+
+  const budgetGate = getLatestBudgetGate(message);
+  if (budgetGate && budgetGate.status !== "resolved") {
+    rows.push({
+      id: `${budgetGate.runId}:budget-gate`,
+      order: 20_000,
+      kind: "budget-gate",
+      gate: budgetGate,
     });
   }
 
@@ -285,6 +787,16 @@ function eventHasTodos(event: AntonActivityEvent): boolean {
     event.details !== null &&
     "todos" in event.details
   );
+}
+
+function isTokenBudgetActivity(event: AntonActivityEvent): boolean {
+  return event.label === "Token budget reached";
+}
+
+function isFailedToolPart(part: AntonUIMessage["parts"][number]): boolean {
+  if (!("toolCallId" in part)) return false;
+  if ("state" in part && part.state === "output-error") return true;
+  return "output" in part && isFailedToolOutput(part.output);
 }
 
 function toolCallIdForPart(
@@ -416,6 +928,7 @@ export function getTraceDurationMs(rows: TraceRow[]): number | undefined {
       if (row.kind === "reasoning") return row.event?.durationMs;
       if (row.kind === "progress") return undefined;
       if (row.kind === "todos") return undefined;
+      if (row.kind === "budget-gate") return undefined;
       return row.tool.activity?.durationMs;
     })
     .filter((duration): duration is number => duration !== undefined);
@@ -447,7 +960,23 @@ export function getSessionTodoSnapshots(
   let latest: AntonTodoSnapshot | undefined;
 
   for (const message of messages) {
+    for (const part of message.parts) {
+      if (!isTodosDataPart(part)) continue;
+      snapshots.push(part.data);
+      if (
+        !latest ||
+        part.data.updatedAt > latest.updatedAt ||
+        (part.data.updatedAt === latest.updatedAt &&
+          snapshots.indexOf(part.data) > snapshots.indexOf(latest))
+      ) {
+        latest = part.data;
+      }
+    }
+
     for (const snapshot of getTodoSnapshots(message)) {
+      if (snapshots.some((existing) => existing.updatedAt === snapshot.updatedAt && existing.runId === snapshot.runId)) {
+        continue;
+      }
       snapshots.push(snapshot);
       if (
         !latest ||
@@ -462,6 +991,20 @@ export function getSessionTodoSnapshots(
     if (latest && hasOpenTodos(latest) && isSuccessfulCompletionMessage(message)) {
       latest = completedTodoSnapshot(latest, message);
       snapshots.push(latest);
+    }
+  }
+
+  const lastAssistant = messages.findLast((message) => message.role === "assistant");
+  const active = lastAssistant ? isAssistantTurnActive(lastAssistant) : false;
+  if (latest) {
+    latest = normalizeTodoSnapshotForDisplay(latest, active);
+    const latestIndex = snapshots.findLastIndex(
+      (snapshot) =>
+        snapshot.updatedAt === latest?.updatedAt &&
+        snapshot.runId === latest.runId,
+    );
+    if (latestIndex !== -1) {
+      snapshots[latestIndex] = latest;
     }
   }
 

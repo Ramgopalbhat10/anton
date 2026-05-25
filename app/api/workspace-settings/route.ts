@@ -15,7 +15,7 @@ const permissionModeSchema = z.enum(["default", "auto-review", "full-access"]);
 const patchSchema = z.object({
   localWorkspacesRoot: z.string().trim().min(1).nullable().optional(),
   defaultModel: z.string().trim().min(1).nullable().optional(),
-  defaultMaxSteps: z.number().int().min(1).max(50).nullable().optional(),
+  defaultMaxSteps: z.number().int().min(1).max(64).nullable().optional(),
   defaultPermissionMode: permissionModeSchema.nullable().optional(),
 });
 

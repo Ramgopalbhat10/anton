@@ -82,6 +82,137 @@ export type ProjectLastRunSummary = {
   stepCount: number | null;
   totalTokens: number | null;
   costUsd: number | null;
+  finishReason: string | null;
+};
+
+export type ProjectRunDetailsContextComposition = {
+  systemPromptTokens: number;
+  toolDefinitionsTokens: number;
+  memoryTokens: number;
+  skillsTokens: number;
+  mcpPromptTokens: number;
+  runProfileTokens: number;
+  priorRunContextTokens: number;
+  conversationTokens: number;
+  source: "estimated";
+};
+
+export type ProjectRunDetailsStepUsage = {
+  stepNumber: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  reasoningTokens?: number;
+  cachedInputTokens?: number;
+  toolCallCount?: number;
+  finishReason?: string;
+};
+
+export type ProjectRunDetailsTokenUsage = {
+  rawInputTokens?: number;
+  uncachedInputTokens?: number;
+  cachedInputTokens?: number;
+  cacheWriteTokens?: number;
+  effectiveInputTokens?: number;
+  outputTokens?: number;
+  reasoningTokens?: number;
+  effectiveTokens?: number;
+  providerEffectiveTokens?: number;
+};
+
+export type ProjectRunDetailsRun = {
+  id: string;
+  sessionId: string;
+  status: "running" | "completed" | "error" | "aborted";
+  model: string;
+  provider: string | null;
+  startedAt: number;
+  finishedAt: number | null;
+  durationMs: number | null;
+  stepCount: number | null;
+  finishReason: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+  costUsd: number | null;
+  tokenUsage?: ProjectRunDetailsTokenUsage;
+  contextComposition?: ProjectRunDetailsContextComposition;
+  stepUsage?: ProjectRunDetailsStepUsage[];
+};
+
+export type ProjectRunDetailsEvent = {
+  id: string;
+  sequence: number;
+  kind: "step" | "reasoning" | "tool" | "approval" | "error" | "progress";
+  status: "running" | "completed" | "waiting" | "error" | "denied";
+  label: string;
+  summary: string | null;
+  startedAt: number;
+  durationMs: number | null;
+  toolCallId: string | null;
+};
+
+export type ProjectRunDetailsToolCall = {
+  id: string;
+  toolCallId: string;
+  toolName: string;
+  stepNumber: number | null;
+  status: "running" | "completed" | "error" | "denied";
+  approvalDecision: "pending" | "approved" | "denied" | null;
+  permissionLabel: string | null;
+  inputSummary: string | null;
+  outputSummary: string | null;
+  exitCode: number | null;
+  error: string | null;
+  durationMs: number | null;
+};
+
+export type ProjectRunDetailsApproval = {
+  toolCallId: string;
+  decision: "pending" | "approved" | "denied";
+  title: string;
+  summary: string;
+  riskCategories: string[];
+  requestedAt: number;
+  respondedAt: number | null;
+};
+
+export type ProjectRunDetailsContextCommand = {
+  command: string;
+  exitCode: number | null;
+  ok: boolean;
+  timedOut: boolean;
+  error?: string;
+};
+
+export type ProjectRunDetailsContextFile = {
+  path: string;
+  action: string;
+};
+
+export type ProjectRunDetailsContextTool = {
+  name: string;
+  status: "completed" | "error";
+  input?: string;
+  output?: string;
+  exitCode?: number | null;
+  error?: string;
+};
+
+export type ProjectRunDetailsContext = {
+  summary: string;
+  facts: string[];
+  files: ProjectRunDetailsContextFile[];
+  commands: ProjectRunDetailsContextCommand[];
+  tools: ProjectRunDetailsContextTool[];
+} | null;
+
+export type ProjectRunDetailsSummary = {
+  run: ProjectRunDetailsRun;
+  events: ProjectRunDetailsEvent[];
+  toolCalls: ProjectRunDetailsToolCall[];
+  approvals: ProjectRunDetailsApproval[];
+  context: ProjectRunDetailsContext;
+  segmentCount?: number;
 };
 
 export type ProjectBranchSummary = {

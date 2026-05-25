@@ -91,6 +91,7 @@ export function createSession(input: {
   const row: Session = {
     ...input,
     projectId: input.projectId ?? null,
+    tokenBudgetMultiplier: 1,
     tokensTotal: 0,
     createdAt: now,
     updatedAt: now,
@@ -221,6 +222,97 @@ export function getLastRunForProject(projectId: string): Run | undefined {
     .orderBy(desc(runs.startedAt))
     .limit(1)
     .get();
+}
+
+export function getRunById(id: string): Run | undefined {
+  return db.select().from(runs).where(eq(runs.id, id)).get();
+}
+
+export function setSessionTokenBudgetMultiplier(
+  sessionId: string,
+  multiplier: number,
+): Session | undefined {
+  db
+    .update(sessions)
+    .set({ tokenBudgetMultiplier: multiplier, updatedAt: new Date() })
+    .where(eq(sessions.id, sessionId))
+    .run();
+  return getSession(sessionId);
+}
+
+export function listAssistantTurnRunIds(
+  sessionId: string,
+  anchorRunId: string,
+): string[] {
+  const sessionRuns = db
+    .select({ id: runs.id, finishReason: runs.finishReason })
+    .from(runs)
+    .where(eq(runs.sessionId, sessionId))
+    .orderBy(asc(runs.startedAt))
+    .all();
+
+  const anchorIndex = sessionRuns.findIndex((run) => run.id === anchorRunId);
+  if (anchorIndex === -1) return [anchorRunId];
+
+  let startIndex = anchorIndex;
+  while (
+    startIndex > 0 &&
+    sessionRuns[startIndex - 1]?.finishReason === "token_budget_limit"
+  ) {
+    startIndex -= 1;
+  }
+
+  return sessionRuns.slice(startIndex, anchorIndex + 1).map((run) => run.id);
+}
+
+export function getRunForProject(
+  projectId: string,
+  runId: string,
+): Run | undefined {
+  const projectSessions = db
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(eq(sessions.projectId, projectId))
+    .all();
+  const sessionIds = projectSessions.map((session) => session.id);
+  if (sessionIds.length === 0) return undefined;
+
+  return db
+    .select()
+    .from(runs)
+    .where(and(eq(runs.id, runId), inArray(runs.sessionId, sessionIds)))
+    .get();
+}
+
+export function listRunEventsForRun(runId: string): RunEvent[] {
+  return db
+    .select()
+    .from(runEvents)
+    .where(eq(runEvents.runId, runId))
+    .orderBy(asc(runEvents.sequence))
+    .all();
+}
+
+export function getRunContextSummaryByRunId(
+  runId: string,
+): RunContextSummary | undefined {
+  return db
+    .select()
+    .from(runContextSummaries)
+    .where(eq(runContextSummaries.runId, runId))
+    .get();
+}
+
+export function listToolApprovalsForRun(runId: string): ToolApproval[] {
+  const calls = listToolCallsForRun(runId);
+  if (calls.length === 0) return [];
+  const callIds = calls.map((call) => call.id);
+  return db
+    .select()
+    .from(toolApprovals)
+    .where(inArray(toolApprovals.toolCallId, callIds))
+    .orderBy(asc(toolApprovals.requestedAt))
+    .all();
 }
 
 export function listGithubInstallations(): GithubInstallation[] {

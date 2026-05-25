@@ -76,6 +76,7 @@ export const sessions = sqliteTable(
     projectId: text("project_id").references(() => projects.id, {
       onDelete: "set null",
     }),
+    tokenBudgetMultiplier: integer("token_budget_multiplier").notNull().default(1),
     tokensTotal: integer("tokens_total").notNull().default(0),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()

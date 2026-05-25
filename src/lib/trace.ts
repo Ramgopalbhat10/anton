@@ -127,10 +127,24 @@ export type AntonTodoSnapshot = {
   updatedAt: number;
 };
 
+export type TokenBudgetMultiplierOption = 2 | 3 | 5;
+
+export type AntonBudgetGateData = {
+  runId: string;
+  status: "open" | "resolved" | "exhausted";
+  tokensUsed: number;
+  baseMaxTotalTokens: number;
+  currentMaxTotalTokens: number;
+  currentMultiplier: number;
+  options: readonly TokenBudgetMultiplierOption[];
+  selectedMultiplier?: TokenBudgetMultiplierOption;
+};
+
 export type AntonDataParts = {
   run: AntonRunData;
   activity: AntonActivityEvent;
   todos: AntonTodoSnapshot;
+  "budget-gate": AntonBudgetGateData;
 };
 
 export type AntonUIMessage = UIMessage<
@@ -311,8 +325,21 @@ export function failedToolOutputMessage(output: unknown): string | undefined {
 function isFailedToolOutput(output: unknown): boolean {
   if (!isRecord(output)) return false;
   if (output.ok === false) return true;
+  if (output.timedOut === true) return true;
+  if (
+    typeof output.failedReason === "string" &&
+    output.failedReason.length > 0
+  ) {
+    return true;
+  }
   const exitCode = output.exitCode;
   return typeof exitCode === "number" && exitCode !== 0;
+}
+
+export function messageHasBudgetLimit(message: AntonUIMessage): boolean {
+  return getRunDataList(message).some(
+    (run) => run.finishReason === "token_budget_limit",
+  );
 }
 
 function stringArray(value: unknown): string[] {
@@ -821,7 +848,13 @@ function stablePartSignature(part: AntonUIMessage["parts"][number]): string {
       item.status,
     ]);
   }
-  if (part.type !== "text" && part.type !== "reasoning" && !isTodosDataPart(part)) {
+  if (isBudgetGateDataPart(part)) {
+    signature.id = part.id;
+    signature.runId = part.data.runId;
+    signature.status = part.data.status;
+    signature.selectedMultiplier = part.data.selectedMultiplier;
+  }
+  if (part.type !== "text" && part.type !== "reasoning" && !isTodosDataPart(part) && !isBudgetGateDataPart(part)) {
     signature.id = typeof record.id === "string" ? record.id : undefined;
   }
 
@@ -1040,6 +1073,99 @@ export function isTodosDataPart(
   part: AntonUIMessage["parts"][number],
 ): part is Extract<AntonUIMessage["parts"][number], { type: "data-todos" }> {
   return isDataUIPart(part) && part.type === "data-todos";
+}
+
+export function isBudgetGateDataPart(
+  part: AntonUIMessage["parts"][number],
+): part is Extract<AntonUIMessage["parts"][number], { type: "data-budget-gate" }> {
+  return isDataUIPart(part) && part.type === "data-budget-gate";
+}
+
+export function getBudgetGateData(
+  message: AntonUIMessage,
+  runId?: string,
+): AntonBudgetGateData | undefined {
+  const gates = message.parts.flatMap((part) =>
+    isBudgetGateDataPart(part) ? [part.data] : [],
+  );
+  if (gates.length === 0) return undefined;
+  if (runId) {
+    return gates.find((gate) => gate.runId === runId) ?? gates.at(-1);
+  }
+  return gates.at(-1);
+}
+
+export function getLatestOpenBudgetGate(
+  message: AntonUIMessage,
+): AntonBudgetGateData | undefined {
+  return message.parts
+    .flatMap((part) => (isBudgetGateDataPart(part) ? [part.data] : []))
+    .findLast((gate) => gate.status === "open");
+}
+
+export function getLatestBudgetGate(
+  message: AntonUIMessage,
+): AntonBudgetGateData | undefined {
+  const gates = message.parts.flatMap((part) =>
+    isBudgetGateDataPart(part) ? [part.data] : [],
+  );
+  return gates.at(-1);
+}
+
+export function isAssistantTurnActive(message: AntonUIMessage): boolean {
+  const runs = getRunDataList(message);
+  if (runs.length > 0) {
+    return runs.some((run) => run.status === "running");
+  }
+  const status = getRunData(message)?.status ?? message.metadata?.status;
+  return status === "running";
+}
+
+export function normalizeTodoSnapshotForDisplay(
+  snapshot: AntonTodoSnapshot,
+  active: boolean,
+): AntonTodoSnapshot {
+  if (active) return snapshot;
+  if (!snapshot.items.some((item) => item.status === "in_progress")) {
+    return snapshot;
+  }
+  return {
+    ...snapshot,
+    items: snapshot.items.map((item) =>
+      item.status === "in_progress"
+        ? { ...item, status: "pending" as const }
+        : item,
+    ),
+  };
+}
+
+export function cumulativeRunTokens(message: AntonUIMessage): number {
+  return getRunDataList(message).reduce(
+    (sum, run) => sum + (run.totalTokens ?? 0),
+    0,
+  );
+}
+
+export function cumulativeRunCostUsd(message: AntonUIMessage): number {
+  return getRunDataList(message).reduce(
+    (sum, run) => sum + (run.costUsd ?? 0),
+    0,
+  );
+}
+
+export function priorSegmentUsage(
+  message: AntonUIMessage,
+  excludeRunId?: string,
+): { tokensUsed: number; costUsd: number } {
+  return getRunDataList(message)
+    .filter((run) => run.runId !== excludeRunId)
+    .reduce(
+      (totals, run) => ({
+        tokensUsed: totals.tokensUsed + (run.totalTokens ?? 0),
+        costUsd: totals.costUsd + (run.costUsd ?? 0),
+      }),
+      { tokensUsed: 0, costUsd: 0 },
+    );
 }
 
 export function getTodoSnapshots(message: AntonUIMessage): AntonTodoSnapshot[] {
