@@ -228,6 +228,15 @@ export function getRunById(id: string): Run | undefined {
   return db.select().from(runs).where(eq(runs.id, id)).get();
 }
 
+export function listRunsForSession(sessionId: string): Run[] {
+  return db
+    .select()
+    .from(runs)
+    .where(eq(runs.sessionId, sessionId))
+    .orderBy(asc(runs.startedAt))
+    .all();
+}
+
 export function setSessionTokenBudgetMultiplier(
   sessionId: string,
   multiplier: number,

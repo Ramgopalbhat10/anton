@@ -5,6 +5,7 @@ import type { WorkspaceSettingsSummary } from "@/src/lib/api-types";
 import {
   DEFAULT_MODEL_ID,
   isSupportedModelId,
+  resolveModelId,
   type ModelId,
 } from "@/src/lib/models";
 import { getJson } from "@/src/lib/client-fetch";
@@ -24,7 +25,7 @@ export function workspaceDefaultsFromSettings(
   return {
     model:
       settings.defaultModel && isSupportedModelId(settings.defaultModel)
-        ? settings.defaultModel
+        ? resolveModelId(settings.defaultModel)
         : DEFAULT_MODEL_ID,
     permissionMode: settings.defaultPermissionMode ?? "auto-review",
     maxSteps: settings.defaultMaxSteps,

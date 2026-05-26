@@ -66,6 +66,7 @@ import {
   getSession,
   getWorkspaceSettings,
   getToolCall,
+  listRunsForSession,
   MessagePersistenceConflictError,
   saveMessagesIncrementally,
   sessionHasStoredMessages,
@@ -80,7 +81,7 @@ import {
 } from "@/src/db/queries";
 import { registerActiveChatStream } from "@/src/lib/chat-stream-registry";
 import { DEFAULT_MODEL } from "@/src/lib/providers";
-import { isSupportedModelId } from "@/src/lib/models";
+import { isSupportedModelId, getProviderId, resolveModelId } from "@/src/lib/models";
 import { CHAT_MODES, DEFAULT_CHAT_MODE, type ChatMode } from "@/src/lib/chat-modes";
 import { redactText, redactValue } from "@/src/lib/redaction";
 import {
@@ -136,6 +137,11 @@ const bodySchema = z.object({
       multiplier: z.union([z.literal(2), z.literal(3)]),
     })
     .optional(),
+  continueProfileHandoff: z
+    .object({
+      runId: z.string().min(1),
+    })
+    .optional(),
   messages: z.array(z.unknown()).min(1),
 });
 
@@ -153,21 +159,37 @@ export async function POST(req: Request) {
   const uiMessages = parsed.data.messages as AntonUIMessage[];
   const incomingHistory = uiMessages.filter(hasSubstantiveHistoryParts);
   const budgetExtension = parsed.data.extendTokenBudget;
+  const profileHandoffContinuation = parsed.data.continueProfileHandoff;
+  if (budgetExtension && profileHandoffContinuation) {
+    return Response.json(
+      { error: "choose either token budget continuation or profile handoff continuation" },
+      { status: 400 },
+    );
+  }
   const isBudgetContinuation = budgetExtension !== undefined;
+  const isProfileHandoffContinuation =
+    profileHandoffContinuation !== undefined;
   const approvalContinuation =
-    !isBudgetContinuation && isToolApprovalContinuation(incomingHistory);
-  const mode = approvalContinuation
+    !isBudgetContinuation &&
+    !isProfileHandoffContinuation &&
+    isToolApprovalContinuation(incomingHistory);
+  const mode = approvalContinuation || isProfileHandoffContinuation
     ? "agent"
     : parsed.data.mode ?? DEFAULT_CHAT_MODE;
   const budgetContinuationRun =
     isBudgetContinuation && budgetExtension
       ? getRunById(budgetExtension.runId)
       : undefined;
+  const profileHandoffRun =
+    isProfileHandoffContinuation && profileHandoffContinuation
+      ? getRunById(profileHandoffContinuation.runId)
+      : undefined;
   const profile = resolveRunProfile({
     mode,
     messages: incomingHistory,
     approvalContinuation,
     budgetContinuationRun,
+    profileHandoffRun,
   });
   const needsProject = mode !== "chat";
   const requestBodyBytes = byteLength(JSON.stringify(json ?? {}));
@@ -184,13 +206,14 @@ export async function POST(req: Request) {
     : undefined;
   const continuationModel =
     executionModelFromCostMetadata(budgetContinuationRun?.costMetadata) ??
+    executionModelFromCostMetadata(profileHandoffRun?.costMetadata) ??
     executionModelFromCostMetadata(approvalContinuationRun?.costMetadata);
-  const model = continuationModel ?? requestedModel;
+  const model = resolveModelId(continuationModel ?? requestedModel);
   const modelSelectionNote =
     continuationModel && continuationModel !== requestedModel
       ? `UI selected ${requestedModel}, but this continuation reused ${continuationModel} from the originating run.`
       : undefined;
-  if (!isSupportedModelId(model)) {
+  if (!isSupportedModelId(continuationModel ?? requestedModel)) {
     return Response.json(
       { error: "unsupported model", model },
       { status: 400 },
@@ -228,6 +251,34 @@ export async function POST(req: Request) {
       return Response.json(
         { error: "requested token budget multiplier is not available" },
         { status: 400 },
+      );
+    }
+  }
+
+  if (isProfileHandoffContinuation) {
+    if (
+      !profileHandoffRun ||
+      profileHandoffRun.sessionId !== sessionId ||
+      !runEligibleForProfileHandoffContinuation(profileHandoffRun)
+    ) {
+      return Response.json(
+        { error: "profile handoff continuation requires a completed handoff run in this session" },
+        { status: 400 },
+      );
+    }
+    const existingContinuation = listRunsForSession(sessionId).find(
+      (run) =>
+        run.id !== profileHandoffRun.id &&
+        profileHandoffContinuationOfRunId(run.costMetadata) ===
+          profileHandoffRun.id,
+    );
+    if (existingContinuation) {
+      return Response.json(
+        {
+          error: "profile handoff continuation already started",
+          runId: existingContinuation.id,
+        },
+        { status: 409 },
       );
     }
   }
@@ -281,9 +332,11 @@ export async function POST(req: Request) {
   } else {
     const conflict = getMessagePersistenceConflict(sessionId, incomingHistory, {
       mutableTailCount:
-        approvalContinuation || isBudgetContinuation ? 1 : 0,
+        approvalContinuation || isBudgetContinuation || isProfileHandoffContinuation
+          ? 1
+          : 0,
       allowExtraAssistantTail:
-        approvalContinuation || isBudgetContinuation,
+        approvalContinuation || isBudgetContinuation || isProfileHandoffContinuation,
     });
     if (conflict) {
       return Response.json(
@@ -324,26 +377,43 @@ export async function POST(req: Request) {
     );
   }
 
+  const originatingTokenBudgetMultiplier =
+    isProfileHandoffContinuation && profileHandoffRun
+      ? tokenBudgetMultiplierFromCostMetadata(profileHandoffRun.costMetadata)
+      : undefined;
   const tokenBudgetMultiplier = isBudgetContinuation
     ? Math.max(
         existing?.tokenBudgetMultiplier ?? 1,
         budgetExtension.multiplier,
       )
-    : existing?.tokenBudgetMultiplier ?? 1;
+    : originatingTokenBudgetMultiplier ?? existing?.tokenBudgetMultiplier ?? 1;
 
   if (isBudgetContinuation) {
     setSessionTokenBudgetMultiplier(sessionId, tokenBudgetMultiplier);
   }
+  const permissionMode =
+    (isProfileHandoffContinuation && profileHandoffRun
+      ? permissionModeFromCostMetadata(profileHandoffRun.costMetadata)
+      : undefined) ??
+    parsed.data.permissionMode ??
+    workspaceSettings.defaultPermissionMode ??
+    "auto-review";
+  const thinkingEnabled =
+    (isProfileHandoffContinuation && profileHandoffRun
+      ? thinkingEnabledFromCostMetadata(profileHandoffRun.costMetadata)
+      : undefined) ??
+    parsed.data.thinkingEnabled ??
+    false;
 
   const baseBudget = applyThinkingBudgetAdjustment(
     applyTokenBudgetMultiplier(
       capRunBudget(budgetForProfile(profile), workspaceSettings.defaultMaxSteps),
       tokenBudgetMultiplier,
     ),
-    parsed.data.thinkingEnabled ?? false,
+    thinkingEnabled,
   );
   const budget = baseBudget;
-  const continuationAssistant = isBudgetContinuation
+  const continuationAssistant = isBudgetContinuation || isProfileHandoffContinuation
     ? incomingHistory.findLast((message) => message.role === "assistant")
     : undefined;
   const priorUsage = continuationAssistant
@@ -353,14 +423,24 @@ export async function POST(req: Request) {
     ? priorToolRecordsFromAssistantMessage(continuationAssistant)
     : [];
   const previousPromptCacheAudit = promptCacheAuditFromCostMetadata(
-    budgetContinuationRun?.costMetadata ?? approvalContinuationRun?.costMetadata,
+    budgetContinuationRun?.costMetadata ??
+      profileHandoffRun?.costMetadata ??
+      approvalContinuationRun?.costMetadata,
   );
   const continuationNote = isBudgetContinuation
     ? budgetContinuationHandoffNote()
-    : undefined;
+    : isProfileHandoffContinuation && profileHandoffRun
+      ? profileHandoffContinuationNote(profileHandoffRun.costMetadata)
+      : undefined;
+  const promptCacheIntentionalSegmentTransition =
+    isProfileHandoffContinuation && profileHandoffRun
+      ? profileHandoffTransitionLabel(profileHandoffRun.costMetadata)
+      : undefined;
+  const isSegmentContinuation =
+    isBudgetContinuation || isProfileHandoffContinuation;
   const userText = latestUserText(uiMessages);
   const sessionContextDigest =
-    mode === "chat" || isBudgetContinuation
+    mode === "chat" || isSegmentContinuation
       ? undefined
       : buildSessionContextDigest({
           sessionId,
@@ -368,7 +448,7 @@ export async function POST(req: Request) {
           budgetChars: budget.priorRunContextChars,
         });
   const workspaceContextDigest =
-    mode === "chat" || isBudgetContinuation
+    mode === "chat" || isSegmentContinuation
       ? undefined
       : buildWorkspaceContextDigest({
           workspaceRoot: project?.localPath,
@@ -377,6 +457,7 @@ export async function POST(req: Request) {
         });
   const contextDigestBytes = byteLength(
     isBudgetContinuation
+    || isProfileHandoffContinuation
       ? (continuationNote ?? "")
       : (modelOnlyContextMessageText({
           sessionContextDigest,
@@ -386,12 +467,12 @@ export async function POST(req: Request) {
   const preservation = modelContextPreservation(
     uiMessages,
     profile,
-    isBudgetContinuation,
+    isSegmentContinuation,
   );
   const preparedMessages = prepareMessagesForModel(
     uiMessages,
     profile,
-    isBudgetContinuation,
+    isSegmentContinuation,
   );
   const contextBudget = budgetMessagesForModel({
     messages: preparedMessages,
@@ -415,7 +496,7 @@ export async function POST(req: Request) {
     id: runId,
     sessionId,
     model,
-    provider: "openrouter",
+    provider: getProviderId(model),
     status: "running",
     startedAt: new Date(startedAt),
     stepCount: 0,
@@ -425,6 +506,13 @@ export async function POST(req: Request) {
         mode,
         model,
         tokenBudgetMultiplier,
+        permissionMode,
+        thinkingEnabled,
+        ...(profileHandoffRun
+          ? {
+              profileHandoffContinuationOfRunId: profileHandoffRun.id,
+            }
+          : {}),
       },
     },
   });
@@ -435,6 +523,7 @@ export async function POST(req: Request) {
     startedAt,
   );
   const modelMessages = isBudgetContinuation
+    || isProfileHandoffContinuation
     ? appendModelOnlyContextMessage(convertedMessages, continuationNote ?? "")
     : addModelOnlyContextMessage(convertedMessages, {
         sessionContextDigest,
@@ -478,6 +567,9 @@ export async function POST(req: Request) {
         workspaceRoot: project?.localPath,
         responseKind: mode === "plan" ? "plan" : undefined,
         tokenBudgetMultiplier,
+        permissionMode,
+        thinkingEnabled,
+        profileHandoffContinuationOfRunId: profileHandoffRun?.id,
         tokenBudgetContext: {
           baseMaxTotalTokens: baseBudget.maxTotalTokens,
           baseMaxEffectiveTokens: baseBudget.maxEffectiveTokens,
@@ -501,7 +593,7 @@ export async function POST(req: Request) {
           profile,
           requestBodyBytes,
           contextBudget: contextBudget.report,
-          thinkingEnabled: parsed.data.thinkingEnabled ?? false,
+          thinkingEnabled,
           maxStepsCap: workspaceSettings.defaultMaxSteps,
           tokenBudgetMultiplier,
           priorTokensUsed: priorUsage.tokensUsed,
@@ -509,9 +601,8 @@ export async function POST(req: Request) {
           priorCostUsd: priorUsage.costUsd,
           priorToolHistory,
           previousPromptCacheAudit,
-          permissionMode: parsed.data.permissionMode as
-            | PermissionMode
-            | undefined,
+          promptCacheIntentionalSegmentTransition,
+          permissionMode,
           enabledMcpServerIds: parsed.data.enabledMcpServerIds,
           onStepStart: ({ stepNumber }) => trace.startStep(stepNumber),
           onStepFinish: ({ stepNumber }) => trace.finishStep(stepNumber),
@@ -553,13 +644,18 @@ export async function POST(req: Request) {
             loopGuardIncomplete,
             unverifiedEdit,
             verificationFailed,
+            profileHandoffRequired,
+            profileHandoff,
             tokenAudit,
           }) => {
-            const hardLimitReached = maxStepLimitReached || costBudgetReached;
+            const hardLimitReached =
+              !profileHandoffRequired &&
+              (maxStepLimitReached || costBudgetReached);
             const incompleteRun =
-              loopGuardIncomplete === true ||
-              unverifiedEdit === true ||
-              verificationFailed === true;
+              !profileHandoffRequired &&
+              (loopGuardIncomplete === true ||
+                unverifiedEdit === true ||
+                verificationFailed === true);
             contextTerminalStatus = hardLimitReached || incompleteRun ? "error" : "completed";
             trace.finalize(
               tokenBudgetReached
@@ -585,6 +681,8 @@ export async function POST(req: Request) {
                 loopGuardIncomplete: incompleteRun,
                 unverifiedEdit,
                 verificationFailed,
+                profileHandoffRequired,
+                profileHandoff,
                 tokenAudit,
                 stepProviderMetadata,
               },
@@ -623,6 +721,7 @@ export async function POST(req: Request) {
         const approvalContinuation =
           isToolApprovalContinuation(persistedMessages);
         const budgetContinuation = isBudgetContinuation;
+        const profileHandoffContinuationPersisted = isProfileHandoffContinuation;
         const collapsedContinuations =
           persistedMessages.length < visibleMessages.length;
         saveMessagesIncrementally<AntonUIMessage>(
@@ -630,7 +729,10 @@ export async function POST(req: Request) {
           redactValue(persistedMessages) as AntonUIMessage[],
           {
             pruneExtraAssistantTail:
-              approvalContinuation || budgetContinuation || collapsedContinuations,
+              approvalContinuation ||
+              budgetContinuation ||
+              profileHandoffContinuationPersisted ||
+              collapsedContinuations,
           },
         );
         contextCollector.persist({
@@ -973,6 +1075,9 @@ function createTraceWriter({
   workspaceRoot,
   responseKind,
   tokenBudgetMultiplier,
+  permissionMode,
+  thinkingEnabled,
+  profileHandoffContinuationOfRunId,
   tokenBudgetContext,
 }: {
   writer: UIMessageStreamWriter<AntonUIMessage>;
@@ -984,6 +1089,9 @@ function createTraceWriter({
   workspaceRoot?: string;
   responseKind?: "plan";
   tokenBudgetMultiplier: number;
+  permissionMode: PermissionMode;
+  thinkingEnabled: boolean;
+  profileHandoffContinuationOfRunId?: string;
   tokenBudgetContext: {
     baseMaxTotalTokens: number;
     baseMaxEffectiveTokens: number;
@@ -1000,7 +1108,7 @@ function createTraceWriter({
   let stateChangingEditSucceeded = false;
   let latestFailedToolReason: string | undefined;
   let promotionReason: string | undefined;
-  let effectiveProfile: AgentRunProfile = profile;
+  const effectiveProfile: AgentRunProfile = profile;
   const events = new Map<string, AntonActivityEvent>();
   const reasoningBuffers = new Map<string, string>();
 
@@ -1222,6 +1330,8 @@ function createTraceWriter({
       loopGuardIncomplete?: boolean;
       unverifiedEdit?: boolean;
       verificationFailed?: boolean;
+      profileHandoffRequired?: boolean;
+      profileHandoff?: ProfilePromotionEvent;
       tokenAudit?: TokenAudit;
       stepProviderMetadata?: ProviderMetadata[];
     } = {},
@@ -1262,6 +1372,9 @@ function createTraceWriter({
         mode,
         model,
         tokenBudgetMultiplier,
+        permissionMode,
+        thinkingEnabled,
+        profileHandoffContinuationOfRunId,
         loopGuardCount:
           limits.tokenAudit?.loopGuardCount ?? loopGuardCount,
         verificationSummary,
@@ -1271,10 +1384,16 @@ function createTraceWriter({
         effectiveProfile:
           limits.tokenAudit?.effectiveProfile ?? effectiveProfile,
         hadSuccessfulEdit: stateChangingEditSucceeded,
+        profileHandoffRequired: limits.profileHandoffRequired,
+        handoffFromProfile: limits.profileHandoff?.fromProfile,
+        handoffToProfile: limits.profileHandoff?.toProfile,
+        handoffReason: limits.profileHandoff?.reason,
       },
     );
-    const storedFinishReason = limits.maxStepLimitReached
-      ? "max_step_limit"
+    const storedFinishReason = limits.profileHandoffRequired
+        ? "profile_handoff_required"
+      : limits.maxStepLimitReached
+        ? "max_step_limit"
       : limits.tokenBudgetReached
         ? "token_budget_limit"
       : limits.verificationFailed
@@ -1309,6 +1428,14 @@ function createTraceWriter({
       cacheHitRate: limits.tokenAudit?.promptCache?.cacheHitRate,
       loopGuardCount: limits.tokenAudit?.loopGuardCount ?? loopGuardCount,
       verificationSummary,
+      ...(limits.profileHandoffRequired
+        ? {
+            profileHandoffRequired: true,
+            handoffFromProfile: limits.profileHandoff?.fromProfile,
+            handoffToProfile: limits.profileHandoff?.toProfile,
+            handoffReason: limits.profileHandoff?.reason,
+          }
+        : {}),
       ...(limits.tokenAudit?.promotionReason ?? promotionReason
         ? {
             promotionReason:
@@ -1486,15 +1613,14 @@ function createTraceWriter({
     },
     noteProfilePromotion(event: ProfilePromotionEvent) {
       promotionReason = event.reason;
-      effectiveProfile = event.toProfile;
       startEvent({
         id: `${runId}:profile-promotion:${sequence + 1}`,
         kind: "progress",
         status: "completed",
-        label: "Fast-edit promoted to Agent",
+        label: "Fast-edit needs full Agent segment",
         summary: event.reason,
         details: {
-          promotion: {
+          profileHandoff: {
             fromProfile: event.fromProfile,
             toProfile: event.toProfile,
             reason: event.reason,
@@ -1876,12 +2002,19 @@ function runCostMetadata(
     mode: AgentRunMode;
     model: string;
     tokenBudgetMultiplier: number;
+    permissionMode: PermissionMode;
+    thinkingEnabled: boolean;
+    profileHandoffContinuationOfRunId?: string;
     loopGuardCount: number;
     verificationSummary?: string;
     cacheHitRate?: number;
     promotionReason?: string;
     effectiveProfile?: AgentRunProfile;
     hadSuccessfulEdit?: boolean;
+    profileHandoffRequired?: boolean;
+    handoffFromProfile?: "localized-edit";
+    handoffToProfile?: "general-chat";
+    handoffReason?: string;
   },
 ): Record<string, unknown> | null {
   const providerCostMetadata = openRouterCostMetadata(
@@ -1904,6 +2037,14 @@ function runCostMetadata(
         mode: execution.mode,
         model: execution.model,
         tokenBudgetMultiplier: execution.tokenBudgetMultiplier,
+        permissionMode: execution.permissionMode,
+        thinkingEnabled: execution.thinkingEnabled,
+        ...(execution.profileHandoffContinuationOfRunId
+          ? {
+              profileHandoffContinuationOfRunId:
+                execution.profileHandoffContinuationOfRunId,
+            }
+          : {}),
         loopGuardCount: execution.loopGuardCount,
         ...(execution.verificationSummary
           ? { verificationSummary: execution.verificationSummary }
@@ -1920,6 +2061,18 @@ function runCostMetadata(
         ...(execution.hadSuccessfulEdit !== undefined
           ? { hadSuccessfulEdit: execution.hadSuccessfulEdit }
           : {}),
+        ...(execution.profileHandoffRequired !== undefined
+          ? { profileHandoffRequired: execution.profileHandoffRequired }
+          : {}),
+        ...(execution.handoffFromProfile
+          ? { handoffFromProfile: execution.handoffFromProfile }
+          : {}),
+        ...(execution.handoffToProfile
+          ? { handoffToProfile: execution.handoffToProfile }
+          : {}),
+        ...(execution.handoffReason
+          ? { handoffReason: execution.handoffReason }
+          : {}),
       },
       costBudget: costBudgetMetadata,
     }) as Record<string, unknown>;
@@ -1933,6 +2086,14 @@ function runCostMetadata(
       mode: execution.mode,
       model: execution.model,
       tokenBudgetMultiplier: execution.tokenBudgetMultiplier,
+      permissionMode: execution.permissionMode,
+      thinkingEnabled: execution.thinkingEnabled,
+      ...(execution.profileHandoffContinuationOfRunId
+        ? {
+            profileHandoffContinuationOfRunId:
+              execution.profileHandoffContinuationOfRunId,
+          }
+        : {}),
       loopGuardCount: execution.loopGuardCount,
       ...(execution.verificationSummary
         ? { verificationSummary: execution.verificationSummary }
@@ -1948,6 +2109,18 @@ function runCostMetadata(
         : {}),
       ...(execution.hadSuccessfulEdit !== undefined
         ? { hadSuccessfulEdit: execution.hadSuccessfulEdit }
+        : {}),
+      ...(execution.profileHandoffRequired !== undefined
+        ? { profileHandoffRequired: execution.profileHandoffRequired }
+        : {}),
+      ...(execution.handoffFromProfile
+        ? { handoffFromProfile: execution.handoffFromProfile }
+        : {}),
+      ...(execution.handoffToProfile
+        ? { handoffToProfile: execution.handoffToProfile }
+        : {}),
+      ...(execution.handoffReason
+        ? { handoffReason: execution.handoffReason }
         : {}),
     },
     costBudget: costBudgetMetadata,
@@ -1971,17 +2144,40 @@ function runEligibleForBudgetContinuation(run: {
   return tokenAudit?.tokenBudgetReached === true;
 }
 
+function runEligibleForProfileHandoffContinuation(run: {
+  status: string;
+  finishReason: string | null;
+  costMetadata: unknown;
+}): boolean {
+  if (run.status !== "completed") return false;
+  if (run.finishReason !== "profile_handoff_required") return false;
+  const handoff = profileHandoffFromCostMetadata(run.costMetadata);
+  return (
+    handoff.profileHandoffRequired === true &&
+    handoff.handoffFromProfile === "localized-edit" &&
+    handoff.handoffToProfile === "general-chat"
+  );
+}
+
 function resolveRunProfile({
   mode,
   messages,
   approvalContinuation,
   budgetContinuationRun,
+  profileHandoffRun,
 }: {
   mode: ChatMode;
   messages: AntonUIMessage[];
   approvalContinuation: boolean;
   budgetContinuationRun: ReturnType<typeof getRunById> | undefined;
+  profileHandoffRun: ReturnType<typeof getRunById> | undefined;
 }): AgentRunProfile {
+  if (profileHandoffRun) {
+    return (
+      profileHandoffFromCostMetadata(profileHandoffRun.costMetadata)
+        .handoffToProfile ?? classifyRunProfile(mode, latestUserText(messages))
+    );
+  }
   if (approvalContinuation) {
     const runId = runIdFromAssistantMessage(messages.at(-1));
     const originatingRun = runId ? getRunById(runId) : undefined;
@@ -1998,6 +2194,101 @@ function resolveRunProfile({
     );
   }
   return classifyRunProfile(mode, latestUserText(messages));
+}
+
+function profileHandoffFromCostMetadata(costMetadata: unknown): {
+  profileHandoffRequired?: boolean;
+  handoffFromProfile?: "localized-edit";
+  handoffToProfile?: "general-chat";
+  handoffReason?: string;
+} {
+  if (!isRecord(costMetadata)) return {};
+  const execution = isRecord(costMetadata.execution)
+    ? costMetadata.execution
+    : undefined;
+  if (!execution) return {};
+  return {
+    ...(execution.profileHandoffRequired === true
+      ? { profileHandoffRequired: true }
+      : {}),
+    ...(execution.handoffFromProfile === "localized-edit"
+      ? { handoffFromProfile: "localized-edit" as const }
+      : {}),
+    ...(execution.handoffToProfile === "general-chat"
+      ? { handoffToProfile: "general-chat" as const }
+      : {}),
+    ...(typeof execution.handoffReason === "string"
+      ? { handoffReason: execution.handoffReason }
+      : {}),
+  };
+}
+
+function profileHandoffContinuationOfRunId(
+  costMetadata: unknown,
+): string | undefined {
+  if (!isRecord(costMetadata)) return undefined;
+  const execution = isRecord(costMetadata.execution)
+    ? costMetadata.execution
+    : undefined;
+  const runId = execution?.profileHandoffContinuationOfRunId;
+  return typeof runId === "string" && runId.length > 0 ? runId : undefined;
+}
+
+function tokenBudgetMultiplierFromCostMetadata(
+  costMetadata: unknown,
+): number | undefined {
+  if (!isRecord(costMetadata)) return undefined;
+  const execution = isRecord(costMetadata.execution)
+    ? costMetadata.execution
+    : undefined;
+  const multiplier = execution?.tokenBudgetMultiplier;
+  return typeof multiplier === "number" && Number.isFinite(multiplier)
+    ? Math.max(1, Math.floor(multiplier))
+    : undefined;
+}
+
+function permissionModeFromCostMetadata(
+  costMetadata: unknown,
+): PermissionMode | undefined {
+  if (!isRecord(costMetadata)) return undefined;
+  const execution = isRecord(costMetadata.execution)
+    ? costMetadata.execution
+    : undefined;
+  const permissionMode = execution?.permissionMode;
+  return permissionMode === "default" ||
+    permissionMode === "auto-review" ||
+    permissionMode === "full-access"
+    ? permissionMode
+    : undefined;
+}
+
+function thinkingEnabledFromCostMetadata(
+  costMetadata: unknown,
+): boolean | undefined {
+  if (!isRecord(costMetadata)) return undefined;
+  const execution = isRecord(costMetadata.execution)
+    ? costMetadata.execution
+    : undefined;
+  return typeof execution?.thinkingEnabled === "boolean"
+    ? execution.thinkingEnabled
+    : undefined;
+}
+
+function profileHandoffContinuationNote(costMetadata: unknown): string {
+  const handoff = profileHandoffFromCostMetadata(costMetadata);
+  return [
+    "Profile handoff continuation preserves the originating transcript prefix and prior tool history for prompt-cache reuse.",
+    `Continue as ${handoff.handoffToProfile ?? "general-chat"} after ${handoff.handoffFromProfile ?? "localized-edit"} needed broader tools.`,
+    handoff.handoffReason
+      ? `Handoff reason: ${handoff.handoffReason}`
+      : "Handoff reason: fast-edit scope exceeded.",
+    "Use the broader Agent tools now; do not repeat completed reads or edits unless current state must be verified.",
+  ].join(" ");
+}
+
+function profileHandoffTransitionLabel(costMetadata: unknown): string {
+  const handoff = profileHandoffFromCostMetadata(costMetadata);
+  return `Intentional profile handoff: ${handoff.handoffFromProfile ?? "localized-edit"} -> ${handoff.handoffToProfile ?? "general-chat"}.`;
 }
 
 function isAcceptedPlanProfile(profile: AgentRunProfile): boolean {

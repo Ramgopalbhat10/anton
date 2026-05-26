@@ -2,8 +2,12 @@ import { generateText, stepCountIs, tool } from "ai";
 import { z } from "zod";
 
 import {
+  getProviderId,
+  resolveModelId,
+} from "@/src/lib/models";
+import {
   DEFAULT_MODEL,
-  openrouter,
+  getLanguageModel,
 } from "@/src/lib/providers";
 import { listMemories } from "@/src/db/queries";
 import { listSkills } from "../skills";
@@ -62,17 +66,22 @@ export function createDelegateTaskTool({
     }),
     execute: async ({ task, maxSteps }) => {
       try {
+        const selectedModel = resolveModelId(model ?? DEFAULT_MODEL);
+        const openRouterOptions =
+          getProviderId(selectedModel) === "openrouter"
+            ? {
+                openrouter: {
+                  usage: { include: true },
+                },
+              }
+            : undefined;
         const result = await generateText({
-          model: openrouter(model ?? DEFAULT_MODEL),
+          model: getLanguageModel(selectedModel),
           system: childSystemPrompt(workspaceRoot),
           prompt: task,
           tools: readOnlyTools,
           stopWhen: stepCountIs(maxSteps ?? DEFAULT_MAX_STEPS),
-          providerOptions: {
-            openrouter: {
-              usage: { include: true },
-            },
-          },
+          ...(openRouterOptions ? { providerOptions: openRouterOptions } : {}),
         });
 
         return {

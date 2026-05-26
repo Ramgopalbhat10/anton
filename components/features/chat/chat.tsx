@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import {
@@ -14,11 +21,17 @@ import { PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import {
   DEFAULT_MODEL_ID,
   isSupportedModelId,
+  resolveModelId,
   type ModelId,
 } from "@/src/lib/models";
 import { CHAT_MODES, DEFAULT_CHAT_MODE, type ChatMode } from "@/src/lib/chat-modes";
 import type { PermissionMode } from "@/src/agent/permissions";
-import { isBudgetGateDataPart, type AntonUIMessage } from "@/src/lib/trace";
+import {
+  getRunDataList,
+  isBudgetGateDataPart,
+  type AntonRunData,
+  type AntonUIMessage,
+} from "@/src/lib/trace";
 import type { McpPreflightServer, McpServerSummary } from "@/src/lib/api-types";
 import { getJson, jsonHeaders, requestJson } from "@/src/lib/client-fetch";
 import { useWorkspaceAgentDefaults } from "@/components/features/settings/use-workspace-agent-defaults";
@@ -75,12 +88,33 @@ type ComposerControlState = {
 
 const composerControlStateBySession = new Map<string, ComposerControlState>();
 const COMPOSER_CONTROLS_STORAGE_PREFIX = "anton:composer-controls:";
+const PROFILE_HANDOFF_STORAGE_PREFIX = "anton:profile-handoff-started:";
 const PERMISSION_MODES = ["default", "auto-review", "full-access"] as const;
 const WORKLOG_OPEN_STORAGE_KEY = "anton-worklog-open";
+const WORKLOG_OPEN_CHANGE_EVENT = "anton-worklog-open-change";
 
 function readStoredWorklogOpen(): boolean {
   if (typeof window === "undefined") return false;
   return window.sessionStorage.getItem(WORKLOG_OPEN_STORAGE_KEY) === "1";
+}
+
+function subscribeStoredWorklogOpen(onStoreChange: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key === WORKLOG_OPEN_STORAGE_KEY) onStoreChange();
+  };
+  window.addEventListener("storage", handleStorage);
+  window.addEventListener(WORKLOG_OPEN_CHANGE_EVENT, onStoreChange);
+  return () => {
+    window.removeEventListener("storage", handleStorage);
+    window.removeEventListener(WORKLOG_OPEN_CHANGE_EVENT, onStoreChange);
+  };
+}
+
+function writeStoredWorklogOpen(open: boolean): void {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem(WORKLOG_OPEN_STORAGE_KEY, open ? "1" : "0");
+  window.dispatchEvent(new Event(WORKLOG_OPEN_CHANGE_EVENT));
 }
 
 function ChatSession({
@@ -102,6 +136,9 @@ function ChatSession({
   const resumeAttemptedRef = useRef(false);
 
   const [sessionId] = useState<string>(() => sessionIdProp ?? generateChatId());
+  const profileHandoffStartedRef = useRef<Set<string>>(
+    readStartedProfileHandoffRunIds(sessionId),
+  );
   const isDraftSession = sessionIdProp === undefined;
   const workspaceDefaults = useWorkspaceAgentDefaults();
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -115,7 +152,20 @@ function ChatSession({
     () => composerControlStateBySession.get(sessionId),
     [sessionId],
   );
-  const [worklogOpen, setWorklogOpen] = useState(readStoredWorklogOpen);
+  const worklogOpen = useSyncExternalStore(
+    subscribeStoredWorklogOpen,
+    readStoredWorklogOpen,
+    () => false,
+  );
+  const setWorklogOpen = useCallback(
+    (nextValue: boolean | ((open: boolean) => boolean)) => {
+      const currentValue = readStoredWorklogOpen();
+      writeStoredWorklogOpen(
+        typeof nextValue === "function" ? nextValue(currentValue) : nextValue,
+      );
+    },
+    [],
+  );
   const [mobileWorklogOpen, setMobileWorklogOpen] = useState(false);
   const layoutRef = useRef<HTMLDivElement>(null);
   const {
@@ -126,12 +176,6 @@ function ChatSession({
     toggleExpanded: toggleWorklogExpanded,
     startResize: startWorklogResize,
   } = useWorklogWidth(layoutRef);
-  useEffect(() => {
-    window.sessionStorage.setItem(
-      WORKLOG_OPEN_STORAGE_KEY,
-      worklogOpen ? "1" : "0",
-    );
-  }, [worklogOpen]);
   const [restoreVersion, setRestoreVersion] = useState(0);
   const [messageDisplayOverride, setMessageDisplayOverride] = useState<
     AntonUIMessage[] | null
@@ -432,6 +476,29 @@ function ChatSession({
     [mode, requestBodyForMode, sendMessage],
   );
 
+  useEffect(() => {
+    if (status !== "ready") return;
+    const handoffRun = latestPendingProfileHandoffRun(messages);
+    if (!handoffRun) return;
+    if (profileHandoffStartedRef.current.has(handoffRun.runId)) return;
+
+    profileHandoffStartedRef.current.add(handoffRun.runId);
+    writeStartedProfileHandoffRunIds(
+      sessionId,
+      profileHandoffStartedRef.current,
+    );
+    if (lastNonEmptyMessagesRef.current.length > 0) {
+      setMessageDisplayOverride(lastNonEmptyMessagesRef.current);
+    }
+    setStreamingResponseMode("agent");
+    void sendMessage(undefined, {
+      body: {
+        ...requestBodyForMode("agent"),
+        continueProfileHandoff: { runId: handoffRun.runId },
+      },
+    });
+  }, [messages, requestBodyForMode, sendMessage, sessionId, status]);
+
   const sendWithMcp = async (
     text: string,
     requestedMode: ChatMode = mode,
@@ -731,6 +798,54 @@ function writeStoredComposerControlState(
   );
 }
 
+function profileHandoffStorageKey(sessionId: string): string {
+  return `${PROFILE_HANDOFF_STORAGE_PREFIX}${sessionId}`;
+}
+
+function readStartedProfileHandoffRunIds(sessionId: string): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  const raw = window.sessionStorage.getItem(profileHandoffStorageKey(sessionId));
+  if (!raw) return new Set();
+  const parsed = parseJsonRecord(raw);
+  const runIds = readStringArray(parsed?.runIds);
+  return new Set(runIds ?? []);
+}
+
+function writeStartedProfileHandoffRunIds(
+  sessionId: string,
+  runIds: ReadonlySet<string>,
+): void {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem(
+    profileHandoffStorageKey(sessionId),
+    JSON.stringify({ runIds: Array.from(runIds) }),
+  );
+}
+
+function latestPendingProfileHandoffRun(
+  messages: AntonUIMessage[],
+): AntonRunData | undefined {
+  const latestAssistant = messages.findLast(
+    (message) => message.role === "assistant",
+  );
+  if (!latestAssistant) return undefined;
+  const runs = getRunDataList(latestAssistant);
+  const handoffRun = runs.findLast((run) => {
+    return (
+      run.status === "completed" &&
+      run.finishReason === "profile_handoff_required" &&
+      run.profileHandoffRequired === true &&
+      run.handoffFromProfile === "localized-edit" &&
+      run.handoffToProfile === "general-chat"
+    );
+  });
+  if (!handoffRun) return undefined;
+  const hasLaterSegment = runs.some((run) => {
+    return run.runId !== handoffRun.runId && run.startedAt > handoffRun.startedAt;
+  });
+  return hasLaterSegment ? undefined : handoffRun;
+}
+
 function parseJsonRecord(value: string): Record<string, unknown> | undefined {
   try {
     const parsed: unknown = JSON.parse(value);
@@ -754,7 +869,7 @@ function readChatMode(value: unknown): ChatMode | undefined {
 
 function readModelId(value: unknown): ModelId | undefined {
   return typeof value === "string" && isSupportedModelId(value)
-    ? value
+    ? resolveModelId(value)
     : undefined;
 }
 

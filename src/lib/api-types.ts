@@ -119,6 +119,7 @@ export type ProjectRunDetailsPromptCache = {
   cachedInputTokens?: number;
   cacheWriteTokens?: number;
   cacheHitRate?: number;
+  intentionalSegmentTransition?: string;
   likelyCacheMissReasons: string[];
   cacheBreakReasons: string[];
 };
@@ -160,6 +161,10 @@ export type ProjectRunDetailsRun = {
   cacheHitRate?: number | null;
   loopGuardCount?: number | null;
   verificationSummary?: string | null;
+  profileHandoffRequired?: boolean | null;
+  handoffFromProfile?: string | null;
+  handoffToProfile?: string | null;
+  handoffReason?: string | null;
   rawTotalTokens?: number | null;
   effectiveTokens?: number | null;
 };

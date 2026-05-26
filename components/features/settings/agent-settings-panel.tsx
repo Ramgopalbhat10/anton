@@ -24,7 +24,7 @@ import type { WorkspaceSettingsSummary } from "@/src/lib/api-types";
 import {
   DEFAULT_MODEL_ID,
   isSupportedModelId,
-  MODEL_CATALOG,
+  resolveModelId,
   type ModelId,
 } from "@/src/lib/models";
 import {
@@ -35,6 +35,7 @@ import {
 } from "@/src/lib/client-fetch";
 import { notifyWorkspaceAgentDefaultsChanged } from "@/src/lib/client-state/workspace-agent-defaults";
 
+import { ModelPicker } from "@/components/features/chat/model-picker";
 import { SettingsCard, SettingsPageShell } from "./settings-shell";
 
 const COMPACT_SELECT_TRIGGER_CLASS =
@@ -75,7 +76,7 @@ export function AgentSettingsPanel() {
         setModel(
           data.settings.defaultModel &&
             isSupportedModelId(data.settings.defaultModel)
-            ? data.settings.defaultModel
+            ? resolveModelId(data.settings.defaultModel)
             : DEFAULT_MODEL_ID,
         );
         setMaxSteps(
@@ -150,24 +151,12 @@ export function AgentSettingsPanel() {
         <div className="space-y-3">
           <SettingsCard title="Default model" icon={<SlidersHorizontal />}>
             <div className="max-w-sm">
-              <Select value={model} onValueChange={(value) => setModel(value as ModelId)}>
-                <SelectTrigger className={COMPACT_SELECT_TRIGGER_CLASS}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className={COMPACT_SELECT_CONTENT_CLASS}>
-                  <SelectViewport className={COMPACT_SELECT_VIEWPORT_CLASS}>
-                    {MODEL_CATALOG.map((item) => (
-                      <SelectItem
-                        key={item.id}
-                        value={item.id}
-                        className={COMPACT_SELECT_ITEM_CLASS}
-                      >
-                        <span className="text-xs leading-4">{item.label}</span>
-                      </SelectItem>
-                    ))}
-                  </SelectViewport>
-                </SelectContent>
-              </Select>
+              <ModelPicker
+                value={model}
+                onChange={setModel}
+                showThinking={false}
+                triggerClassName={COMPACT_SELECT_TRIGGER_CLASS}
+              />
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
               Used when a session has no saved composer override.

@@ -43,6 +43,10 @@ export type AntonMessageMetadata = {
   maxStepLimitReached?: boolean;
   maxCostUsd?: number;
   costBudgetReached?: boolean;
+  profileHandoffRequired?: boolean;
+  handoffFromProfile?: "localized-edit";
+  handoffToProfile?: "general-chat";
+  handoffReason?: string;
 };
 
 export type AntonRunData = {
@@ -73,6 +77,10 @@ export type AntonRunData = {
   verificationSummary?: string;
   promotionReason?: string;
   effectiveProfile?: string;
+  profileHandoffRequired?: boolean;
+  handoffFromProfile?: "localized-edit";
+  handoffToProfile?: "general-chat";
+  handoffReason?: string;
   hadSuccessfulEdit?: boolean;
 };
 
@@ -873,6 +881,18 @@ function hydrateMetricRecord<T>(
     next ??= { ...record };
     next.costBudgetReached = true;
   }
+  if (run.finishReason === "profile_handoff_required") {
+    if (record.profileHandoffRequired !== true) {
+      next ??= { ...record };
+      next.profileHandoffRequired = true;
+    }
+    const handoff = profileHandoffDataFromMetadata(run.costMetadata);
+    for (const [key, value] of Object.entries(handoff)) {
+      if (record[key] === value) continue;
+      next ??= { ...record };
+      next[key] = value;
+    }
+  }
 
   return (next ?? value) as T;
 }
@@ -951,6 +971,40 @@ function runDataFromSnapshot(run: AntonRunMetricSnapshot): AntonRunData {
       : {}),
     ...(run.finishReason === "cost_budget_limit"
       ? { costBudgetReached: true }
+      : {}),
+    ...(run.finishReason === "profile_handoff_required"
+      ? { profileHandoffRequired: true }
+      : {}),
+    ...profileHandoffDataFromMetadata(run.costMetadata),
+  };
+}
+
+function profileHandoffDataFromMetadata(
+  costMetadata: unknown,
+): Pick<
+  AntonRunData,
+  | "profileHandoffRequired"
+  | "handoffFromProfile"
+  | "handoffToProfile"
+  | "handoffReason"
+> {
+  if (!isRecord(costMetadata)) return {};
+  const execution = isRecord(costMetadata.execution)
+    ? costMetadata.execution
+    : undefined;
+  if (!execution) return {};
+  return {
+    ...(execution.profileHandoffRequired === true
+      ? { profileHandoffRequired: true }
+      : {}),
+    ...(execution.handoffFromProfile === "localized-edit"
+      ? { handoffFromProfile: "localized-edit" as const }
+      : {}),
+    ...(execution.handoffToProfile === "general-chat"
+      ? { handoffToProfile: "general-chat" as const }
+      : {}),
+    ...(typeof execution.handoffReason === "string"
+      ? { handoffReason: execution.handoffReason }
       : {}),
   };
 }
