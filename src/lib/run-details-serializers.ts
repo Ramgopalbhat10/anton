@@ -177,6 +177,19 @@ function serializeProjectRunDetailsRun(run: Run): ProjectRunDetailsRun {
     ...(typeof execution?.verificationSummary === "string"
       ? { verificationSummary: execution.verificationSummary }
       : {}),
+    ...(execution?.profileHandoffRequired === true ||
+    execution?.profileHandoffRequired === false
+      ? { profileHandoffRequired: execution.profileHandoffRequired === true }
+      : {}),
+    ...(typeof execution?.handoffFromProfile === "string"
+      ? { handoffFromProfile: execution.handoffFromProfile }
+      : {}),
+    ...(typeof execution?.handoffToProfile === "string"
+      ? { handoffToProfile: execution.handoffToProfile }
+      : {}),
+    ...(typeof execution?.handoffReason === "string"
+      ? { handoffReason: execution.handoffReason }
+      : {}),
     ...(typeof execution?.promotionReason === "string"
       ? { promotionReason: execution.promotionReason }
       : {}),
@@ -464,6 +477,9 @@ function promptCacheFromTokenAudit(
       : {}),
     ...(finiteNumber(cache.cacheHitRate) !== undefined
       ? { cacheHitRate: finiteNumber(cache.cacheHitRate) }
+      : {}),
+    ...(typeof cache.intentionalSegmentTransition === "string"
+      ? { intentionalSegmentTransition: cache.intentionalSegmentTransition }
       : {}),
     likelyCacheMissReasons,
     cacheBreakReasons: stringArray(cache.cacheBreakReasons),

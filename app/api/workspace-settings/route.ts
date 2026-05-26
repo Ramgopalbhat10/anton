@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { getWorkspaceSettings, updateWorkspaceSettings } from "@/src/db/queries";
-import { isSupportedModelId } from "@/src/lib/models";
+import { isSupportedModelId, resolveModelId } from "@/src/lib/models";
 import {
   getLocalWorkspacesRoot,
   setLocalWorkspacesRoot,
@@ -52,7 +52,12 @@ export async function PATCH(req: Request) {
     }
     const agentPatch = {
       ...(parsed.data.defaultModel !== undefined
-        ? { defaultModel: parsed.data.defaultModel }
+        ? {
+            defaultModel:
+              parsed.data.defaultModel === null
+                ? null
+                : resolveModelId(parsed.data.defaultModel),
+          }
         : {}),
       ...(parsed.data.defaultMaxSteps !== undefined
         ? { defaultMaxSteps: parsed.data.defaultMaxSteps }

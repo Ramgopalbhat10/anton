@@ -1,8 +1,8 @@
 import type { AgentRunProfile } from "./loop";
 
 export type ProfilePromotionEvent = {
-  fromProfile: AgentRunProfile;
-  toProfile: AgentRunProfile;
+  fromProfile: "localized-edit";
+  toProfile: "general-chat";
   reason: string;
 };
 

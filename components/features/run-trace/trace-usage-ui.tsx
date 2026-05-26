@@ -270,6 +270,11 @@ export function PromptCacheSection({
           </div>
         ))}
       </div>
+      {promptCache.intentionalSegmentTransition ? (
+        <div className="mt-1.5 border-t border-border/30 pt-1.5 text-[9px] leading-snug text-sky-200/80">
+          {promptCache.intentionalSegmentTransition}
+        </div>
+      ) : null}
           {promptCache.cacheBreakReasons.length > 0 ? (
             <ul className="mt-1.5 space-y-0.5 border-t border-border/30 pt-1.5 text-[9px] leading-snug text-sky-200/75">
               {promptCache.cacheBreakReasons.map((reason) => (

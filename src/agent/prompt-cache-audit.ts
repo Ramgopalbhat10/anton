@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { ModelMessage, ToolSet } from "ai";
 
 import type { TokenUsageMetrics } from "@/src/lib/token-usage";
+import { getProviderId } from "@/src/lib/models";
 
 export type PromptCacheAudit = {
   modelId: string;
@@ -15,6 +16,7 @@ export type PromptCacheAudit = {
   cachedInputTokens?: number;
   cacheWriteTokens?: number;
   cacheHitRate?: number;
+  intentionalSegmentTransition?: string;
   likelyCacheMissReasons: string[];
   cacheBreakReasons: string[];
 };
@@ -30,6 +32,7 @@ export function buildPromptCacheAudit({
   messages,
   tokenUsage,
   previousAudit,
+  intentionalSegmentTransition,
 }: {
   modelId: string;
   system: string;
@@ -41,6 +44,7 @@ export function buildPromptCacheAudit({
   messages: ModelMessage[];
   tokenUsage?: TokenUsageMetrics;
   previousAudit?: PromptCacheAudit | null;
+  intentionalSegmentTransition?: string;
 }): PromptCacheAudit {
   const cachedInputTokens = tokenUsage?.cachedInputTokens;
   const cacheWriteTokens = tokenUsage?.cacheWriteTokens;
@@ -61,7 +65,7 @@ export function buildPromptCacheAudit({
 
   const auditBase = {
     modelId,
-    providerId: "openrouter",
+    providerId: getProviderId(modelId),
     systemPromptHash: hashText(system),
     toolSchemaHash: hashText(stableJson(toolSchemas(tools, activeToolNames))),
     nativeToolNamesHash: hashText((activeToolNames ?? nativeToolNames).join("\n")),
@@ -77,6 +81,7 @@ export function buildPromptCacheAudit({
     ...(cachedInputTokens !== undefined ? { cachedInputTokens } : {}),
     ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),
     ...(cacheHitRate !== undefined ? { cacheHitRate } : {}),
+    ...(intentionalSegmentTransition ? { intentionalSegmentTransition } : {}),
     likelyCacheMissReasons,
     cacheBreakReasons,
   };
@@ -160,6 +165,12 @@ export function promptCacheAuditFromCostMetadata(
     messagePrefixHash: stringValue(promptCache.messagePrefixHash) ?? "—",
     likelyCacheMissReasons: stringArray(promptCache.likelyCacheMissReasons),
     cacheBreakReasons: stringArray(promptCache.cacheBreakReasons),
+    ...(typeof promptCache.intentionalSegmentTransition === "string"
+      ? {
+          intentionalSegmentTransition:
+            promptCache.intentionalSegmentTransition,
+        }
+      : {}),
     ...(finiteNumber(promptCache.cachedInputTokens) !== undefined
       ? { cachedInputTokens: finiteNumber(promptCache.cachedInputTokens) }
       : {}),

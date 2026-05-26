@@ -3,13 +3,19 @@ import {
   type LanguageModelUsage,
   type ModelMessage,
   type ProviderMetadata,
+  type StopCondition,
   type TextStreamPart,
   type ToolSet,
   type FinishReason,
 } from "ai";
 import {
-  openrouter,
+  getProviderId,
+  getProviderModelId,
+  resolveModelId,
+} from "@/src/lib/models";
+import {
   DEFAULT_MODEL,
+  getLanguageModel,
 } from "@/src/lib/providers";
 import {
   buildTokenUsageMetrics,
@@ -91,6 +97,10 @@ export type TokenAudit = {
   loopGuardCount?: number;
   promotionReason?: string;
   effectiveProfile?: AgentRunProfile;
+  profileHandoffRequired?: boolean;
+  handoffFromProfile?: "localized-edit";
+  handoffToProfile?: "general-chat";
+  handoffReason?: string;
   tokenBudgetReached?: boolean;
   usage?: UsageAudit;
   steps: StepUsageAudit[];
@@ -443,6 +453,7 @@ export async function runAgent({
   priorCostUsd = 0,
   priorToolHistory = [],
   previousPromptCacheAudit,
+  promptCacheIntentionalSegmentTransition,
   onStepStart,
   onStepFinish,
   onStepUsageUpdate,
@@ -472,6 +483,7 @@ export async function runAgent({
   priorCostUsd?: number;
   priorToolHistory?: readonly PriorToolCallRecord[];
   previousPromptCacheAudit?: PromptCacheAudit | null;
+  promptCacheIntentionalSegmentTransition?: string;
   onStepStart?: (event: { stepNumber: number }) => void;
   onStepFinish?: (event: { stepNumber: number }) => void;
   onStepUsageUpdate?: (steps: StepUsageAudit[]) => void;
@@ -524,6 +536,8 @@ export async function runAgent({
     loopGuardIncomplete?: boolean;
     unverifiedEdit?: boolean;
     verificationFailed?: boolean;
+    profileHandoffRequired?: boolean;
+    profileHandoff?: ProfilePromotionEvent;
     tokenAudit: TokenAudit;
   }) => void;
 }) {
@@ -542,8 +556,9 @@ export async function runAgent({
     maxCostUsd: budget.maxCostUsd,
     rawTokenSanityCap: budget.rawTokenSanityCap,
   };
-  let effectiveProfile: AgentRunProfile = profile;
+  const effectiveProfile: AgentRunProfile = profile;
   let promotionReason: string | undefined;
+  let profileHandoff: ProfilePromotionEvent | undefined;
   const nativeToolNames = isFastEditStart
     ? NATIVE_ANTON_TOOL_NAMES
     : PROFILE_NATIVE_TOOLS[profile];
@@ -563,7 +578,7 @@ export async function runAgent({
     await mcpTools.close();
   };
 
-  const selectedModel = model ?? DEFAULT_MODEL;
+  const selectedModel = resolveModelId(model ?? DEFAULT_MODEL);
   let observedStepCount = 0;
   const stepUsage: StepUsageAudit[] = [];
   const stepProviderMetadata: ProviderMetadata[] = [];
@@ -586,11 +601,10 @@ export async function runAgent({
     profile: isFastEditStart ? "localized-edit" : profile,
     toolPolicy,
   });
-  const allActiveToolNames: string[] = Object.keys(tools);
   const initialActiveToolNames = initialActiveNativeToolNames.filter((name) =>
     Object.prototype.hasOwnProperty.call(tools, name),
   );
-  let currentActiveToolNames: string[] = [...initialActiveToolNames];
+  const currentActiveToolNames: string[] = [...initialActiveToolNames];
   const systemParts =
     profile === "pure-chat"
       ? {
@@ -647,15 +661,43 @@ export async function runAgent({
     contextComposition,
     ...(contextBudget ? { contextBudget } : {}),
   };
+  const profileHandoffStopCondition: StopCondition<ToolSet> = ({ steps }) => {
+    if (!isFastEditStart) return false;
+    toolPolicy.observeSteps(steps);
+    if (profileHandoff) return true;
+    const segmentEffective = effectiveTokensForSteps(steps);
+    const promotion = toolPolicy.checkPromotion(
+      priorEffectiveTokens + segmentEffective,
+      budgetState.maxEffectiveTokens,
+    );
+    if (!promotion) return false;
+    profileHandoff = promotion;
+    promotionReason = promotion.reason;
+    onProfilePromotion?.(promotion);
+    return true;
+  };
+
+  const openRouterOptions =
+    getProviderId(selectedModel) === "openrouter"
+      ? {
+          openrouter: openRouterProviderOptions(
+            profile,
+            thinkingEnabled,
+            getProviderModelId(selectedModel),
+          ),
+        }
+      : undefined;
 
   return streamText({
-    model: openrouter(selectedModel),
+    model: getLanguageModel(selectedModel),
     system,
     messages,
     maxOutputTokens: budget.maxOutputTokens,
     tools,
     activeTools: currentActiveToolNames,
+    ...(openRouterOptions ? { providerOptions: openRouterOptions } : {}),
     stopWhen: [
+      profileHandoffStopCondition,
       mutableStepBudgetStopCondition(() => budgetState.maxSteps),
       mutableEffectiveTokenBudgetStopCondition(
         () => budgetState.maxEffectiveTokens,
@@ -667,66 +709,9 @@ export async function runAgent({
       ),
       mutableCostBudgetStopCondition(() => budgetState.maxCostUsd, priorCostUsd),
     ],
-    providerOptions: {
-      openrouter: openRouterProviderOptions(
-        profile,
-        thinkingEnabled,
-        selectedModel,
-      ),
-    },
     prepareStep: ({ messages: stepMessages, steps }) => {
       toolPolicy.observeSteps(steps);
-      const segmentEffective = steps.reduce((sum, step) => {
-        const metrics = buildTokenUsageMetrics({
-          usage: step.usage,
-          providerMetadata: step.providerMetadata,
-        });
-        if (metrics?.effectiveTokens !== undefined) {
-          return sum + metrics.effectiveTokens;
-        }
-        const total = finiteNumber(step.usage?.totalTokens);
-        if (total !== undefined) return sum + total;
-        return (
-          sum +
-          (finiteNumber(step.usage?.inputTokens) ?? 0) +
-          (finiteNumber(step.usage?.outputTokens) ?? 0)
-        );
-      }, 0);
-      const promotion = toolPolicy.checkPromotion(
-        priorEffectiveTokens + segmentEffective,
-        budgetState.maxEffectiveTokens,
-      );
-
       let nextMessages = stepMessages;
-      if (promotion && isFastEditStart && !toolPolicy.wasPromoted) {
-        toolPolicy.markPromoted();
-        effectiveProfile = promotion.toProfile;
-        promotionReason = promotion.reason;
-        currentActiveToolNames = [...allActiveToolNames];
-        const promotedBudget = applyThinkingBudgetAdjustment(
-          applyTokenBudgetMultiplier(
-            capRunBudget(budgetForProfile("general-chat"), maxStepsCap),
-            tokenBudgetMultiplier,
-          ),
-          thinkingEnabled,
-        );
-        budgetState.maxSteps = Math.max(budgetState.maxSteps, promotedBudget.maxSteps);
-        budgetState.maxEffectiveTokens = promotedBudget.maxEffectiveTokens;
-        budgetState.maxCostUsd = promotedBudget.maxCostUsd;
-        budgetState.rawTokenSanityCap = promotedBudget.rawTokenSanityCap;
-        onProfilePromotion?.(promotion);
-        nextMessages = [
-          ...stepMessages,
-          {
-            role: "assistant" as const,
-            content: [
-              "Model-only profile promotion note:",
-              promotion.reason,
-              "Full Agent tools and budget are now available for the remainder of this run.",
-            ].join("\n"),
-          },
-        ];
-      }
 
       const verifyReminder = toolPolicy.consumeVerifyReminder();
       if (verifyReminder) {
@@ -782,7 +767,6 @@ export async function runAgent({
         !forceFinalReason &&
         !duplicateReplay &&
         nextMessages === stepMessages &&
-        !promotion &&
         !verifyReminder &&
         !verifyFixNote &&
         !staleReadNote &&
@@ -793,7 +777,7 @@ export async function runAgent({
       return {
         ...(duplicateReplay && compacted !== nextMessages
           ? { messages: compacted }
-          : promotion || verifyReminder || verifyFixNote || staleReadNote
+          : verifyReminder || verifyFixNote || staleReadNote
             ? { messages: compacted }
           : {}),
         activeTools: currentActiveToolNames,
@@ -924,6 +908,7 @@ export async function runAgent({
         messages,
         tokenUsage,
         previousAudit: previousPromptCacheAudit,
+        intentionalSegmentTransition: promptCacheIntentionalSegmentTransition,
       });
       const segmentTokens = finiteNumber(totalUsage.totalTokens) ?? 0;
       const segmentEffective = tokenUsage?.effectiveTokens ?? segmentTokens;
@@ -932,7 +917,16 @@ export async function runAgent({
       const tokenAudit: TokenAudit = {
         ...tokenAuditBase,
         profile: effectiveProfile,
-        ...(promotionReason ? { promotionReason, effectiveProfile } : {}),
+        ...(promotionReason ? { promotionReason } : {}),
+        ...(promotionReason && !profileHandoff ? { effectiveProfile } : {}),
+        ...(profileHandoff
+          ? {
+              profileHandoffRequired: true,
+              handoffFromProfile: profileHandoff.fromProfile,
+              handoffToProfile: profileHandoff.toProfile,
+              handoffReason: profileHandoff.reason,
+            }
+          : {}),
         tokenBudgetReached,
         promptCache,
         loopGuardCount: toolPolicy.loopGuardCount,
@@ -963,11 +957,17 @@ export async function runAgent({
           priorCostUsd + segmentCost >= budgetState.maxCostUsd &&
           segmentCost > 0,
         loopGuardIncomplete:
-          toolPolicy.endedWithoutStateChange ||
-          toolPolicy.endedUnverified ||
-          toolPolicy.endedWithFailedVerification,
-        unverifiedEdit: toolPolicy.endedUnverified,
-        verificationFailed: toolPolicy.endedWithFailedVerification,
+          profileHandoff
+            ? false
+            : toolPolicy.endedWithoutStateChange ||
+              toolPolicy.endedUnverified ||
+              toolPolicy.endedWithFailedVerification,
+        unverifiedEdit: profileHandoff ? false : toolPolicy.endedUnverified,
+        verificationFailed: profileHandoff
+          ? false
+          : toolPolicy.endedWithFailedVerification,
+        profileHandoffRequired: profileHandoff !== undefined,
+        profileHandoff,
         tokenAudit,
       });
       await closeMcpTools();
@@ -1130,6 +1130,30 @@ function usageAudit(
     result.cachedInputTokens = cachedInputTokens;
   }
   return result;
+}
+
+function effectiveTokensForSteps(
+  steps: readonly {
+    usage?: LanguageModelUsage;
+    providerMetadata?: ProviderMetadata;
+  }[],
+): number {
+  return steps.reduce((sum, step) => {
+    const metrics = buildTokenUsageMetrics({
+      usage: step.usage,
+      providerMetadata: step.providerMetadata,
+    });
+    if (metrics?.effectiveTokens !== undefined) {
+      return sum + metrics.effectiveTokens;
+    }
+    const total = finiteNumber(step.usage?.totalTokens);
+    if (total !== undefined) return sum + total;
+    return (
+      sum +
+      (finiteNumber(step.usage?.inputTokens) ?? 0) +
+      (finiteNumber(step.usage?.outputTokens) ?? 0)
+    );
+  }, 0);
 }
 
 function messagesHaveDuplicateToolReplay(messages: ModelMessage[]): boolean {
