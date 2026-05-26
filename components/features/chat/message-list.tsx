@@ -22,7 +22,11 @@ import {
   getRunData,
   getToolTraceEntries,
   hasPendingToolApproval,
+  messageHadSuccessfulStateChangingEdit,
   messageHasBudgetLimit,
+  messageIsLoopGuardIncomplete,
+  messageIsUnverifiedEdit,
+  messageIsVerificationFailed,
   type AntonUIMessage,
   type TokenBudgetMultiplierOption,
 } from "@/src/lib/trace";
@@ -201,8 +205,15 @@ function MessageEvent({
     assistantFinal &&
     !streaming;
   const openBudgetGate = showBudgetGate ? getLatestOpenBudgetGate(message) : undefined;
+  const incompleteWithoutEdits =
+    !isUser && messageIsLoopGuardIncomplete(message) && !messageHadSuccessfulStateChangingEdit(message);
+  const unverifiedWithEdits =
+    !isUser && messageIsUnverifiedEdit(message) && messageHadSuccessfulStateChangingEdit(message);
+  const verificationFailedWithEdits =
+    !isUser && messageIsVerificationFailed(message) && messageHadSuccessfulStateChangingEdit(message);
   const suppressToolFailure =
-    openBudgetGate !== undefined || messageHasBudgetLimit(message);
+    (openBudgetGate !== undefined || messageHasBudgetLimit(message)) &&
+    messageHadSuccessfulStateChangingEdit(message);
   const showToolFailure =
     !isUser &&
     !suppressToolFailure &&
@@ -256,6 +267,28 @@ function MessageEvent({
         ) : showToolFailure ? (
           <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
             Tool failed: {failedToolText}
+          </div>
+        ) : incompleteWithoutEdits && assistantFinal ? (
+          <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            No changes were written. {failedToolText || "Loop guards stopped the run before a successful edit."}
+          </div>
+        ) : unverifiedWithEdits && assistantFinal ? (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+            Edit completed without verification. Run verify before treating this answer as done.
+            {responseText.length > 0 ? (
+              <div className="mt-2 opacity-90">
+                <Markdown className="text-xs">{responseText}</Markdown>
+              </div>
+            ) : null}
+          </div>
+        ) : verificationFailedWithEdits && assistantFinal ? (
+          <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            Verification failed after edits. Treat this answer as incomplete until the reported verification issue is fixed.
+            {responseText.length > 0 ? (
+              <div className="mt-2 opacity-90">
+                <Markdown className="text-xs">{responseText}</Markdown>
+              </div>
+            ) : null}
           </div>
         ) : responseKind === "plan" ? null
         : responseText.length > 0 ? (

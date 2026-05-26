@@ -44,8 +44,10 @@ export function BudgetGateCard({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="text-[11px] text-foreground/85">
-              Token budget reached · {gate.tokensUsed.toLocaleString()} /{" "}
-              {gate.currentMaxTotalTokens.toLocaleString()} ({gate.currentMultiplier}x)
+              Effective budget reached ·{" "}
+              {(gate.effectiveTokensUsed ?? gate.tokensUsed).toLocaleString()} /{" "}
+              {(gate.currentMaxEffectiveTokens ?? gate.currentMaxTotalTokens).toLocaleString()}{" "}
+              ({gate.currentMultiplier}x)
             </span>
             {gate.options.map((multiplier) => (
               <Button
@@ -60,6 +62,11 @@ export function BudgetGateCard({
               </Button>
             ))}
           </div>
+          {gate.lastFailedToolReason ? (
+            <p className="mt-1 text-[11px] text-destructive/90">
+              Latest tool failure: {gate.lastFailedToolReason}
+            </p>
+          ) : null}
         </div>
       </div>
     );
@@ -71,13 +78,32 @@ export function BudgetGateCard({
         <Gauge className="mt-0.5 size-3.5 shrink-0 text-amber-400" />
         <div className="min-w-0 flex-1">
           <div className="text-xs font-medium text-foreground">
-            Token budget reached
+            Effective budget reached
           </div>
           <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-            Used {gate.tokensUsed.toLocaleString()} of{" "}
-            {gate.currentMaxTotalTokens.toLocaleString()} tokens at{" "}
-            {gate.currentMultiplier}x.
+            Effective{" "}
+            {(gate.effectiveTokensUsed ?? gate.tokensUsed).toLocaleString()} /{" "}
+            {(gate.currentMaxEffectiveTokens ?? gate.currentMaxTotalTokens).toLocaleString()}{" "}
+            at {gate.currentMultiplier}x.
+            {gate.cachedInputTokens !== undefined ? (
+              <>
+                {" "}
+                Cached read {gate.cachedInputTokens.toLocaleString()}
+                {gate.uncachedInputTokens !== undefined
+                  ? ` · uncached ${gate.uncachedInputTokens.toLocaleString()}`
+                  : ""}
+                .
+              </>
+            ) : null}
+            {" "}
+            Raw total {gate.tokensUsed.toLocaleString()} /{" "}
+            {gate.currentMaxTotalTokens.toLocaleString()}.
           </p>
+          {gate.lastFailedToolReason ? (
+            <p className="mt-1 text-[11px] leading-relaxed text-destructive/90">
+              Latest tool failure: {gate.lastFailedToolReason}
+            </p>
+          ) : null}
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {gate.options.map((multiplier) => (
               <Button

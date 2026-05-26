@@ -50,6 +50,7 @@ export function createUpdateTodosTool() {
 
       return {
         ok: true as const,
+        items: normalized,
         itemCount: normalized.length,
         completedCount,
         inProgressId: inProgress?.id ?? null,

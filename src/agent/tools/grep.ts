@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { execa } from "execa";
-import { tool } from "ai";
+import { tool, type JSONValue } from "ai";
+import { compactGrepForModel } from "./model-output";
 import {
   resolveInWorkspace,
   SandboxError,
@@ -35,6 +36,10 @@ export function createGrepTool(workspaceRoot?: string) {
       .boolean()
       .optional()
       .describe("Match case-insensitively. Defaults to false."),
+  }),
+  toModelOutput: ({ output }) => ({
+    type: "json",
+    value: compactGrepForModel(output) as JSONValue,
   }),
   execute: async ({ pattern, path: relPath, glob, caseInsensitive }) => {
     try {

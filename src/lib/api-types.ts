@@ -107,6 +107,22 @@ export type ProjectRunDetailsStepUsage = {
   finishReason?: string;
 };
 
+export type ProjectRunDetailsPromptCache = {
+  modelId: string;
+  providerId: string;
+  systemPromptHash: string;
+  toolSchemaHash: string;
+  nativeToolNamesHash: string;
+  mcpToolNamesHash: string;
+  workspaceContextHash: string;
+  messagePrefixHash: string;
+  cachedInputTokens?: number;
+  cacheWriteTokens?: number;
+  cacheHitRate?: number;
+  likelyCacheMissReasons: string[];
+  cacheBreakReasons: string[];
+};
+
 export type ProjectRunDetailsTokenUsage = {
   rawInputTokens?: number;
   uncachedInputTokens?: number;
@@ -137,6 +153,15 @@ export type ProjectRunDetailsRun = {
   tokenUsage?: ProjectRunDetailsTokenUsage;
   contextComposition?: ProjectRunDetailsContextComposition;
   stepUsage?: ProjectRunDetailsStepUsage[];
+  promptCache?: ProjectRunDetailsPromptCache;
+  profile?: string | null;
+  mode?: string | null;
+  tokenBudgetMultiplier?: number | null;
+  cacheHitRate?: number | null;
+  loopGuardCount?: number | null;
+  verificationSummary?: string | null;
+  rawTotalTokens?: number | null;
+  effectiveTokens?: number | null;
 };
 
 export type ProjectRunDetailsEvent = {

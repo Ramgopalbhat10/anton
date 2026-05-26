@@ -75,7 +75,7 @@ export function summarizeToolOutput(
   }
 
   if (
-    (toolName === "write_file" || toolName === "edit_file") &&
+    (toolName === "write_file" || toolName === "edit_file" || toolName === "edit_text" || toolName === "replace_text" || toolName === "replace_lines" || toolName === "multi_replace_text") &&
     output.ok === true
   ) {
     const bytesWritten = numberValue(output.bytesWritten);

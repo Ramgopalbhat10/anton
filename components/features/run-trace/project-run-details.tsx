@@ -40,6 +40,16 @@ import {
   timelineEventMeta,
 } from "@/components/features/run-trace/trace-timeline-ui";
 import {
+  formatCompactCount,
+  parseHarnessStepNumber,
+  PromptCacheSection,
+  StepCacheIndicator,
+  stepUsageByNumber,
+  StepUsageTable,
+  UsageStatGrid,
+  UsageSectionShell,
+} from "@/components/features/run-trace/trace-usage-ui";
+import {
   contextCompositionSections,
   contextCompositionTotalTokens,
 } from "@/src/lib/context-composition";
@@ -47,6 +57,7 @@ import { cn } from "@/lib/utils";
 import type {
   ProjectRunDetailsApproval,
   ProjectRunDetailsEvent,
+  ProjectRunDetailsStepUsage,
   ProjectRunDetailsSummary,
   ProjectRunDetailsToolCall,
 } from "@/src/lib/api-types";
@@ -185,6 +196,7 @@ export function ProjectRunDetails({
               events={events}
               toolCalls={toolCalls}
               approvals={approvals}
+              stepUsage={run.stepUsage ?? []}
             />
           )}
         </TabsContent>
@@ -237,6 +249,17 @@ function RunMetaStrip({
           {segmentCount && segmentCount > 1 ? ` · ${segmentCount} segments` : ""}
         </MetaChip>
       ) : null}
+      {run.profile ? (
+        <MetaChip accent="muted">profile: {run.profile}</MetaChip>
+      ) : null}
+      {run.loopGuardCount !== null && run.loopGuardCount !== undefined && run.loopGuardCount > 0 ? (
+        <MetaChip accent="muted">guards: {run.loopGuardCount}</MetaChip>
+      ) : null}
+      {run.cacheHitRate !== null && run.cacheHitRate !== undefined ? (
+        <MetaChip accent="muted">
+          cache: {(run.cacheHitRate * 100).toFixed(0)}%
+        </MetaChip>
+      ) : null}
       <Button
         type="button"
         size="xs"
@@ -282,14 +305,17 @@ function TraceTimeline({
   events,
   toolCalls,
   approvals,
+  stepUsage,
 }: {
   run: ProjectRunDetailsSummary["run"];
   segmentCount?: number;
   events: ProjectRunDetailsEvent[];
   toolCalls: ProjectRunDetailsToolCall[];
   approvals: ProjectRunDetailsApproval[];
+  stepUsage: readonly ProjectRunDetailsStepUsage[];
 }) {
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
+  const stepUsageMap = stepUsageByNumber(stepUsage);
   const displayEvents = events.filter(
     (event) =>
       event.kind !== "approval" && !isStaleTokenBudgetTraceEvent(event),
@@ -312,13 +338,32 @@ function TraceTimeline({
             status={run.status === "error" ? "error" : "completed"}
           />
           <TraceThreadChildren>
-            {group.steps.map((step) => (
+            {group.steps.map((step) => {
+              const harnessStepNumber = parseHarnessStepNumber(step.id);
+              const stepMetrics =
+                harnessStepNumber !== undefined
+                  ? stepUsageMap.get(harnessStepNumber)
+                  : undefined;
+              const displayStepNumber =
+                harnessStepNumber !== undefined
+                  ? harnessStepDisplayNumber(harnessStepNumber)
+                  : undefined;
+
+              return (
               <TraceThreadNode key={step.id}>
                 <TraceThreadHeaderRow
                   icon={Hash}
                   iconClass={stepMeta.iconClass}
                   dotClass={stepMeta.dotClass}
                   label={step.label}
+                  labelSuffix={
+                    displayStepNumber !== undefined ? (
+                      <StepCacheIndicator
+                        step={stepMetrics}
+                        displayStepNumber={displayStepNumber}
+                      />
+                    ) : undefined
+                  }
                   durationMs={step.durationMs}
                   subdued
                 />
@@ -382,7 +427,8 @@ function TraceTimeline({
                   </TraceThreadChildren>
                 ) : null}
               </TraceThreadNode>
-            ))}
+            );
+            })}
           </TraceThreadChildren>
         </TraceThreadNode>
       ))}
@@ -661,6 +707,8 @@ function TokenUsagePanel({
 }) {
   const usage = run.tokenUsage;
   const composition = run.contextComposition;
+  const promptCache = run.promptCache;
+  const stepUsage = run.stepUsage ?? [];
   const sections = composition
     ? contextCompositionSections(composition)
     : [];
@@ -669,33 +717,25 @@ function TokenUsagePanel({
     : 0;
   const providerInput = run.inputTokens ?? usage?.rawInputTokens;
 
-  const billingNotes = [
-    usage?.cachedInputTokens !== undefined && usage.cachedInputTokens > 0
-      ? `${formatCompactCount(usage.cachedInputTokens)} cached read`
-      : null,
-    usage?.reasoningTokens !== undefined && usage.reasoningTokens > 0
-      ? `${formatCompactCount(usage.reasoningTokens)} reasoning`
-      : null,
-    usage?.providerEffectiveTokens !== undefined
-      ? `${formatCompactCount(usage.providerEffectiveTokens)} provider billed`
-      : null,
-  ].filter((note): note is string => note !== null);
-
   return (
-    <div className="space-y-3">
-      {sections.length > 0 ? (
-        <section className="space-y-2">
-          <div className="flex items-baseline justify-between gap-2">
-            <h4 className="text-[11px] font-medium text-foreground/90">
-              Context
-            </h4>
-            <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
-              ~{formatCompactCount(compositionTotal)} tokens
-            </span>
-          </div>
+    <div className="space-y-2">
+      <UsageStatGrid run={run} usage={usage} />
 
+      {promptCache ? <PromptCacheSection promptCache={promptCache} /> : null}
+
+      {stepUsage.length > 0 ? <StepUsageTable stepUsage={stepUsage} /> : null}
+
+      {sections.length > 0 ? (
+        <UsageSectionShell
+          title="Context"
+          trailing={
+            <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+              ~{formatCompactCount(compositionTotal)}
+            </span>
+          }
+        >
           {compositionTotal > 0 ? (
-            <div className="flex h-2 overflow-hidden rounded-full bg-muted/30">
+            <div className="mb-1.5 flex h-2 overflow-hidden rounded-full bg-muted/30">
               {sections.map((section) => (
                 <div
                   key={section.key}
@@ -709,11 +749,11 @@ function TokenUsagePanel({
             </div>
           ) : null}
 
-          <ul className="space-y-1">
+          <ul className="space-y-0.5">
             {sections.map((section) => (
               <li
                 key={section.key}
-                className="flex min-w-0 items-center gap-2 text-[11px]"
+                className="flex min-w-0 items-center gap-2 text-[10px]"
               >
                 <span
                   className={cn(
@@ -731,31 +771,18 @@ function TokenUsagePanel({
             ))}
           </ul>
 
-          <p className="text-[10px] leading-snug text-muted-foreground">
-            Estimated from prompt size at run start. Provider-reported input was{" "}
-            {formatCount(providerInput)} across all steps
-            {run.stepCount !== null ? ` (${run.stepCount} steps)` : ""}.
+          <p className="mt-1.5 text-[9px] leading-snug text-muted-foreground/80">
+            Estimated at run start · provider input{" "}
+            {formatCount(providerInput)}
+            {run.stepCount !== null ? ` · ${run.stepCount} steps` : ""}
           </p>
-        </section>
+        </UsageSectionShell>
       ) : (
         <EmptyHint>
           Context breakdown is available for new runs. Older runs only store
           provider totals.
         </EmptyHint>
       )}
-
-      {billingNotes.length > 0 ? (
-        <section className="space-y-1 border-t border-border/30 pt-2">
-          <h4 className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            Billing notes
-          </h4>
-          <ul className="space-y-0.5 text-[10px] text-muted-foreground">
-            {billingNotes.map((note) => (
-              <li key={note}>{note}</li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
     </div>
   );
 }
@@ -781,17 +808,6 @@ function contextSectionColor(key: string): string {
     default:
       return "bg-muted-foreground/50";
   }
-}
-
-function formatCompactCount(value: number | null | undefined): string {
-  if (value === null || value === undefined) return "—";
-  if (value >= 1000) {
-    const compact = value / 1000;
-    return compact >= 10
-      ? `${Math.round(compact)}K`
-      : `${compact.toFixed(1).replace(/\.0$/, "")}K`;
-  }
-  return value.toLocaleString();
 }
 
 function ContextPanel({
@@ -1187,6 +1203,20 @@ function buildRunSummaryText(details: ProjectRunDetailsSummary): string {
       ? [`Duration: ${formatDuration(run.durationMs)}`]
       : []),
     ...(run.stepCount !== null ? [`Steps: ${run.stepCount}`] : []),
+    ...(run.profile ? [`Profile: ${run.profile}`] : []),
+    ...(run.rawTotalTokens !== null && run.rawTotalTokens !== undefined
+      ? [`Raw tokens: ${formatCount(run.rawTotalTokens)}`]
+      : []),
+    ...(run.effectiveTokens !== null && run.effectiveTokens !== undefined
+      ? [`Effective tokens: ${formatCount(run.effectiveTokens)}`]
+      : []),
+    ...(run.cacheHitRate !== null && run.cacheHitRate !== undefined
+      ? [`Cache hit rate: ${(run.cacheHitRate * 100).toFixed(1)}%`]
+      : []),
+    ...(run.loopGuardCount !== null && run.loopGuardCount !== undefined
+      ? [`Loop guards: ${run.loopGuardCount}`]
+      : []),
+    ...(run.verificationSummary ? [`Verification: ${run.verificationSummary}`] : []),
     `Tokens: ${formatCount(run.totalTokens)} (in ${formatCount(run.inputTokens)} / out ${formatCount(run.outputTokens)})`,
     ...(run.costUsd !== null ? [`Cost: $${run.costUsd.toFixed(4)}`] : []),
     "",

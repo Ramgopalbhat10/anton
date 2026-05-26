@@ -1,11 +1,15 @@
 import {
   stepCountIs,
+  type LanguageModelUsage,
   type ProviderMetadata,
   type StopCondition,
   type ToolSet,
 } from "ai";
 
-import { openRouterCostFromMetadata } from "@/src/lib/token-usage";
+import {
+  buildTokenUsageMetrics,
+  openRouterCostFromMetadata,
+} from "@/src/lib/token-usage";
 import type { AgentRunProfile } from "./loop";
 
 export type RunBudget = {
@@ -15,6 +19,9 @@ export type RunBudget = {
   maxInputTokens: number;
   maxInputBytes: number;
   maxTotalTokens: number;
+  maxEffectiveTokens: number;
+  maxRawInputTokensPerStep: number;
+  rawTokenSanityCap: number;
   maxCostUsd: number;
   priorRunContextChars: number;
   workspaceContextChars: number;
@@ -87,6 +94,15 @@ const RUN_BUDGETS = {
     priorRunContextChars: 6_000,
     workspaceContextChars: 6_000,
   },
+  "localized-edit": {
+    maxSteps: 8,
+    maxOutputTokens: 2_048,
+    maxInputTokens: 24_000,
+    maxTotalTokens: 40_000,
+    maxCostUsd: 0.05,
+    priorRunContextChars: 1_500,
+    workspaceContextChars: 1_500,
+  },
   "approval-continuation": {
     maxSteps: 32,
     maxOutputTokens: 8_192,
@@ -98,8 +114,39 @@ const RUN_BUDGETS = {
   },
 } as const satisfies Record<
   AgentRunProfile,
-  Omit<RunBudget, "profile" | "maxInputBytes" | "latestUserMaxBytes">
+  Omit<
+    RunBudget,
+    | "profile"
+    | "maxInputBytes"
+    | "latestUserMaxBytes"
+    | "maxEffectiveTokens"
+    | "maxRawInputTokensPerStep"
+    | "rawTokenSanityCap"
+  >
 >;
+
+const DEFAULT_EFFECTIVE_RATIO = 0.55;
+const DEFAULT_RAW_INPUT_PER_STEP_RATIO = 1;
+const DEFAULT_RAW_SANITY_MULTIPLIER = 4;
+
+export const THINKING_BUDGET_MULTIPLIER = 1.75;
+
+export function applyThinkingBudgetAdjustment(
+  budget: RunBudget,
+  thinkingEnabled: boolean,
+): RunBudget {
+  if (!thinkingEnabled) return budget;
+  return {
+    ...budget,
+    maxEffectiveTokens: Math.round(
+      budget.maxEffectiveTokens * THINKING_BUDGET_MULTIPLIER,
+    ),
+    rawTokenSanityCap: Math.round(
+      budget.rawTokenSanityCap * THINKING_BUDGET_MULTIPLIER,
+    ),
+    maxCostUsd: budget.maxCostUsd * THINKING_BUDGET_MULTIPLIER,
+  };
+}
 
 export function budgetForProfile(profile: AgentRunProfile): RunBudget {
   const budget = RUN_BUDGETS[profile];
@@ -107,6 +154,13 @@ export function budgetForProfile(profile: AgentRunProfile): RunBudget {
   return {
     profile,
     ...budget,
+    maxEffectiveTokens: Math.round(
+      budget.maxTotalTokens * DEFAULT_EFFECTIVE_RATIO,
+    ),
+    maxRawInputTokensPerStep: Math.round(
+      budget.maxInputTokens * DEFAULT_RAW_INPUT_PER_STEP_RATIO,
+    ),
+    rawTokenSanityCap: budget.maxTotalTokens * DEFAULT_RAW_SANITY_MULTIPLIER,
     maxInputBytes,
     latestUserMaxBytes: Math.floor(maxInputBytes * 0.8),
   };
@@ -131,30 +185,55 @@ export function applyTokenBudgetMultiplier(
   return {
     ...budget,
     maxTotalTokens: budget.maxTotalTokens * scale,
+    maxEffectiveTokens: budget.maxEffectiveTokens * scale,
+    rawTokenSanityCap: budget.rawTokenSanityCap * scale,
     maxCostUsd: budget.maxCostUsd * scale,
   };
 }
 
-export const TOKEN_BUDGET_MULTIPLIER_OPTIONS = [2, 3, 5] as const;
+export const TOKEN_BUDGET_MULTIPLIER_OPTIONS = [2, 3] as const;
 
 export type TokenBudgetMultiplierOption =
   (typeof TOKEN_BUDGET_MULTIPLIER_OPTIONS)[number];
 
 export function availableTokenBudgetMultipliers(
   currentMultiplier: number,
+  profile?: AgentRunProfile,
 ): TokenBudgetMultiplierOption[] {
-  return TOKEN_BUDGET_MULTIPLIER_OPTIONS.filter(
-    (option) => option > currentMultiplier,
-  );
+  const allowed =
+    profile === "localized-edit"
+      ? ([2] as const)
+      : profile === "general-chat" || profile === "approval-continuation"
+        ? ([2, 3] as const)
+        : TOKEN_BUDGET_MULTIPLIER_OPTIONS;
+  return allowed.filter((option) => option > currentMultiplier);
 }
 
+export function effectiveTokenBudgetStopCondition(
+  maxEffectiveTokens: number,
+  priorEffectiveTokens = 0,
+): StopCondition<ToolSet> {
+  return ({ steps }) => {
+    const segmentEffective = totalStepEffectiveTokens(steps);
+    return priorEffectiveTokens + segmentEffective >= maxEffectiveTokens;
+  };
+}
+
+export function rawTokenSanityStopCondition(
+  rawTokenSanityCap: number,
+  priorRawTokens = 0,
+): StopCondition<ToolSet> {
+  return ({ steps }) => {
+    return priorRawTokens + totalStepTokens(steps) >= rawTokenSanityCap;
+  };
+}
+
+/** @deprecated Prefer effectiveTokenBudgetStopCondition for hard stops. */
 export function tokenBudgetStopCondition(
   maxTotalTokens: number,
   priorTokensUsed = 0,
 ): StopCondition<ToolSet> {
-  return ({ steps }) => {
-    return priorTokensUsed + totalStepTokens(steps) >= maxTotalTokens;
-  };
+  return effectiveTokenBudgetStopCondition(maxTotalTokens, priorTokensUsed);
 }
 
 export function costBudgetStopCondition(
@@ -177,6 +256,40 @@ export function remainingStepsStopCondition(
   return stepCountIs(remaining);
 }
 
+export function mutableEffectiveTokenBudgetStopCondition(
+  readMaxEffectiveTokens: () => number,
+  priorEffectiveTokens = 0,
+): StopCondition<ToolSet> {
+  return ({ steps }) =>
+    priorEffectiveTokens + totalStepEffectiveTokens(steps) >= readMaxEffectiveTokens();
+}
+
+export function mutableStepBudgetStopCondition(
+  readMaxSteps: () => number,
+): StopCondition<ToolSet> {
+  return ({ steps }) => steps.length >= readMaxSteps();
+}
+
+export function mutableRawTokenSanityStopCondition(
+  readRawTokenSanityCap: () => number,
+  priorRawTokens = 0,
+): StopCondition<ToolSet> {
+  return ({ steps }) =>
+    priorRawTokens + totalStepTokens(steps) >= readRawTokenSanityCap();
+}
+
+export function mutableCostBudgetStopCondition(
+  readMaxCostUsd: () => number,
+  priorCostUsd = 0,
+): StopCondition<ToolSet> {
+  return ({ steps }) => {
+    const segmentCost = totalStepCostUsd(steps);
+    return (
+      segmentCost !== undefined && priorCostUsd + segmentCost >= readMaxCostUsd()
+    );
+  };
+}
+
 function totalStepCostUsd(
   steps: readonly { providerMetadata?: ProviderMetadata }[],
 ): number | undefined {
@@ -187,9 +300,36 @@ function totalStepCostUsd(
 }
 
 function totalStepTokens(
-  steps: readonly { usage?: { totalTokens?: number; inputTokens?: number; outputTokens?: number } }[],
+  steps: readonly {
+    usage?: { totalTokens?: number; inputTokens?: number; outputTokens?: number };
+    providerMetadata?: ProviderMetadata;
+  }[],
 ): number {
   return steps.reduce((sum, step) => {
+    const total = finiteNumber(step.usage?.totalTokens);
+    if (total !== undefined) return sum + total;
+    return (
+      sum +
+      (finiteNumber(step.usage?.inputTokens) ?? 0) +
+      (finiteNumber(step.usage?.outputTokens) ?? 0)
+    );
+  }, 0);
+}
+
+function totalStepEffectiveTokens(
+  steps: readonly {
+    usage?: LanguageModelUsage;
+    providerMetadata?: ProviderMetadata;
+  }[],
+): number {
+  return steps.reduce((sum, step) => {
+    const metrics = buildTokenUsageMetrics({
+      usage: step.usage,
+      providerMetadata: step.providerMetadata,
+    });
+    if (metrics?.effectiveTokens !== undefined) {
+      return sum + metrics.effectiveTokens;
+    }
     const total = finiteNumber(step.usage?.totalTokens);
     if (total !== undefined) return sum + total;
     return (
