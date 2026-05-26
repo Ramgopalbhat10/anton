@@ -1,0 +1,231 @@
+import { createPatch } from "diff";
+import { z } from "zod";
+import { tool, type JSONValue } from "ai";
+import { resolveInWorkspace, SandboxError } from "../sandbox";
+import {
+  TEXT_FILE_MAX_BYTES,
+  atomicWriteTextFile,
+  readTextFileSnapshot,
+  sha256,
+} from "./edit-utils";
+import { assertGuardAllowed } from "./file-guardrails";
+import { findPreview, nearMatchesForFind } from "./edit-diagnostics";
+import { applyTextEditsToContent, buildDisplayDiff } from "./text-edits";
+import { lintEditedFile } from "./post-edit-lint";
+
+const editSchema = z.object({
+  oldText: z.string().describe("Text to find in the current file on disk (LF or CRLF both work)."),
+  newText: z.string().describe("Replacement text."),
+  replaceAll: z
+    .boolean()
+    .optional()
+    .describe(
+      "Replace every occurrence of oldText. Defaults to false and requires a unique match.",
+    ),
+});
+
+export function createEditTextTool(workspaceRoot?: string) {
+  return tool({
+    description:
+      "Apply one or more oldText/newText edits to an existing UTF-8 file. Reads the current file from disk (no read_file hash required). Line-ending differences (CRLF vs LF) are normalized before matching. Returns a compact diff so you can continue editing without re-reading the whole file. Requires user approval.",
+    inputSchema: z.object({
+      path: z.string().describe("File path relative to the workspace root."),
+      edits: z
+        .array(editSchema)
+        .min(1)
+        .max(20)
+        .describe("Ordered edits applied atomically against one disk snapshot."),
+      allowGuarded: z
+        .boolean()
+        .optional()
+        .describe(
+          "Set true only when intentionally editing a guarded target such as a lockfile, migration, generated file, binary file, or large file.",
+        ),
+    }),
+    toModelOutput: ({ output }) => ({
+      type: "json",
+      value: compactEditTextModelOutput(output),
+    }),
+    execute: async ({ path: relPath, edits, allowGuarded = false }) => {
+      try {
+        const abs = resolveInWorkspace(relPath, workspaceRoot);
+        await assertGuardAllowed({ absPath: abs, relPath, allowGuarded });
+        const previous = await readTextFileSnapshot(abs, TEXT_FILE_MAX_BYTES);
+
+        const result = applyTextEditsToContent(previous.content, edits);
+        if (!result.ok) {
+          const failed = edits[result.index];
+          return structuredError({
+            code: result.code,
+            path: relPath,
+            message: `${relPath}: edit ${result.index + 1} failed — ${result.message}`,
+            failedEditIndex: result.index,
+            find: failed?.oldText,
+            content: previous.content,
+            currentHash: previous.sha256,
+          });
+        }
+
+        if (Buffer.byteLength(result.content, "utf8") > TEXT_FILE_MAX_BYTES) {
+          return structuredError({
+            code: "WRITE_FAILED",
+            path: relPath,
+            message: `patched content exceeds ${TEXT_FILE_MAX_BYTES} byte cap`,
+            currentHash: previous.sha256,
+          });
+        }
+
+        await atomicWriteTextFile(abs, result.content);
+        const lint = await lintEditedFile(relPath, workspaceRoot);
+        if (!lint.ok && !lint.skipped) {
+          await atomicWriteTextFile(abs, previous.content);
+          return structuredError({
+            code: "SYNTAX_OR_LINT_FAILED",
+            path: relPath,
+            message: `${relPath}: edit rolled back — ${lint.summary}`,
+            currentHash: previous.sha256,
+            lintIssues: lint.issues,
+            lintSummary: lint.summary,
+          });
+        }
+
+        const diff = buildDisplayDiff(previous.content, result.content);
+        const patch = createPatch(relPath, previous.content, result.content);
+        return {
+          ok: true as const,
+          path: relPath,
+          editCount: edits.length,
+          appliedReplacementCount: result.appliedCount,
+          previousHash: previous.sha256,
+          nextHash: sha256(result.content),
+          bytesWritten: Buffer.byteLength(result.content, "utf8"),
+          diff,
+          patchPreview: patch.length > 8_000 ? `${patch.slice(0, 8_000)}\n…` : patch,
+          priorReadStale: true as const,
+          ...(lint.skipped
+            ? { postEditLint: "skipped" as const, postEditLintReason: lint.reason }
+            : { postEditLint: "passed" as const }),
+        };
+      } catch (err) {
+        if (err instanceof SandboxError && err.message.includes("guard")) {
+          return structuredError({
+            code: "GUARD_REJECTED",
+            path: relPath,
+            message: errorMessage(err),
+          });
+        }
+        return structuredError({
+          code: "WRITE_FAILED",
+          path: relPath,
+          message: errorMessage(err),
+        });
+      }
+    },
+  });
+}
+
+export const editTextTool = createEditTextTool();
+
+function structuredError(input: {
+  code:
+    | "FIND_NOT_FOUND"
+    | "FIND_NOT_UNIQUE"
+    | "GUARD_REJECTED"
+    | "WRITE_FAILED"
+    | "SYNTAX_OR_LINT_FAILED";
+  path: string;
+  message: string;
+  failedEditIndex?: number;
+  find?: string;
+  content?: string;
+  currentHash?: string;
+  lintIssues?: readonly {
+    line: number;
+    column: number;
+    message: string;
+    ruleId?: string;
+  }[];
+  lintSummary?: string;
+}) {
+  const diagnostics =
+    input.code === "FIND_NOT_FOUND" && input.find && input.content
+      ? {
+          findPreview: findPreview(input.find),
+          nearMatches: nearMatchesForFind(input.content, input.find),
+        }
+      : {};
+  return {
+    ok: false as const,
+    code: input.code,
+    path: input.path,
+    message: input.message,
+    error: input.message,
+    noChangesApplied: true as const,
+    ...(input.failedEditIndex !== undefined
+      ? { failedEditIndex: input.failedEditIndex }
+      : {}),
+    ...(input.currentHash ? { currentHash: input.currentHash } : {}),
+    ...(input.lintSummary ? { lintSummary: input.lintSummary } : {}),
+    ...(input.lintIssues?.length
+      ? { lintIssues: input.lintIssues.slice(0, 5) }
+      : {}),
+    ...diagnostics,
+  };
+}
+
+function compactEditTextModelOutput(output: unknown): JSONValue {
+  if (!isRecord(output)) {
+    return { ok: false, error: "unexpected edit_text output" };
+  }
+  if (output.ok !== true) {
+    return {
+      ok: false,
+      code: stringValue(output.code),
+      path: stringValue(output.path),
+      message: stringValue(output.message) || stringValue(output.error),
+      noChangesApplied: true,
+      ...(typeof output.failedEditIndex === "number"
+        ? { failedEditIndex: output.failedEditIndex }
+        : {}),
+      ...(stringValue(output.findPreview)
+        ? { findPreview: stringValue(output.findPreview) }
+        : {}),
+      ...(Array.isArray(output.nearMatches)
+        ? { nearMatches: output.nearMatches.slice(0, 5) }
+        : {}),
+      ...(stringValue(output.lintSummary)
+        ? { lintSummary: stringValue(output.lintSummary) }
+        : {}),
+      ...(Array.isArray(output.lintIssues)
+        ? { lintIssues: output.lintIssues.slice(0, 5) }
+        : {}),
+    };
+  }
+  return {
+    ok: true,
+    path: stringValue(output.path),
+    editCount: numberValue(output.editCount),
+    previousHash: stringValue(output.previousHash),
+    nextHash: stringValue(output.nextHash),
+    diff: stringValue(output.diff),
+    priorReadStale: true,
+  };
+}
+
+function errorMessage(err: unknown): string {
+  if (err instanceof SandboxError) return err.message;
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function numberValue(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}

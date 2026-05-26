@@ -115,6 +115,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Add resumable runs after tool approval, refresh, or network interruption.
 - [✔️] Add better system prompts for coding workflow: inspect, plan, edit, verify, summarize.
 - [✔️] Add final response structure that reports changed files, verification, and unresolved risks.
+- [✔️] Add task-scale routing, cache-aware loop control, localized edit recovery, and proportional verification (#118).
 
 ## Phase 5: GitHub And Project Workflow
 

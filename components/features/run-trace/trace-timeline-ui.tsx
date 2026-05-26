@@ -75,6 +75,7 @@ export function TraceThreadHeaderRow({
   iconClass,
   dotClass,
   label,
+  labelSuffix,
   durationMs,
   status,
   subdued = false,
@@ -83,6 +84,7 @@ export function TraceThreadHeaderRow({
   iconClass: string;
   dotClass: string;
   label: string;
+  labelSuffix?: ReactNode;
   durationMs?: number | null;
   status?: AntonRunStatus;
   subdued?: boolean;
@@ -105,13 +107,14 @@ export function TraceThreadHeaderRow({
       <div className="flex min-w-0 items-center gap-1.5">
         <span
           className={cn(
-            "min-w-0 flex-1 truncate text-[11px]",
+            "inline-flex min-w-0 flex-1 items-center gap-1 truncate text-[11px]",
             subdued
               ? "font-medium text-foreground/85"
               : "font-semibold text-foreground/95",
           )}
         >
-          {label}
+          <span className="truncate">{label}</span>
+          {labelSuffix}
         </span>
         {status === "running" ? (
           <Loader2 className="size-3 shrink-0 animate-spin text-sky-400" />

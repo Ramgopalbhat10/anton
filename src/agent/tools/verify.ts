@@ -1,6 +1,7 @@
-import { tool } from "ai";
+import { tool, type JSONValue } from "ai";
 import { z } from "zod";
 
+import type { AgentRunProfile } from "../loop";
 import {
   ensureWorkspaceRoot,
   ensureWorkspaceRootAt,
@@ -12,8 +13,11 @@ import {
   type PackageManager,
 } from "./package-manager";
 import { runWorkspaceProcess } from "./process";
+import {
+  compactVerifyForModel,
+  verifyDefaultsForProfile,
+} from "./model-output";
 
-const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_TIMEOUT_MS = 300_000;
 const MODEL_OUTPUT_TEXT_CAP = 8_000;
 
@@ -62,7 +66,11 @@ const DEFAULT_TARGETS: readonly VerificationTarget[] = [
   "build",
 ];
 
-export function createVerifyTool(workspaceRoot?: string) {
+export function createVerifyTool(
+  workspaceRoot?: string,
+  profile: AgentRunProfile = "general-chat",
+) {
+  const defaults = verifyDefaultsForProfile(profile);
   return tool({
     description:
       "Run the repository's available verification scripts after edits. Detects the package manager and runs typecheck, lint, and build scripts when present. Requires approval.",
@@ -71,7 +79,7 @@ export function createVerifyTool(workspaceRoot?: string) {
         .array(verificationTargetSchema)
         .min(1)
         .optional()
-        .describe("Verification targets to run. Defaults to typecheck, lint, and build."),
+        .describe("Verification targets to run. Defaults to profile-aware targets."),
       timeoutMs: z
         .number()
         .int()
@@ -79,15 +87,24 @@ export function createVerifyTool(workspaceRoot?: string) {
         .max(MAX_TIMEOUT_MS)
         .optional()
         .describe(
-          `Per-command timeout in milliseconds. Defaults to ${DEFAULT_TIMEOUT_MS}ms.`,
+          `Per-command timeout in milliseconds. Defaults to ${defaults.timeoutMs}ms for this profile.`,
         ),
+    }),
+    toModelOutput: ({ output }) => ({
+      type: "json",
+      value: compactVerifyForModel(output) as JSONValue,
     }),
     execute: async ({ targets, timeoutMs }) => {
       const root = workspaceRoot
         ? ensureWorkspaceRootAt(workspaceRoot)
         : ensureWorkspaceRoot();
+      const resolvedTargets =
+        targets ??
+        defaultTargetsForProfile(root, profile) ??
+        defaults.targets ??
+        DEFAULT_TARGETS;
       const plan = planVerification(root, {
-        targets: targets ?? DEFAULT_TARGETS,
+        targets: resolvedTargets,
       });
       if (!plan.ok) return plan;
 
@@ -115,7 +132,7 @@ export function createVerifyTool(workspaceRoot?: string) {
         }
 
         const result = await runWorkspaceProcess(file, args, root, {
-          timeoutMs: timeoutMs ?? DEFAULT_TIMEOUT_MS,
+          timeoutMs: timeoutMs ?? defaults.timeoutMs,
         });
         const ok = result.exitCode === 0;
         results.push({
@@ -158,6 +175,20 @@ export function createVerifyTool(workspaceRoot?: string) {
       };
     },
   });
+}
+
+function defaultTargetsForProfile(
+  workspaceRoot: string,
+  profile: AgentRunProfile,
+): readonly VerificationTarget[] | undefined {
+  if (profile !== "localized-edit") return undefined;
+  const packageJson = readPackageJson(workspaceRoot);
+  if (!packageJson.ok) return ["lint"];
+  const scripts = packageJson.value.scripts ?? {};
+  const hasTypecheck =
+    typeof scripts.typecheck === "string" ||
+    typeof scripts["type-check"] === "string";
+  return hasTypecheck ? ["typecheck"] : ["lint"];
 }
 
 function capOutput(value: string): string {

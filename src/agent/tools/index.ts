@@ -6,6 +6,13 @@ import {
 } from "../permissions";
 import { createReadFileTool, readFileTool } from "./read-file";
 import { createEditFileTool, editFileTool } from "./edit-file";
+import { createReplaceTextTool, replaceTextTool } from "./replace-text";
+import {
+  createMultiReplaceTextTool,
+  multiReplaceTextTool,
+} from "./multi-replace-text";
+import { createReplaceLinesTool, replaceLinesTool } from "./replace-lines";
+import { createEditTextTool, editTextTool } from "./edit-text";
 import { createWriteFileTool, writeFileTool } from "./write-file";
 import { bashTool, createBashTool } from "./bash";
 import {
@@ -60,10 +67,16 @@ import {
 import { createDelegateTaskTool } from "./delegate";
 import { createUpdateTodosTool, updateTodosTool } from "./todos";
 import { createVerifyTool, verifyTool } from "./verify";
+import type { AgentRunProfile } from "../loop";
+import type { ToolPolicyEngine } from "../tool-policy";
 
 export const nativeAntonTools = applyNativeToolPermissionPolicy({
   read_file: readFileTool,
   edit_file: editFileTool,
+  replace_text: replaceTextTool,
+  replace_lines: replaceLinesTool,
+  edit_text: editTextTool,
+  multi_replace_text: multiReplaceTextTool,
   write_file: writeFileTool,
   read_dir: readDirTool,
   stat: statTool,
@@ -111,6 +124,8 @@ export function createAntonTools({
   nativeToolNames,
   includeMcpTools = true,
   executionCache,
+  profile = "general-chat",
+  toolPolicy,
 }: {
   model?: string;
   mcpTools?: ToolSet;
@@ -119,14 +134,20 @@ export function createAntonTools({
   nativeToolNames?: readonly NativeAntonToolName[];
   includeMcpTools?: boolean;
   executionCache?: ToolExecutionCache;
+  profile?: AgentRunProfile;
+  toolPolicy?: ToolPolicyEngine;
 }) {
   const selectedNativeToolNames = new Set(
     nativeToolNames ?? NATIVE_ANTON_TOOL_NAMES,
   );
   const allNativeTools = {
     ...nativeAntonTools,
-    read_file: createReadFileTool(workspaceRoot),
+    read_file: createReadFileTool(workspaceRoot, profile),
     edit_file: createEditFileTool(workspaceRoot),
+    replace_text: createReplaceTextTool(workspaceRoot),
+    replace_lines: createReplaceLinesTool(workspaceRoot),
+    edit_text: createEditTextTool(workspaceRoot),
+    multi_replace_text: createMultiReplaceTextTool(workspaceRoot),
     write_file: createWriteFileTool(workspaceRoot),
     read_dir: createReadDirTool(workspaceRoot),
     stat: createStatTool(workspaceRoot),
@@ -144,7 +165,7 @@ export function createAntonTools({
     revert_changes: createRevertChangesTool(workspaceRoot),
     bash: createBashTool(workspaceRoot),
     inspect_project: createInspectProjectTool(workspaceRoot),
-    verify: createVerifyTool(workspaceRoot),
+    verify: createVerifyTool(workspaceRoot, profile),
     grep: createGrepTool(workspaceRoot),
     glob: createGlobTool(workspaceRoot),
     list_skills: createListSkillsTool(workspaceRoot),
@@ -162,17 +183,57 @@ export function createAntonTools({
     permissionMode,
   );
 
-  return withExecutionCache({
-    ...nativeTools,
-    ...(includeMcpTools && permissionMode === "full-access" && mcpTools
-      ? stripApprovalFlags(mcpTools)
-      : includeMcpTools
-        ? (mcpTools ?? {})
-        : {}),
-  }, executionCache);
+  return withToolPolicy(
+    withExecutionCache(
+      {
+        ...nativeTools,
+        ...(includeMcpTools && permissionMode === "full-access" && mcpTools
+          ? stripApprovalFlags(mcpTools)
+          : includeMcpTools
+            ? (mcpTools ?? {})
+            : {}),
+      },
+      executionCache,
+    ),
+    toolPolicy,
+  );
 }
 
 export type AntonTools = ReturnType<typeof createAntonTools>;
+
+function withToolPolicy(
+  tools: ToolSet,
+  toolPolicy: ToolPolicyEngine | undefined,
+): ToolSet {
+  if (!toolPolicy) return tools;
+  return Object.fromEntries(
+    Object.entries(tools).map(([name, toolValue]) => {
+      const candidate = toolValue as ToolSet[string] & {
+        execute?: (
+          input: unknown,
+          options: { toolCallId: string; [key: string]: unknown },
+        ) => unknown;
+      };
+      if (typeof candidate.execute !== "function") return [name, toolValue];
+      const execute = candidate.execute;
+      return [
+        name,
+        {
+          ...toolValue,
+          execute: (
+            input: unknown,
+            options: { toolCallId: string; [key: string]: unknown },
+          ) => {
+            const blocked = toolPolicy.checkBeforeExecute(name, input);
+            if (blocked) return blocked;
+            toolPolicy.recordPendingToolCall(name, input);
+            return execute(input, options);
+          },
+        },
+      ];
+    }),
+  ) as ToolSet;
+}
 
 function withExecutionCache(
   tools: ToolSet,

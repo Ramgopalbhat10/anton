@@ -1,7 +1,8 @@
 import { z } from "zod";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { tool } from "ai";
+import { tool, type JSONValue } from "ai";
+import { compactGlobForModel } from "./model-output";
 import {
   resolveInWorkspace,
   SandboxError,
@@ -40,6 +41,10 @@ export function createGlobTool(workspaceRoot?: string) {
       .describe(
         "Optional subdirectory (relative to workspace root) to search in. Defaults to the workspace root.",
       ),
+  }),
+  toModelOutput: ({ output }) => ({
+    type: "json",
+    value: compactGlobForModel(output) as JSONValue,
   }),
   execute: async ({ pattern, path: relPath }) => {
     try {

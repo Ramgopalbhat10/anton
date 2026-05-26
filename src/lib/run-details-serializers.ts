@@ -20,6 +20,7 @@ import type {
   ProjectRunDetailsContextFile,
   ProjectRunDetailsContextTool,
   ProjectRunDetailsEvent,
+  ProjectRunDetailsPromptCache,
   ProjectRunDetailsRun,
   ProjectRunDetailsStepUsage,
   ProjectRunDetailsSummary,
@@ -103,9 +104,13 @@ function serializeProjectRunDetailsRun(run: Run): ProjectRunDetailsRun {
     : null;
   const contextComposition = contextCompositionFromTokenAudit(tokenAudit);
   const stepUsage = stepUsageFromTokenAudit(tokenAudit);
+  const promptCache = promptCacheFromTokenAudit(tokenAudit);
   const reasoningTokens = finiteNumber(
     isRecord(tokenAudit?.usage) ? tokenAudit.usage.reasoningTokens : undefined,
   );
+  const execution = isRecord(costMetadata?.execution)
+    ? costMetadata.execution
+    : null;
 
   return {
     id: run.id,
@@ -157,6 +162,38 @@ function serializeProjectRunDetailsRun(run: Run): ProjectRunDetailsRun {
       : {}),
     ...(contextComposition ? { contextComposition } : {}),
     ...(stepUsage.length > 0 ? { stepUsage } : {}),
+    ...(promptCache ? { promptCache } : {}),
+    ...(typeof execution?.profile === "string" ? { profile: execution.profile } : {}),
+    ...(typeof execution?.mode === "string" ? { mode: execution.mode } : {}),
+    ...(finiteNumber(execution?.tokenBudgetMultiplier) !== undefined
+      ? { tokenBudgetMultiplier: finiteNumber(execution?.tokenBudgetMultiplier) }
+      : {}),
+    ...(finiteNumber(execution?.cacheHitRate) !== undefined
+      ? { cacheHitRate: finiteNumber(execution?.cacheHitRate) }
+      : {}),
+    ...(finiteNumber(execution?.loopGuardCount) !== undefined
+      ? { loopGuardCount: finiteNumber(execution?.loopGuardCount) }
+      : {}),
+    ...(typeof execution?.verificationSummary === "string"
+      ? { verificationSummary: execution.verificationSummary }
+      : {}),
+    ...(typeof execution?.promotionReason === "string"
+      ? { promotionReason: execution.promotionReason }
+      : {}),
+    ...(typeof execution?.effectiveProfile === "string"
+      ? { effectiveProfile: execution.effectiveProfile }
+      : {}),
+    ...(execution?.hadSuccessfulEdit === true || execution?.hadSuccessfulEdit === false
+      ? { hadSuccessfulEdit: execution.hadSuccessfulEdit === true }
+      : {}),
+    ...(tokenUsage?.rawTotalTokens !== undefined
+      ? { rawTotalTokens: tokenUsage.rawTotalTokens }
+      : run.totalTokens !== null
+        ? { rawTotalTokens: run.totalTokens }
+        : {}),
+    ...(tokenUsage?.effectiveTokens !== undefined
+      ? { effectiveTokens: tokenUsage.effectiveTokens }
+      : {}),
   };
 }
 
@@ -395,6 +432,42 @@ function stepUsageFromTokenAudit(
       },
     ];
   });
+}
+
+function promptCacheFromTokenAudit(
+  tokenAudit: Record<string, unknown> | null,
+): ProjectRunDetailsPromptCache | undefined {
+  if (!tokenAudit || !isRecord(tokenAudit.promptCache)) return undefined;
+  const cache = tokenAudit.promptCache;
+  const modelId = stringValue(cache.modelId);
+  const providerId = stringValue(cache.providerId);
+  if (!modelId || !providerId) return undefined;
+  const likelyCacheMissReasons = Array.isArray(cache.likelyCacheMissReasons)
+    ? cache.likelyCacheMissReasons.flatMap((reason) =>
+        typeof reason === "string" ? [reason] : [],
+      )
+    : [];
+  return {
+    modelId,
+    providerId,
+    systemPromptHash: stringValue(cache.systemPromptHash) ?? "—",
+    toolSchemaHash: stringValue(cache.toolSchemaHash) ?? "—",
+    nativeToolNamesHash: stringValue(cache.nativeToolNamesHash) ?? "—",
+    mcpToolNamesHash: stringValue(cache.mcpToolNamesHash) ?? "—",
+    workspaceContextHash: stringValue(cache.workspaceContextHash) ?? "—",
+    messagePrefixHash: stringValue(cache.messagePrefixHash) ?? "—",
+    ...(finiteNumber(cache.cachedInputTokens) !== undefined
+      ? { cachedInputTokens: finiteNumber(cache.cachedInputTokens) }
+      : {}),
+    ...(finiteNumber(cache.cacheWriteTokens) !== undefined
+      ? { cacheWriteTokens: finiteNumber(cache.cacheWriteTokens) }
+      : {}),
+    ...(finiteNumber(cache.cacheHitRate) !== undefined
+      ? { cacheHitRate: finiteNumber(cache.cacheHitRate) }
+      : {}),
+    likelyCacheMissReasons,
+    cacheBreakReasons: stringArray(cache.cacheBreakReasons),
+  };
 }
 
 function finiteNumber(value: unknown): number | undefined {

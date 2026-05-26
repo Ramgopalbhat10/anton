@@ -102,6 +102,26 @@ export const NATIVE_TOOL_PERMISSION_METADATA = {
     true,
     "Applies a patch to an existing workspace file.",
   ),
+  edit_text: toolMetadata(
+    ["write"],
+    true,
+    "Applies exact oldText/newText edits to an existing workspace file.",
+  ),
+  replace_text: toolMetadata(
+    ["write"],
+    true,
+    "Replaces one exact text span in an existing workspace file.",
+  ),
+  replace_lines: toolMetadata(
+    ["write"],
+    true,
+    "Replaces ordered line ranges in an existing workspace file.",
+  ),
+  multi_replace_text: toolMetadata(
+    ["write"],
+    true,
+    "Applies ordered exact-text replacements to one existing workspace file.",
+  ),
   read_dir: READ_ONLY,
   stat: READ_ONLY,
   mkdir: toolMetadata(
@@ -310,6 +330,14 @@ function buildNativeToolApprovalMetadata(
       return buildBashApproval(record, metadata, workspaceRoot);
     case "edit_file":
       return buildEditFileApproval(record, metadata, workspaceRoot);
+    case "edit_text":
+      return buildEditTextApproval(record, metadata, workspaceRoot);
+    case "replace_text":
+      return buildReplaceTextApproval(record, metadata, workspaceRoot);
+    case "replace_lines":
+      return buildReplaceLinesApproval(record, metadata, workspaceRoot);
+    case "multi_replace_text":
+      return buildMultiReplaceTextApproval(record, metadata, workspaceRoot);
     case "write_file":
       return buildWriteFileApproval(record, metadata, workspaceRoot);
     case "read_dir":
@@ -795,6 +823,142 @@ function buildEditFileApproval(
   };
 }
 
+function buildEditTextApproval(
+  input: Record<string, unknown>,
+  metadata: ToolPermissionMetadata,
+  workspaceRoot: string | undefined,
+): ToolApprovalMetadata {
+  const relPath = stringValue(input.path);
+  const edits = Array.isArray(input.edits) ? input.edits : [];
+  const first = isRecord(edits[0]) ? edits[0] : undefined;
+  const oldText = typeof first?.oldText === "string" ? first.oldText : "";
+  const newText = typeof first?.newText === "string" ? first.newText : "";
+  const diff = buildReplaceTextDiffPreview({
+    relPath,
+    find: oldText,
+    replace: newText,
+    expectedHash: undefined,
+    workspaceRoot,
+  });
+  const previewDetails = diff.message ? [diff.message] : [];
+
+  return {
+    title: "Edit workspace file (exact text)",
+    summary: metadata.summary,
+    riskCategories: metadata.categories,
+    target: relPath,
+    diffPreview: diff.preview,
+    details: [
+      pathDetail(relPath, workspaceRoot),
+      "Reads the current file from disk and applies ordered oldText/newText edits atomically.",
+      `Edit count: ${edits.length}.`,
+      "No expectedHash is required; the harness uses the live file snapshot.",
+      ...previewDetails,
+    ],
+  };
+}
+
+function buildReplaceTextApproval(
+  input: Record<string, unknown>,
+  metadata: ToolPermissionMetadata,
+  workspaceRoot: string | undefined,
+): ToolApprovalMetadata {
+  const relPath = stringValue(input.path);
+  const find = stringValue(input.find) ?? "";
+  const replace = stringValue(input.replace) ?? "";
+  const diff = buildReplaceTextDiffPreview({
+    relPath,
+    find,
+    replace,
+    expectedHash: stringValue(input.expectedHash),
+    workspaceRoot,
+  });
+  const previewDetails = diff.message ? [diff.message] : [];
+
+  return {
+    title: "Replace text in workspace file",
+    summary: metadata.summary,
+    riskCategories: metadata.categories,
+    target: relPath,
+    diffPreview: diff.preview,
+    details: [
+      pathDetail(relPath, workspaceRoot),
+      "Replaces one exact text span when expectedHash matches.",
+      `Find length: ${find.length} chars.`,
+      `Replace length: ${replace.length} chars.`,
+      `Replace all: ${booleanValue(input.replaceAll) ? "yes" : "no"}.`,
+      `Expected hash: ${stringValue(input.expectedHash) ?? "(missing)"}.`,
+      ...previewDetails,
+    ],
+  };
+}
+
+function buildMultiReplaceTextApproval(
+  input: Record<string, unknown>,
+  metadata: ToolPermissionMetadata,
+  workspaceRoot: string | undefined,
+): ToolApprovalMetadata {
+  const relPath = stringValue(input.path);
+  const replacements = Array.isArray(input.replacements) ? input.replacements : [];
+  const first = isRecord(replacements[0]) ? replacements[0] : undefined;
+  const find = typeof first?.find === "string" ? first.find : "";
+  const replace = typeof first?.replace === "string" ? first.replace : "";
+  const diff = buildReplaceTextDiffPreview({
+    relPath,
+    find,
+    replace,
+    expectedHash: stringValue(input.expectedHash),
+    workspaceRoot,
+  });
+  const previewDetails = diff.message ? [diff.message] : [];
+
+  return {
+    title: "Apply ordered replacements in workspace file",
+    summary: metadata.summary,
+    riskCategories: metadata.categories,
+    target: relPath,
+    diffPreview: diff.preview,
+    details: [
+      pathDetail(relPath, workspaceRoot),
+      "Applies ordered exact-text replacements atomically when expectedHash matches.",
+      `Replacement count: ${replacements.length}.`,
+      `Expected hash: ${stringValue(input.expectedHash) ?? "(missing)"}.`,
+      ...previewDetails,
+    ],
+  };
+}
+
+function buildReplaceLinesApproval(
+  input: Record<string, unknown>,
+  metadata: ToolPermissionMetadata,
+  workspaceRoot: string | undefined,
+): ToolApprovalMetadata {
+  const relPath = stringValue(input.path);
+  const edits = Array.isArray(input.edits) ? input.edits : [];
+  const diff = buildReplaceLinesDiffPreview({
+    relPath,
+    edits,
+    expectedHash: stringValue(input.expectedHash),
+    workspaceRoot,
+  });
+  const previewDetails = diff.message ? [diff.message] : [];
+
+  return {
+    title: "Replace line ranges in workspace file",
+    summary: metadata.summary,
+    riskCategories: metadata.categories,
+    target: relPath,
+    diffPreview: diff.preview,
+    details: [
+      pathDetail(relPath, workspaceRoot),
+      "Applies ordered, non-overlapping line-range replacements atomically when expectedHash matches.",
+      `Edit count: ${edits.length}.`,
+      `Expected hash: ${stringValue(input.expectedHash) ?? "(missing)"}.`,
+      ...previewDetails,
+    ],
+  };
+}
+
 function buildMcpToolApprovalMetadata(toolName: string): ToolApprovalMetadata {
   const [, serverName = "unknown", mcpToolName = toolName] = toolName.split("__");
   return {
@@ -972,6 +1136,121 @@ function buildEditFileDiffPreview(
       patch,
       relPath,
     });
+    if (Buffer.byteLength(next, "utf8") > DIFF_PREVIEW_BYTES) {
+      return {
+        message: `Diff preview omitted because patched content is too large and exceeds ${DIFF_PREVIEW_BYTES} bytes.`,
+      };
+    }
+    return {
+      preview: {
+        path: relPath,
+        previous: current.content,
+        next,
+        truncated: false,
+      },
+    };
+  } catch (err) {
+    return { message: `Diff preview unavailable: ${errorMessage(err)}.` };
+  }
+}
+
+function buildReplaceTextDiffPreview({
+  relPath,
+  find,
+  replace,
+  expectedHash,
+  workspaceRoot,
+}: {
+  relPath: string | undefined;
+  find: string;
+  replace: string;
+  expectedHash: string | undefined;
+  workspaceRoot: string | undefined;
+}): {
+  preview?: ToolApprovalMetadata["diffPreview"];
+  message?: string;
+} {
+  if (!relPath) return { message: "Diff preview unavailable: path is missing." };
+  if (!find) return { message: "Diff preview unavailable: find text is missing." };
+  try {
+    const current = readPreviewTextSync(relPath, workspaceRoot);
+    if (!current.ok) return { message: current.message };
+    if (expectedHash && current.sha256 !== expectedHash) {
+      return {
+        message: `Diff preview unavailable because expectedHash does not match current file hash ${current.sha256}.`,
+      };
+    }
+    if (!current.content.includes(find)) {
+      return { message: "Diff preview unavailable: find text is not present in the file." };
+    }
+    const next = current.content.replace(find, replace);
+    if (Buffer.byteLength(next, "utf8") > DIFF_PREVIEW_BYTES) {
+      return {
+        message: `Diff preview omitted because patched content is too large and exceeds ${DIFF_PREVIEW_BYTES} bytes.`,
+      };
+    }
+    return {
+      preview: {
+        path: relPath,
+        previous: current.content,
+        next,
+        truncated: false,
+      },
+    };
+  } catch (err) {
+    return { message: `Diff preview unavailable: ${errorMessage(err)}.` };
+  }
+}
+
+function buildReplaceLinesDiffPreview({
+  relPath,
+  edits,
+  expectedHash,
+  workspaceRoot,
+}: {
+  relPath: string | undefined;
+  edits: unknown[];
+  expectedHash: string | undefined;
+  workspaceRoot: string | undefined;
+}): {
+  preview?: ToolApprovalMetadata["diffPreview"];
+  message?: string;
+} {
+  if (!relPath) return { message: "Diff preview unavailable: path is missing." };
+  if (edits.length === 0) {
+    return { message: "Diff preview unavailable: no line edits provided." };
+  }
+  try {
+    const current = readPreviewTextSync(relPath, workspaceRoot);
+    if (!current.ok) return { message: current.message };
+    if (expectedHash && current.sha256 !== expectedHash) {
+      return {
+        message: `Diff preview unavailable because expectedHash does not match current file hash ${current.sha256}.`,
+      };
+    }
+    const normalized = edits.flatMap((edit, index) => {
+      if (!isRecord(edit)) return [];
+      const startLine = numberValue(edit.startLine);
+      const endLine = numberValue(edit.endLine);
+      const replacement = stringValue(edit.replacement);
+      if (startLine === undefined || endLine === undefined || replacement === undefined) {
+        return [];
+      }
+      return [{ startLine, endLine, replacement, index }];
+    });
+    if (normalized.length === 0) {
+      return { message: "Diff preview unavailable: line edits are invalid." };
+    }
+    const lines = current.content.split("\n");
+    const sorted = [...normalized].sort((left, right) => right.startLine - left.startLine);
+    for (const edit of sorted) {
+      lines.splice(
+        edit.startLine - 1,
+        edit.endLine - edit.startLine + 1,
+        ...edit.replacement.split("\n"),
+      );
+    }
+    const next = lines.join("\n");
     if (Buffer.byteLength(next, "utf8") > DIFF_PREVIEW_BYTES) {
       return {
         message: `Diff preview omitted because patched content is too large and exceeds ${DIFF_PREVIEW_BYTES} bytes.`,

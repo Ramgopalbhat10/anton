@@ -76,6 +76,12 @@ type ComposerControlState = {
 const composerControlStateBySession = new Map<string, ComposerControlState>();
 const COMPOSER_CONTROLS_STORAGE_PREFIX = "anton:composer-controls:";
 const PERMISSION_MODES = ["default", "auto-review", "full-access"] as const;
+const WORKLOG_OPEN_STORAGE_KEY = "anton-worklog-open";
+
+function readStoredWorklogOpen(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.sessionStorage.getItem(WORKLOG_OPEN_STORAGE_KEY) === "1";
+}
 
 function ChatSession({
   sessionId: sessionIdProp,
@@ -109,7 +115,7 @@ function ChatSession({
     () => composerControlStateBySession.get(sessionId),
     [sessionId],
   );
-  const [worklogOpen, setWorklogOpen] = useState(false);
+  const [worklogOpen, setWorklogOpen] = useState(readStoredWorklogOpen);
   const [mobileWorklogOpen, setMobileWorklogOpen] = useState(false);
   const layoutRef = useRef<HTMLDivElement>(null);
   const {
@@ -120,6 +126,12 @@ function ChatSession({
     toggleExpanded: toggleWorklogExpanded,
     startResize: startWorklogResize,
   } = useWorklogWidth(layoutRef);
+  useEffect(() => {
+    window.sessionStorage.setItem(
+      WORKLOG_OPEN_STORAGE_KEY,
+      worklogOpen ? "1" : "0",
+    );
+  }, [worklogOpen]);
   const [restoreVersion, setRestoreVersion] = useState(0);
   const [messageDisplayOverride, setMessageDisplayOverride] = useState<
     AntonUIMessage[] | null
@@ -406,7 +418,7 @@ function ChatSession({
   );
 
   const extendTokenBudget = useCallback(
-    (runId: string, multiplier: 2 | 3 | 5) => {
+    (runId: string, multiplier: 2 | 3) => {
       if (lastNonEmptyMessagesRef.current.length > 0) {
         setMessageDisplayOverride(lastNonEmptyMessagesRef.current);
       }

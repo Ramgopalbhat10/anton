@@ -17,20 +17,35 @@ import { z } from "zod";
 
 import {
   runAgent,
+  type AgentRunMode,
   type AgentRunProfile,
   type TokenAudit,
 } from "@/src/agent/loop";
 import {
+  classifyRunProfile,
+  executionModelFromCostMetadata,
+  executionProfileFromCostMetadata,
+  runIdFromAssistantMessage,
+} from "@/src/agent/profile-classifier";
+import {
   budgetMessagesForModel,
   type ContextBudgetReport,
 } from "@/src/agent/context-budget";
+import {
+  priorToolRecordsFromAssistantMessage,
+} from "@/src/agent/tool-policy";
+import {
+  promptCacheAuditFromCostMetadata,
+} from "@/src/agent/prompt-cache-audit";
 import {
   buildSessionContextDigest,
   RunContextCollector,
   type RunContextStatus,
 } from "@/src/agent/context";
 import { buildWorkspaceContextDigest } from "@/src/agent/workspace-context";
-import { budgetForProfile, capRunBudget, applyTokenBudgetMultiplier, availableTokenBudgetMultipliers } from "@/src/agent/run-budget";
+import { budgetForProfile, capRunBudget, applyTokenBudgetMultiplier, applyThinkingBudgetAdjustment, availableTokenBudgetMultipliers } from "@/src/agent/run-budget";
+import { compactReadFileForModel } from "@/src/agent/tools/model-output";
+import type { ProfilePromotionEvent } from "@/src/agent/profile-promotion";
 import {
   buildToolApprovalMetadata,
   getNativeToolPermissionMetadata,
@@ -80,6 +95,7 @@ import {
 } from "@/src/lib/token-usage";
 import {
   collapseAssistantContinuationMessages,
+  failedToolOutputMessage,
   getApprovalMetadata,
   getAssistantTextDisplay,
   getBudgetGateData,
@@ -117,7 +133,7 @@ const bodySchema = z.object({
   extendTokenBudget: z
     .object({
       runId: z.string().min(1),
-      multiplier: z.union([z.literal(2), z.literal(3), z.literal(5)]),
+      multiplier: z.union([z.literal(2), z.literal(3)]),
     })
     .optional(),
   messages: z.array(z.unknown()).min(1),
@@ -143,14 +159,37 @@ export async function POST(req: Request) {
   const mode = approvalContinuation
     ? "agent"
     : parsed.data.mode ?? DEFAULT_CHAT_MODE;
-  const profile = runProfileForMessages(mode, incomingHistory);
+  const budgetContinuationRun =
+    isBudgetContinuation && budgetExtension
+      ? getRunById(budgetExtension.runId)
+      : undefined;
+  const profile = resolveRunProfile({
+    mode,
+    messages: incomingHistory,
+    approvalContinuation,
+    budgetContinuationRun,
+  });
   const needsProject = mode !== "chat";
   const requestBodyBytes = byteLength(JSON.stringify(json ?? {}));
   const workspaceSettings = getWorkspaceSettings();
-  const model =
+  const requestedModel =
     parsed.data.model ??
     workspaceSettings.defaultModel ??
     DEFAULT_MODEL;
+  const approvalContinuationRunId = approvalContinuation
+    ? runIdFromAssistantMessage(incomingHistory.at(-1))
+    : undefined;
+  const approvalContinuationRun = approvalContinuationRunId
+    ? getRunById(approvalContinuationRunId)
+    : undefined;
+  const continuationModel =
+    executionModelFromCostMetadata(budgetContinuationRun?.costMetadata) ??
+    executionModelFromCostMetadata(approvalContinuationRun?.costMetadata);
+  const model = continuationModel ?? requestedModel;
+  const modelSelectionNote =
+    continuationModel && continuationModel !== requestedModel
+      ? `UI selected ${requestedModel}, but this continuation reused ${continuationModel} from the originating run.`
+      : undefined;
   if (!isSupportedModelId(model)) {
     return Response.json(
       { error: "unsupported model", model },
@@ -166,7 +205,7 @@ export async function POST(req: Request) {
     if (
       !cappedRun ||
       cappedRun.sessionId !== sessionId ||
-      cappedRun.finishReason !== "token_budget_limit"
+      !runEligibleForBudgetContinuation(cappedRun)
     ) {
       return Response.json(
         { error: "token budget continuation requires a capped run in this session" },
@@ -296,17 +335,54 @@ export async function POST(req: Request) {
     setSessionTokenBudgetMultiplier(sessionId, tokenBudgetMultiplier);
   }
 
-  const baseBudget = capRunBudget(
-    budgetForProfile(profile),
-    workspaceSettings.defaultMaxSteps,
+  const baseBudget = applyThinkingBudgetAdjustment(
+    applyTokenBudgetMultiplier(
+      capRunBudget(budgetForProfile(profile), workspaceSettings.defaultMaxSteps),
+      tokenBudgetMultiplier,
+    ),
+    parsed.data.thinkingEnabled ?? false,
   );
-  const budget = applyTokenBudgetMultiplier(baseBudget, tokenBudgetMultiplier);
+  const budget = baseBudget;
   const continuationAssistant = isBudgetContinuation
     ? incomingHistory.findLast((message) => message.role === "assistant")
     : undefined;
   const priorUsage = continuationAssistant
     ? priorSegmentUsage(continuationAssistant)
-    : { tokensUsed: 0, costUsd: 0 };
+    : { tokensUsed: 0, effectiveTokensUsed: 0, costUsd: 0 };
+  const priorToolHistory = continuationAssistant
+    ? priorToolRecordsFromAssistantMessage(continuationAssistant)
+    : [];
+  const previousPromptCacheAudit = promptCacheAuditFromCostMetadata(
+    budgetContinuationRun?.costMetadata ?? approvalContinuationRun?.costMetadata,
+  );
+  const continuationNote = isBudgetContinuation
+    ? budgetContinuationHandoffNote()
+    : undefined;
+  const userText = latestUserText(uiMessages);
+  const sessionContextDigest =
+    mode === "chat" || isBudgetContinuation
+      ? undefined
+      : buildSessionContextDigest({
+          sessionId,
+          latestUserText: userText,
+          budgetChars: budget.priorRunContextChars,
+        });
+  const workspaceContextDigest =
+    mode === "chat" || isBudgetContinuation
+      ? undefined
+      : buildWorkspaceContextDigest({
+          workspaceRoot: project?.localPath,
+          latestUserText: userText,
+          budgetChars: budget.workspaceContextChars,
+        });
+  const contextDigestBytes = byteLength(
+    isBudgetContinuation
+      ? (continuationNote ?? "")
+      : (modelOnlyContextMessageText({
+          sessionContextDigest,
+          workspaceContextDigest,
+        }) ?? ""),
+  );
   const preservation = modelContextPreservation(
     uiMessages,
     profile,
@@ -316,27 +392,6 @@ export async function POST(req: Request) {
     uiMessages,
     profile,
     isBudgetContinuation,
-  );
-  const userText = latestUserText(uiMessages);
-  const sessionContextDigest = mode === "chat"
-    ? undefined
-    : buildSessionContextDigest({
-        sessionId,
-        latestUserText: userText,
-        budgetChars: budget.priorRunContextChars,
-      });
-  const workspaceContextDigest = mode === "chat"
-    ? undefined
-    : buildWorkspaceContextDigest({
-        workspaceRoot: project?.localPath,
-        latestUserText: userText,
-        budgetChars: budget.workspaceContextChars,
-      });
-  const contextDigestBytes = byteLength(
-    modelOnlyContextMessageText({
-      sessionContextDigest,
-      workspaceContextDigest,
-    }) ?? "",
   );
   const contextBudget = budgetMessagesForModel({
     messages: preparedMessages,
@@ -364,15 +419,27 @@ export async function POST(req: Request) {
     status: "running",
     startedAt: new Date(startedAt),
     stepCount: 0,
+    costMetadata: {
+      execution: {
+        profile,
+        mode,
+        model,
+        tokenBudgetMultiplier,
+      },
+    },
   });
 
-  const modelMessages = addModelOnlyContextMessage(
-    await convertMessagesForRun(contextBudget.messages, runId, startedAt),
-    {
-      sessionContextDigest,
-      workspaceContextDigest,
-    },
+  const convertedMessages = await convertMessagesForRun(
+    contextBudget.messages,
+    runId,
+    startedAt,
   );
+  const modelMessages = isBudgetContinuation
+    ? appendModelOnlyContextMessage(convertedMessages, continuationNote ?? "")
+    : addModelOnlyContextMessage(convertedMessages, {
+        sessionContextDigest,
+        workspaceContextDigest,
+      });
   const contextCollector = new RunContextCollector(runId, sessionId);
   let contextTerminalStatus: RunContextStatus = "completed";
   let contextTerminalError: unknown;
@@ -405,17 +472,25 @@ export async function POST(req: Request) {
         writer,
         runId,
         model,
+        profile,
+        mode,
         startedAt,
         workspaceRoot: project?.localPath,
         responseKind: mode === "plan" ? "plan" : undefined,
+        tokenBudgetMultiplier,
         tokenBudgetContext: {
           baseMaxTotalTokens: baseBudget.maxTotalTokens,
+          baseMaxEffectiveTokens: baseBudget.maxEffectiveTokens,
           tokenBudgetMultiplier,
           priorTokensUsed: priorUsage.tokensUsed,
+          priorEffectiveTokensUsed: priorUsage.effectiveTokensUsed,
         },
       });
       trace.writeRun("running");
       trace.noteContextBudget(contextBudget.report);
+      if (modelSelectionNote) {
+        trace.noteModelSelection(modelSelectionNote);
+      }
 
       try {
         const result = await runAgent({
@@ -430,18 +505,24 @@ export async function POST(req: Request) {
           maxStepsCap: workspaceSettings.defaultMaxSteps,
           tokenBudgetMultiplier,
           priorTokensUsed: priorUsage.tokensUsed,
+          priorEffectiveTokens: priorUsage.effectiveTokensUsed,
           priorCostUsd: priorUsage.costUsd,
+          priorToolHistory,
+          previousPromptCacheAudit,
           permissionMode: parsed.data.permissionMode as
             | PermissionMode
             | undefined,
           enabledMcpServerIds: parsed.data.enabledMcpServerIds,
           onStepStart: ({ stepNumber }) => trace.startStep(stepNumber),
           onStepFinish: ({ stepNumber }) => trace.finishStep(stepNumber),
+          onStepUsageUpdate: (steps) => trace.updateStepUsage(steps),
           onToolCallStart: (event) => trace.startTool(event),
           onToolCallFinish: (event) => {
             contextCollector.addTool(event);
             trace.finishTool(event);
           },
+          onLoopGuard: (event) => trace.noteLoopGuard(event),
+          onProfilePromotion: (event) => trace.noteProfilePromotion(event),
           onStreamPart: (part) => trace.handleStreamPart(part),
           onAbort: () => {
             contextTerminalStatus = "aborted";
@@ -461,31 +542,49 @@ export async function POST(req: Request) {
             stepProviderMetadata,
             maxSteps,
             maxTotalTokens,
+            maxEffectiveTokens,
             baseMaxTotalTokens,
+            baseMaxEffectiveTokens,
             maxCostUsd,
             priorTokensUsed,
             maxStepLimitReached,
             tokenBudgetReached,
             costBudgetReached,
+            loopGuardIncomplete,
+            unverifiedEdit,
+            verificationFailed,
             tokenAudit,
           }) => {
             const hardLimitReached = maxStepLimitReached || costBudgetReached;
-            contextTerminalStatus = hardLimitReached ? "error" : "completed";
+            const incompleteRun =
+              loopGuardIncomplete === true ||
+              unverifiedEdit === true ||
+              verificationFailed === true;
+            contextTerminalStatus = hardLimitReached || incompleteRun ? "error" : "completed";
             trace.finalize(
-              tokenBudgetReached ? "completed" : hardLimitReached ? "error" : "completed",
+              tokenBudgetReached
+                ? "completed"
+                : hardLimitReached || incompleteRun
+                  ? "error"
+                  : "completed",
               totalUsage,
               providerMetadata,
               finishReason,
               {
                 maxSteps,
                 maxTotalTokens,
+                maxEffectiveTokens,
                 baseMaxTotalTokens,
+                baseMaxEffectiveTokens,
                 maxCostUsd,
                 priorTokensUsed,
                 tokenBudgetMultiplier,
                 maxStepLimitReached,
                 tokenBudgetReached,
                 costBudgetReached,
+                loopGuardIncomplete: incompleteRun,
+                unverifiedEdit,
+                verificationFailed,
                 tokenAudit,
                 stepProviderMetadata,
               },
@@ -717,6 +816,34 @@ async function convertMessagesForRun(
   }
 }
 
+function appendModelOnlyContextMessage(
+  messages: ModelMessage[],
+  continuationNote: string,
+): ModelMessage[] {
+  const text = continuationNote.trim();
+  if (!text) return messages;
+  return [
+    ...messages,
+    {
+      role: "assistant",
+      content: [
+        "Model-only continuation note:",
+        text,
+      ].join("\n"),
+    },
+  ];
+}
+
+function budgetContinuationHandoffNote(): string {
+  return [
+    "Budget continuation preserves the prior transcript prefix for prompt-cache reuse.",
+    "Reuse the originating effective profile, tool history, and edit state from the prior segment.",
+    "If verify failed in the prior segment, fix the reported syntax/lint error with edit_text on the edited file, then run verify again — do not re-explore with bash, grep, or glob.",
+    "If a file edit succeeded and verify has not run yet, run verify once before answering.",
+    "Prefer edit_text for remaining surgical edits; use replace_lines or replace_text only when text anchors fail.",
+  ].join(" ");
+}
+
 function addModelOnlyContextMessage(
   messages: ModelMessage[],
   context: {
@@ -840,26 +967,40 @@ function createTraceWriter({
   writer,
   runId,
   model,
+  profile,
+  mode,
   startedAt,
   workspaceRoot,
   responseKind,
+  tokenBudgetMultiplier,
   tokenBudgetContext,
 }: {
   writer: UIMessageStreamWriter<AntonUIMessage>;
   runId: string;
   model: string;
+  profile: AgentRunProfile;
+  mode: AgentRunMode;
   startedAt: number;
   workspaceRoot?: string;
   responseKind?: "plan";
+  tokenBudgetMultiplier: number;
   tokenBudgetContext: {
     baseMaxTotalTokens: number;
+    baseMaxEffectiveTokens: number;
     tokenBudgetMultiplier: number;
     priorTokensUsed: number;
+    priorEffectiveTokensUsed: number;
   };
 }) {
   let sequence = 0;
+  let loopGuardCount = 0;
+  let verificationSummary: string | undefined;
   let stepCount = 0;
   let finalized = false;
+  let stateChangingEditSucceeded = false;
+  let latestFailedToolReason: string | undefined;
+  let promotionReason: string | undefined;
+  let effectiveProfile: AgentRunProfile = profile;
   const events = new Map<string, AntonActivityEvent>();
   const reasoningBuffers = new Map<string, string>();
 
@@ -1024,8 +1165,10 @@ function createTraceWriter({
     if (!success) return "Tool execution failed";
     if (typeof output !== "object" || output === null) return null;
     const record = output as Record<string, unknown>;
-    if (record.ok === false && typeof record.error === "string") {
-      return auditSummary(record.error);
+    if (record.ok === false) {
+      if (typeof record.error === "string") return auditSummary(record.error);
+      if (typeof record.message === "string") return auditSummary(record.message);
+      return "Tool returned ok: false";
     }
     if (typeof record.failedReason === "string") {
       return auditSummary(record.failedReason);
@@ -1048,6 +1191,10 @@ function createTraceWriter({
     if (name === "glob" && summary) return `Listed ${summary}`;
     if (name === "write_file" && summary) return `Edited ${summary}`;
     if (name === "edit_file" && summary) return `Patched ${summary}`;
+    if (name === "edit_text" && summary) return `Edited ${summary}`;
+    if (name === "replace_text" && summary) return `Replaced text in ${summary}`;
+    if (name === "replace_lines" && summary) return `Replaced lines in ${summary}`;
+    if (name === "multi_replace_text" && summary) return `Replaced text in ${summary}`;
     if (name === "mkdir" && summary) return `Created directory ${summary}`;
     if (name === "delete" && summary) return `Deleted ${summary}`;
     if (name === "rename" && summary) return `Renamed ${summary}`;
@@ -1063,13 +1210,18 @@ function createTraceWriter({
     limits: {
       maxSteps?: number;
       maxTotalTokens?: number;
+      maxEffectiveTokens?: number;
       baseMaxTotalTokens?: number;
+      baseMaxEffectiveTokens?: number;
       maxCostUsd?: number;
       priorTokensUsed?: number;
       tokenBudgetMultiplier?: number;
       maxStepLimitReached?: boolean;
       tokenBudgetReached?: boolean;
       costBudgetReached?: boolean;
+      loopGuardIncomplete?: boolean;
+      unverifiedEdit?: boolean;
+      verificationFailed?: boolean;
       tokenAudit?: TokenAudit;
       stepProviderMetadata?: ProviderMetadata[];
     } = {},
@@ -1105,11 +1257,32 @@ function createTraceWriter({
         observedCostUsd: costUsd,
         reached: limits.costBudgetReached === true,
       },
+      {
+        profile,
+        mode,
+        model,
+        tokenBudgetMultiplier,
+        loopGuardCount:
+          limits.tokenAudit?.loopGuardCount ?? loopGuardCount,
+        verificationSummary,
+        cacheHitRate: limits.tokenAudit?.promptCache?.cacheHitRate,
+        promotionReason:
+          limits.tokenAudit?.promotionReason ?? promotionReason,
+        effectiveProfile:
+          limits.tokenAudit?.effectiveProfile ?? effectiveProfile,
+        hadSuccessfulEdit: stateChangingEditSucceeded,
+      },
     );
     const storedFinishReason = limits.maxStepLimitReached
       ? "max_step_limit"
       : limits.tokenBudgetReached
         ? "token_budget_limit"
+      : limits.verificationFailed
+        ? "verification_failed"
+      : limits.unverifiedEdit
+        ? "unverified_edit"
+      : limits.loopGuardIncomplete
+        ? "loop_guard_incomplete"
       : limits.costBudgetReached
         ? "cost_budget_limit"
       : finishReason;
@@ -1130,6 +1303,27 @@ function createTraceWriter({
       maxStepLimitReached: limits.maxStepLimitReached,
       maxCostUsd: limits.maxCostUsd,
       costBudgetReached: limits.costBudgetReached,
+      profile,
+      mode,
+      tokenBudgetMultiplier,
+      cacheHitRate: limits.tokenAudit?.promptCache?.cacheHitRate,
+      loopGuardCount: limits.tokenAudit?.loopGuardCount ?? loopGuardCount,
+      verificationSummary,
+      ...(limits.tokenAudit?.promotionReason ?? promotionReason
+        ? {
+            promotionReason:
+              limits.tokenAudit?.promotionReason ?? promotionReason,
+          }
+        : {}),
+      ...(limits.tokenAudit?.effectiveProfile ?? effectiveProfile
+        ? {
+            effectiveProfile:
+              limits.tokenAudit?.effectiveProfile ?? effectiveProfile,
+          }
+        : {}),
+      hadSuccessfulEdit: stateChangingEditSucceeded,
+      rawTotalTokens: tokenUsage?.rawTotalTokens ?? totalTokens,
+      effectiveTokens: tokenUsage?.effectiveTokens,
     });
     if (limits.maxStepLimitReached) {
       startEvent({
@@ -1150,22 +1344,44 @@ function createTraceWriter({
       const tokensUsed =
         (limits.priorTokensUsed ?? tokenBudgetContext.priorTokensUsed) +
         segmentTokens;
+      const effectiveTokensUsed =
+        tokenBudgetContext.priorEffectiveTokensUsed +
+        (tokenUsage?.effectiveTokens ?? segmentTokens);
       const currentMultiplier =
         limits.tokenBudgetMultiplier ?? tokenBudgetContext.tokenBudgetMultiplier;
       const baseMaxTotalTokens =
         limits.baseMaxTotalTokens ?? tokenBudgetContext.baseMaxTotalTokens;
+      const baseMaxEffectiveTokens =
+        limits.baseMaxEffectiveTokens ?? tokenBudgetContext.baseMaxEffectiveTokens;
       const currentMaxTotalTokens =
         limits.maxTotalTokens ??
         baseMaxTotalTokens * Math.max(1, currentMultiplier);
-      const options = availableTokenBudgetMultipliers(currentMultiplier);
+      const currentMaxEffectiveTokens =
+        limits.maxEffectiveTokens ??
+        baseMaxEffectiveTokens * Math.max(1, currentMultiplier);
+      const options = availableTokenBudgetMultipliers(
+        currentMultiplier,
+        limits.tokenAudit?.profile ?? profile,
+      );
       const gateData: AntonBudgetGateData = {
         runId,
         status: options.length > 0 ? "open" : "exhausted",
         tokensUsed,
+        effectiveTokensUsed,
+        ...(tokenUsage?.cachedInputTokens !== undefined
+          ? { cachedInputTokens: tokenUsage.cachedInputTokens }
+          : {}),
+        ...(tokenUsage?.uncachedInputTokens !== undefined
+          ? { uncachedInputTokens: tokenUsage.uncachedInputTokens }
+          : {}),
         baseMaxTotalTokens,
         currentMaxTotalTokens,
+        currentMaxEffectiveTokens,
         currentMultiplier,
         options,
+        ...(!stateChangingEditSucceeded && latestFailedToolReason
+          ? { lastFailedToolReason: latestFailedToolReason }
+          : {}),
       };
       writer.write({
         type: "data-budget-gate",
@@ -1185,6 +1401,50 @@ function createTraceWriter({
           stepCount,
           maxCostUsd: limits.maxCostUsd,
           costUsd,
+        },
+      });
+    }
+    if (limits.loopGuardIncomplete && !limits.unverifiedEdit && !limits.verificationFailed) {
+      startEvent({
+        id: `${runId}:loop-guard-incomplete:${sequence + 1}`,
+        kind: "error",
+        status: "error",
+        label: "Run stopped before edits",
+        summary:
+          "Loop guards stopped tool use before any file edit succeeded. Treat the final answer as incomplete until an edit and verify succeed.",
+        details: {
+          finishReason: storedFinishReason,
+          stepCount,
+          loopGuardCount: limits.tokenAudit?.loopGuardCount ?? loopGuardCount,
+        },
+      });
+    }
+    if (limits.verificationFailed) {
+      startEvent({
+        id: `${runId}:verification-failed:${sequence + 1}`,
+        kind: "error",
+        status: "error",
+        label: "Verification failed after edit",
+        summary:
+          verificationSummary ??
+          "At least one file edit succeeded and verify ran, but verification failed before the run ended.",
+        details: {
+          finishReason: storedFinishReason,
+          stepCount,
+        },
+      });
+    }
+    if (limits.unverifiedEdit) {
+      startEvent({
+        id: `${runId}:unverified-edit:${sequence + 1}`,
+        kind: "error",
+        status: "error",
+        label: "Edit completed without verification",
+        summary:
+          "At least one file edit succeeded, but verify did not run before the run ended. Treat the final answer as incomplete until verify succeeds.",
+        details: {
+          finishReason: storedFinishReason,
+          stepCount,
         },
       });
     }
@@ -1215,6 +1475,64 @@ function createTraceWriter({
         details: { contextBudget: report },
       });
     },
+    noteModelSelection(summary: string) {
+      startEvent({
+        id: `${runId}:model-selection:${sequence + 1}`,
+        kind: "progress",
+        status: "completed",
+        label: "Model selection preserved",
+        summary,
+      });
+    },
+    noteProfilePromotion(event: ProfilePromotionEvent) {
+      promotionReason = event.reason;
+      effectiveProfile = event.toProfile;
+      startEvent({
+        id: `${runId}:profile-promotion:${sequence + 1}`,
+        kind: "progress",
+        status: "completed",
+        label: "Fast-edit promoted to Agent",
+        summary: event.reason,
+        details: {
+          promotion: {
+            fromProfile: event.fromProfile,
+            toProfile: event.toProfile,
+            reason: event.reason,
+          },
+        },
+      });
+    },
+    noteLoopGuard(event: {
+      reason: string;
+      blockedTools: string[];
+      affectedPath?: string;
+      phase?: string;
+      failureCode?: string;
+      recommendedNext?: string;
+      forceFinal: boolean;
+    }) {
+      loopGuardCount += 1;
+      startEvent({
+        id: `${runId}:loop-guard:${sequence + 1}`,
+        kind: "progress",
+        status: "completed",
+        label: "Loop guard activated",
+        summary: event.reason,
+        details: {
+          loopGuard: {
+            reason: event.reason,
+            blockedTools: event.blockedTools,
+            ...(event.affectedPath ? { affectedPath: event.affectedPath } : {}),
+            ...(event.phase ? { phase: event.phase } : {}),
+            ...(event.failureCode ? { failureCode: event.failureCode } : {}),
+            ...(event.recommendedNext
+              ? { recommendedNext: event.recommendedNext }
+              : {}),
+            forceFinal: event.forceFinal,
+          },
+        },
+      });
+    },
     startStep(stepNumber: number) {
       stepCount = Math.max(stepCount, stepNumber + 1);
       startEvent({
@@ -1227,6 +1545,16 @@ function createTraceWriter({
       finishEvent(`${runId}:step:${stepNumber}`, {
         status: "completed",
         label: `Step ${stepNumber + 1} completed`,
+      });
+    },
+    updateStepUsage(steps: NonNullable<TokenAudit["steps"]>) {
+      writeRun("running", {
+        costMetadata: {
+          tokenAudit: {
+            profile,
+            steps,
+          },
+        },
       });
     },
     startTool(event: {
@@ -1324,6 +1652,22 @@ function createTraceWriter({
       const current = events.get(`${runId}:tool:${event.toolCallId}`);
       const error = toolError(event.success, event.output, event.error);
       const status = error ? "error" : "completed";
+      if (
+        event.success &&
+        isStateChangingEditTool(event.toolName) &&
+        isRecord(event.output) &&
+        event.output.ok === true
+      ) {
+        stateChangingEditSucceeded = true;
+      }
+      if (!event.success || (isRecord(event.output) && event.output.ok === false)) {
+        const reason =
+          error ??
+          (isRecord(event.output)
+            ? failedToolOutputMessage(event.output)
+            : undefined);
+        if (reason) latestFailedToolReason = reason;
+      }
       finishEvent(`${runId}:tool:${event.toolCallId}`, {
         status,
         label: toolLabel(event.toolName, event.input),
@@ -1334,6 +1678,17 @@ function createTraceWriter({
           stepNumber: event.stepNumber,
           success: event.success,
           error,
+          ...(event.toolName === "read_file" &&
+          isRecord(event.output) &&
+          event.success
+            ? {
+                durableOutput: event.output,
+                modelVisibleOutput: compactReadFileForModel(
+                  event.output,
+                  profile,
+                ),
+              }
+            : {}),
         },
       });
       const currentApproval = structuredApprovalDetails(current?.details?.approval);
@@ -1347,6 +1702,10 @@ function createTraceWriter({
       };
       if (currentApproval) toolCallUpdate.approvalDecision = "approved";
       updateToolCall(`${runId}:tool:${event.toolCallId}`, toolCallUpdate);
+      if (event.toolName === "verify" && isRecord(event.output)) {
+        const summary = event.output.summary;
+        if (typeof summary === "string") verificationSummary = summary;
+      }
       if (currentApproval) {
         upsertToolApproval({
           id: `${runId}:tool:${event.toolCallId}:approval`,
@@ -1363,9 +1722,7 @@ function createTraceWriter({
           respondedAt: new Date(),
         });
       }
-      const todos =
-        todoItemsFromToolOutput(event.toolName, event.output) ??
-        todoItemsFromToolInput(event.toolName, event.input);
+      const todos = todoItemsFromToolOutput(event.toolName, event.output, event.success);
       if (todos) writeTodos(todos);
     },
     handleStreamPart(part: TextStreamPart<ToolSet>) {
@@ -1418,8 +1775,9 @@ function createTraceWriter({
 function todoItemsFromToolOutput(
   toolName: string,
   output: unknown,
+  success: boolean,
 ): AntonTodoItem[] | undefined {
-  if (toolName !== "update_todos") return undefined;
+  if (toolName !== "update_todos" || !success) return undefined;
   if (!isRecord(output) || output.ok !== true || !Array.isArray(output.items)) {
     return undefined;
   }
@@ -1428,37 +1786,6 @@ function todoItemsFromToolOutput(
     if (!isRecord(item)) return [];
     const id = typeof item.id === "string" ? item.id : "";
     const text = typeof item.text === "string" ? item.text : "";
-    const status = item.status;
-    if (
-      !id ||
-      !text ||
-      (status !== "pending" &&
-        status !== "in_progress" &&
-        status !== "completed")
-    ) {
-      return [];
-    }
-    return [{ id, text, status }];
-  });
-
-  return items.length > 0 ? items : undefined;
-}
-
-function todoItemsFromToolInput(
-  toolName: string,
-  input: unknown,
-): AntonTodoItem[] | undefined {
-  if (toolName !== "update_todos" || !isRecord(input) || !Array.isArray(input.items)) {
-    return undefined;
-  }
-
-  const items = input.items.flatMap((item): AntonTodoItem[] => {
-    if (!isRecord(item)) return [];
-    const id = typeof item.id === "string" ? item.id.trim() : "";
-    const text =
-      typeof item.text === "string"
-        ? item.text.replace(/\s+/g, " ").trim()
-        : "";
     const status = item.status;
     if (
       !id ||
@@ -1544,6 +1871,18 @@ function runCostMetadata(
     observedCostUsd: number | undefined;
     reached: boolean;
   },
+  execution: {
+    profile: AgentRunProfile;
+    mode: AgentRunMode;
+    model: string;
+    tokenBudgetMultiplier: number;
+    loopGuardCount: number;
+    verificationSummary?: string;
+    cacheHitRate?: number;
+    promotionReason?: string;
+    effectiveProfile?: AgentRunProfile;
+    hadSuccessfulEdit?: boolean;
+  },
 ): Record<string, unknown> | null {
   const providerCostMetadata = openRouterCostMetadata(
     providerMetadata,
@@ -1559,15 +1898,58 @@ function runCostMetadata(
         : "enforced_provider_cost",
   };
   if (!tokenAudit && !tokenUsage && !providerCostMetadata) {
-    return redactValue({ costBudget: costBudgetMetadata }) as Record<
-      string,
-      unknown
-    >;
+    return redactValue({
+      execution: {
+        profile: execution.profile,
+        mode: execution.mode,
+        model: execution.model,
+        tokenBudgetMultiplier: execution.tokenBudgetMultiplier,
+        loopGuardCount: execution.loopGuardCount,
+        ...(execution.verificationSummary
+          ? { verificationSummary: execution.verificationSummary }
+          : {}),
+        ...(execution.cacheHitRate !== undefined
+          ? { cacheHitRate: execution.cacheHitRate }
+          : {}),
+        ...(execution.promotionReason
+          ? { promotionReason: execution.promotionReason }
+          : {}),
+        ...(execution.effectiveProfile
+          ? { effectiveProfile: execution.effectiveProfile }
+          : {}),
+        ...(execution.hadSuccessfulEdit !== undefined
+          ? { hadSuccessfulEdit: execution.hadSuccessfulEdit }
+          : {}),
+      },
+      costBudget: costBudgetMetadata,
+    }) as Record<string, unknown>;
   }
   return redactValue({
     ...(providerCostMetadata ?? {}),
     ...(tokenUsage ? { tokenUsage } : {}),
     ...(tokenAudit ? { tokenAudit } : {}),
+    execution: {
+      profile: execution.profile,
+      mode: execution.mode,
+      model: execution.model,
+      tokenBudgetMultiplier: execution.tokenBudgetMultiplier,
+      loopGuardCount: execution.loopGuardCount,
+      ...(execution.verificationSummary
+        ? { verificationSummary: execution.verificationSummary }
+        : {}),
+      ...(execution.cacheHitRate !== undefined
+        ? { cacheHitRate: execution.cacheHitRate }
+        : {}),
+      ...(execution.promotionReason
+        ? { promotionReason: execution.promotionReason }
+        : {}),
+      ...(execution.effectiveProfile
+        ? { effectiveProfile: execution.effectiveProfile }
+        : {}),
+      ...(execution.hadSuccessfulEdit !== undefined
+        ? { hadSuccessfulEdit: execution.hadSuccessfulEdit }
+        : {}),
+    },
     costBudget: costBudgetMetadata,
   }) as Record<string, unknown>;
 }
@@ -1577,35 +1959,45 @@ function formatCostLimit(value: number | undefined): string {
   return value.toFixed(value >= 1 ? 2 : 4);
 }
 
-function runProfileForMessages(
-  mode: ChatMode,
-  messages: AntonUIMessage[],
-): AgentRunProfile {
-  if (isToolApprovalContinuation(messages)) return "approval-continuation";
-  if (mode === "chat") return "pure-chat";
-  if (mode === "ask") return "ask";
-  if (mode === "plan") return "plan";
-  const latestText = latestUserText(messages).trim().toLowerCase();
-  if (latestText === "implement plan") return "accepted-plan-simple";
-  if (
-    latestText === "implement the plan" ||
-    latestText === "apply plan" ||
-    latestText === "apply the plan"
-  ) {
-    return "accepted-plan-general";
-  }
-  if (isCommandRunRequest(latestText)) return "command-run";
-  return "general-chat";
+function runEligibleForBudgetContinuation(run: {
+  finishReason: string | null;
+  costMetadata: unknown;
+}): boolean {
+  if (run.finishReason === "token_budget_limit") return true;
+  if (!isRecord(run.costMetadata)) return false;
+  const tokenAudit = isRecord(run.costMetadata.tokenAudit)
+    ? run.costMetadata.tokenAudit
+    : undefined;
+  return tokenAudit?.tokenBudgetReached === true;
 }
 
-function isCommandRunRequest(latestText: string): boolean {
-  return (
-    /^(run|execute|rerun|use bash|use terminal)\b/.test(latestText) ||
-    /`(?:git|pnpm|npm|yarn|bun|cat|ls|rg|grep|find)\b[^`]*`/.test(latestText) ||
-    /\b(?:discard|revert|restore)\b.*\b(?:changes|repo|repository|working tree|workspace)\b/.test(latestText) ||
-    /\b(?:clean|stash)\b.*\b(?:repo|repository|working tree|workspace)\b/.test(latestText) ||
-    /\bkeep\b.*\b(?:repo|repository|working tree|workspace)\b.*\bclean\b/.test(latestText)
-  );
+function resolveRunProfile({
+  mode,
+  messages,
+  approvalContinuation,
+  budgetContinuationRun,
+}: {
+  mode: ChatMode;
+  messages: AntonUIMessage[];
+  approvalContinuation: boolean;
+  budgetContinuationRun: ReturnType<typeof getRunById> | undefined;
+}): AgentRunProfile {
+  if (approvalContinuation) {
+    const runId = runIdFromAssistantMessage(messages.at(-1));
+    const originatingRun = runId ? getRunById(runId) : undefined;
+    return (
+      executionProfileFromCostMetadata(originatingRun?.costMetadata) ??
+      executionProfileFromCostMetadata(budgetContinuationRun?.costMetadata) ??
+      classifyRunProfile(mode, latestUserText(messages))
+    );
+  }
+  if (budgetContinuationRun) {
+    return (
+      executionProfileFromCostMetadata(budgetContinuationRun.costMetadata) ??
+      classifyRunProfile(mode, latestUserText(messages))
+    );
+  }
+  return classifyRunProfile(mode, latestUserText(messages));
 }
 
 function isAcceptedPlanProfile(profile: AgentRunProfile): boolean {
@@ -1627,6 +2019,17 @@ function latestUserText(messages: AntonUIMessage[]): string {
 
 function byteLength(value: string): number {
   return Buffer.byteLength(value, "utf8");
+}
+
+function isStateChangingEditTool(toolName: string): boolean {
+  return (
+    toolName === "edit_file" ||
+    toolName === "edit_text" ||
+    toolName === "replace_text" ||
+    toolName === "replace_lines" ||
+    toolName === "multi_replace_text" ||
+    toolName === "write_file"
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

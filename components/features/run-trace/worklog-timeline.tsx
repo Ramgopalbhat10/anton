@@ -53,6 +53,12 @@ import {
   TraceTimelineRow,
   timelineEventMeta,
 } from "@/components/features/run-trace/trace-timeline-ui";
+import {
+  parseHarnessStepNumber,
+  StepCacheIndicator,
+  stepUsageByNumber,
+  stepUsageFromCostMetadata,
+} from "@/components/features/run-trace/trace-usage-ui";
 
 export function WorklogTimeline({
   messages,
@@ -92,6 +98,9 @@ export function WorklogTimeline({
                 ? "error"
                 : "completed",
           );
+          const stepUsageMap = stepUsageByNumber(
+            stepUsageFromCostMetadata(group.run.costMetadata),
+          );
 
           return (
             <TraceThreadNode key={group.runId}>
@@ -106,6 +115,16 @@ export function WorklogTimeline({
               <TraceThreadChildren>
                 {group.steps.map((step) => {
                   const stepMeta = timelineEventMeta("step", "completed");
+                  const harnessStepNumber = parseHarnessStepNumber(step.id);
+                  const stepMetrics =
+                    harnessStepNumber !== undefined
+                      ? stepUsageMap.get(harnessStepNumber)
+                      : undefined;
+                  const displayStepNumber =
+                    harnessStepNumber !== undefined
+                      ? harnessStepDisplayNumber(harnessStepNumber)
+                      : undefined;
+
                   return (
                     <TraceThreadNode key={step.id}>
                       <TraceThreadHeaderRow
@@ -113,6 +132,14 @@ export function WorklogTimeline({
                         iconClass={stepMeta.iconClass}
                         dotClass={stepMeta.dotClass}
                         label={step.label}
+                        labelSuffix={
+                          displayStepNumber !== undefined ? (
+                            <StepCacheIndicator
+                              step={stepMetrics}
+                              displayStepNumber={displayStepNumber}
+                            />
+                          ) : undefined
+                        }
                         durationMs={step.durationMs}
                         subdued
                       />
@@ -413,12 +440,25 @@ function ToolEntryExpandPanel({
 
 function ToolIoBlocks({ entry }: { entry: ToolTraceEntry }) {
   const inputText = safeStringify(entry.input);
+  const durableOutput =
+    entry.name === "read_file" &&
+    entry.activity?.details &&
+    typeof entry.activity.details === "object" &&
+    "durableOutput" in entry.activity.details
+      ? safeStringify(entry.activity.details.durableOutput)
+      : undefined;
+  const modelVisibleOutput =
+    entry.name === "read_file" &&
+    entry.activity?.details &&
+    typeof entry.activity.details === "object" &&
+    "modelVisibleOutput" in entry.activity.details
+      ? safeStringify(entry.activity.details.modelVisibleOutput)
+      : undefined;
   const outputText =
     entry.state === "output-error" && entry.errorText
       ? undefined
-      : entry.output !== undefined
-        ? safeStringify(entry.output)
-        : undefined;
+      : durableOutput ??
+        (entry.output !== undefined ? safeStringify(entry.output) : undefined);
 
   return (
     <div className="space-y-1.5">
@@ -426,7 +466,14 @@ function ToolIoBlocks({ entry }: { entry: ToolTraceEntry }) {
         <TraceLogBlock title="Input">{inputText}</TraceLogBlock>
       ) : null}
       {outputText ? (
-        <TraceLogBlock title="Output">{outputText}</TraceLogBlock>
+        <TraceLogBlock title={durableOutput ? "Durable output" : "Output"}>
+          {outputText}
+        </TraceLogBlock>
+      ) : null}
+      {modelVisibleOutput && modelVisibleOutput !== outputText ? (
+        <TraceLogBlock title="Model-visible output">
+          {modelVisibleOutput}
+        </TraceLogBlock>
       ) : null}
       {entry.errorText ? (
         <TraceLogBlock title="Error" tone="error">

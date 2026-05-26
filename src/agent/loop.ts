@@ -1,6 +1,5 @@
 import {
   streamText,
-  stepCountIs,
   type LanguageModelUsage,
   type ModelMessage,
   type ProviderMetadata,
@@ -27,10 +26,26 @@ import {
   budgetForProfile,
   capRunBudget,
   applyTokenBudgetMultiplier,
-  costBudgetStopCondition,
-  tokenBudgetStopCondition,
+  applyThinkingBudgetAdjustment,
+  mutableCostBudgetStopCondition,
+  mutableEffectiveTokenBudgetStopCondition,
+  mutableRawTokenSanityStopCondition,
+  mutableStepBudgetStopCondition,
   type RunBudget,
 } from "./run-budget";
+import {
+  type ProfilePromotionEvent,
+} from "./profile-promotion";
+import { localizedEditToolNames } from "./profile-classifier";
+import {
+  ToolPolicyEngine,
+  seedFromPriorToolRecords,
+  type PriorToolCallRecord,
+} from "./tool-policy";
+import {
+  buildPromptCacheAudit,
+  type PromptCacheAudit,
+} from "./prompt-cache-audit";
 import { listSkills } from "./skills";
 import {
   createAntonTools,
@@ -54,6 +69,7 @@ export type AgentRunProfile =
   | "accepted-plan-simple"
   | "accepted-plan-general"
   | "command-run"
+  | "localized-edit"
   | "general-chat"
   | "approval-continuation";
 
@@ -71,6 +87,11 @@ export type TokenAudit = {
   };
   budget: RunBudgetAudit;
   contextComposition: ContextCompositionAudit;
+  promptCache?: PromptCacheAudit;
+  loopGuardCount?: number;
+  promotionReason?: string;
+  effectiveProfile?: AgentRunProfile;
+  tokenBudgetReached?: boolean;
   usage?: UsageAudit;
   steps: StepUsageAudit[];
 };
@@ -95,6 +116,9 @@ type RunBudgetAudit = Pick<
   | "maxInputTokens"
   | "maxInputBytes"
   | "maxTotalTokens"
+  | "maxEffectiveTokens"
+  | "maxRawInputTokensPerStep"
+  | "rawTokenSanityCap"
   | "maxCostUsd"
   | "priorRunContextChars"
   | "workspaceContextChars"
@@ -166,6 +190,9 @@ const COMMAND_RUN_TOOLS = [
   "git_status",
 ] as const satisfies readonly NativeAntonToolName[];
 
+const LOCALIZED_EDIT_TOOLS =
+  localizedEditToolNames() as readonly NativeAntonToolName[];
+
 const PROFILE_NATIVE_TOOLS = {
   "pure-chat": CHAT_MODE_TOOLS,
   ask: ASK_MODE_TOOLS,
@@ -173,6 +200,7 @@ const PROFILE_NATIVE_TOOLS = {
   "accepted-plan-simple": ACCEPTED_PLAN_SIMPLE_TOOLS,
   "accepted-plan-general": ACCEPTED_PLAN_GENERAL_TOOLS,
   "command-run": COMMAND_RUN_TOOLS,
+  "localized-edit": LOCALIZED_EDIT_TOOLS,
   "general-chat": NATIVE_ANTON_TOOL_NAMES,
   "approval-continuation": NATIVE_ANTON_TOOL_NAMES,
 } as const satisfies Record<AgentRunProfile, readonly NativeAntonToolName[]>;
@@ -319,10 +347,23 @@ function runProfilePromptLines(
       "- Do not use `verify` in this profile; it is reserved for compact post-edit verification.",
     ];
   }
+  if (profile === "localized-edit") {
+    return [
+      ...header,
+      "- This is a fast-edit run. Start with one modest full-file read when possible, then edit in phases as needed.",
+      "- Multi-step work on the same file is fine: edit, read a range to confirm, edit again, then verify before answering.",
+      "- Prefer `edit_text` for surgical edits (reads disk, returns a diff; no expectedHash). Use several oldText/newText edits in one call when possible.",
+      "- Do not call `edit_file` until `edit_text` has failed on a path. Use `replace_lines` or `replace_text` only when text anchors fail.",
+      "- If the task needs multiple files, shell/git context, or repeated failed edits, the harness promotes to full Agent tools automatically.",
+      "- Run `verify` before the final answer. If verification fails, report it honestly.",
+    ];
+  }
   return [
     ...header,
     "- For multi-step coding tasks, call `update_todos` with a full checklist snapshot before the first edit and update it as work progresses.",
     "- Before the first coding action in a project, call `inspect_project`, then summarize the relevant stack, scripts, git state, and local instructions in your progress text.",
+    "- Prefer `edit_text` for surgical file changes; it reads the current file from disk and returns a compact diff so you rarely need to re-read the whole file.",
+    "- Do not use `edit_file` for small changes; reserve it for large structural rewrites only after `edit_text` fails on a path.",
     "- After editing files, run `verify` before the final answer when the project exposes typecheck, lint, or build scripts. If verification is skipped or fails, say exactly why.",
   ];
 }
@@ -398,12 +439,18 @@ export async function runAgent({
   contextBudget,
   tokenBudgetMultiplier = 1,
   priorTokensUsed = 0,
+  priorEffectiveTokens = 0,
   priorCostUsd = 0,
+  priorToolHistory = [],
+  previousPromptCacheAudit,
   onStepStart,
   onStepFinish,
+  onStepUsageUpdate,
   onToolCallStart,
   onToolCallFinish,
   onStreamPart,
+  onLoopGuard,
+  onProfilePromotion,
   onError,
   onAbort,
   onFinish,
@@ -421,9 +468,13 @@ export async function runAgent({
   contextBudget?: ContextBudgetAudit;
   tokenBudgetMultiplier?: number;
   priorTokensUsed?: number;
+  priorEffectiveTokens?: number;
   priorCostUsd?: number;
+  priorToolHistory?: readonly PriorToolCallRecord[];
+  previousPromptCacheAudit?: PromptCacheAudit | null;
   onStepStart?: (event: { stepNumber: number }) => void;
   onStepFinish?: (event: { stepNumber: number }) => void;
+  onStepUsageUpdate?: (steps: StepUsageAudit[]) => void;
   onToolCallStart?: (event: {
     stepNumber: number | undefined;
     toolCallId: string;
@@ -441,6 +492,16 @@ export async function runAgent({
     error?: unknown;
   }) => void;
   onStreamPart?: (part: TextStreamPart<ToolSet>) => void;
+  onLoopGuard?: (event: {
+    reason: string;
+    blockedTools: string[];
+    affectedPath?: string;
+    phase?: string;
+    failureCode?: string;
+    recommendedNext?: string;
+    forceFinal: boolean;
+  }) => void;
+  onProfilePromotion?: (event: ProfilePromotionEvent) => void;
   onError?: (error: unknown) => void;
   onAbort?: () => void;
   onFinish?: (result: {
@@ -451,20 +512,47 @@ export async function runAgent({
     stepCount: number;
     maxSteps: number;
     maxTotalTokens: number;
+    maxEffectiveTokens: number;
     baseMaxTotalTokens: number;
+    baseMaxEffectiveTokens: number;
     maxCostUsd: number;
     priorTokensUsed: number;
     priorCostUsd: number;
     maxStepLimitReached: boolean;
     tokenBudgetReached: boolean;
     costBudgetReached: boolean;
+    loopGuardIncomplete?: boolean;
+    unverifiedEdit?: boolean;
+    verificationFailed?: boolean;
     tokenAudit: TokenAudit;
   }) => void;
 }) {
-  const baseBudget = capRunBudget(budgetForProfile(profile), maxStepsCap);
-  const budget = applyTokenBudgetMultiplier(baseBudget, tokenBudgetMultiplier);
-  const nativeToolNames = PROFILE_NATIVE_TOOLS[profile];
-  const allowMcpTools = profileAllowsMcp(profile);
+  const isFastEditStart = profile === "localized-edit";
+  const baseBudget = capRunBudget(
+    budgetForProfile(isFastEditStart ? "localized-edit" : profile),
+    maxStepsCap,
+  );
+  const budget = applyThinkingBudgetAdjustment(
+    applyTokenBudgetMultiplier(baseBudget, tokenBudgetMultiplier),
+    thinkingEnabled,
+  );
+  const budgetState = {
+    maxSteps: budget.maxSteps,
+    maxEffectiveTokens: budget.maxEffectiveTokens,
+    maxCostUsd: budget.maxCostUsd,
+    rawTokenSanityCap: budget.rawTokenSanityCap,
+  };
+  let effectiveProfile: AgentRunProfile = profile;
+  let promotionReason: string | undefined;
+  const nativeToolNames = isFastEditStart
+    ? NATIVE_ANTON_TOOL_NAMES
+    : PROFILE_NATIVE_TOOLS[profile];
+  const initialActiveNativeToolNames = isFastEditStart
+    ? [...LOCALIZED_EDIT_TOOLS]
+    : [...PROFILE_NATIVE_TOOLS[profile]];
+  const allowMcpTools = isFastEditStart
+    ? permissionMode === "full-access"
+    : profileAllowsMcp(profile);
   const mcpTools = allowMcpTools
     ? await loadMcpTools({ workspaceRoot, enabledMcpServerIds })
     : emptyLoadedMcpTools();
@@ -485,6 +573,8 @@ export async function runAgent({
   const suppressedToolCallIds = new Set<string>();
   const finishedToolCallIds = new Set<string>();
   const finishedToolCallKeys = new Set<string>();
+  const toolPolicy = new ToolPolicyEngine(profile);
+  toolPolicy.seed(seedFromPriorToolRecords(priorToolHistory));
   const tools = createAntonTools({
     model: selectedModel,
     mcpTools: mcpTools.tools,
@@ -493,7 +583,14 @@ export async function runAgent({
     nativeToolNames,
     includeMcpTools: allowMcpTools,
     executionCache,
+    profile: isFastEditStart ? "localized-edit" : profile,
+    toolPolicy,
   });
+  const allActiveToolNames: string[] = Object.keys(tools);
+  const initialActiveToolNames = initialActiveNativeToolNames.filter((name) =>
+    Object.prototype.hasOwnProperty.call(tools, name),
+  );
+  let currentActiveToolNames: string[] = [...initialActiveToolNames];
   const systemParts =
     profile === "pure-chat"
       ? {
@@ -514,7 +611,6 @@ export async function runAgent({
           systemParts.skills,
           systemParts.profile,
         ].join("\n\n");
-  const activeTools = Object.keys(tools);
   const messageBytes = utf8Bytes(stableJson(messages));
   const contextComposition = buildContextCompositionAudit({
     systemParts,
@@ -532,15 +628,18 @@ export async function runAgent({
       nativeCount: nativeToolNames.length,
       mcpCount: Object.keys(mcpTools.tools).length,
       totalCount: Object.keys(tools).length,
-      activeCount: activeTools.length,
+      activeCount: currentActiveToolNames.length,
     },
     budget: {
       profile: budget.profile,
-      maxSteps: budget.maxSteps,
+      maxSteps: budgetState.maxSteps,
       maxOutputTokens: budget.maxOutputTokens,
       maxInputTokens: budget.maxInputTokens,
       maxInputBytes: budget.maxInputBytes,
       maxTotalTokens: budget.maxTotalTokens,
+      maxEffectiveTokens: budgetState.maxEffectiveTokens,
+      maxRawInputTokensPerStep: budget.maxRawInputTokensPerStep,
+      rawTokenSanityCap: budget.rawTokenSanityCap,
       maxCostUsd: budget.maxCostUsd,
       priorRunContextChars: budget.priorRunContextChars,
       workspaceContextChars: budget.workspaceContextChars,
@@ -555,31 +654,162 @@ export async function runAgent({
     messages,
     maxOutputTokens: budget.maxOutputTokens,
     tools,
-    activeTools,
+    activeTools: currentActiveToolNames,
     stopWhen: [
-      stepCountIs(budget.maxSteps),
-      tokenBudgetStopCondition(budget.maxTotalTokens, priorTokensUsed),
-      costBudgetStopCondition(budget.maxCostUsd, priorCostUsd),
+      mutableStepBudgetStopCondition(() => budgetState.maxSteps),
+      mutableEffectiveTokenBudgetStopCondition(
+        () => budgetState.maxEffectiveTokens,
+        priorEffectiveTokens,
+      ),
+      mutableRawTokenSanityStopCondition(
+        () => budgetState.rawTokenSanityCap,
+        priorTokensUsed,
+      ),
+      mutableCostBudgetStopCondition(() => budgetState.maxCostUsd, priorCostUsd),
     ],
     providerOptions: {
-      openrouter: openRouterProviderOptions(profile, thinkingEnabled),
+      openrouter: openRouterProviderOptions(
+        profile,
+        thinkingEnabled,
+        selectedModel,
+      ),
     },
     prepareStep: ({ messages: stepMessages, steps }) => {
-      const compacted = dedupeToolReplayMessages(stepMessages);
-      const forceFinalReason = forceFinalAnswerReason(steps);
-      if (!forceFinalReason && compacted === stepMessages) return undefined;
+      toolPolicy.observeSteps(steps);
+      const segmentEffective = steps.reduce((sum, step) => {
+        const metrics = buildTokenUsageMetrics({
+          usage: step.usage,
+          providerMetadata: step.providerMetadata,
+        });
+        if (metrics?.effectiveTokens !== undefined) {
+          return sum + metrics.effectiveTokens;
+        }
+        const total = finiteNumber(step.usage?.totalTokens);
+        if (total !== undefined) return sum + total;
+        return (
+          sum +
+          (finiteNumber(step.usage?.inputTokens) ?? 0) +
+          (finiteNumber(step.usage?.outputTokens) ?? 0)
+        );
+      }, 0);
+      const promotion = toolPolicy.checkPromotion(
+        priorEffectiveTokens + segmentEffective,
+        budgetState.maxEffectiveTokens,
+      );
+
+      let nextMessages = stepMessages;
+      if (promotion && isFastEditStart && !toolPolicy.wasPromoted) {
+        toolPolicy.markPromoted();
+        effectiveProfile = promotion.toProfile;
+        promotionReason = promotion.reason;
+        currentActiveToolNames = [...allActiveToolNames];
+        const promotedBudget = applyThinkingBudgetAdjustment(
+          applyTokenBudgetMultiplier(
+            capRunBudget(budgetForProfile("general-chat"), maxStepsCap),
+            tokenBudgetMultiplier,
+          ),
+          thinkingEnabled,
+        );
+        budgetState.maxSteps = Math.max(budgetState.maxSteps, promotedBudget.maxSteps);
+        budgetState.maxEffectiveTokens = promotedBudget.maxEffectiveTokens;
+        budgetState.maxCostUsd = promotedBudget.maxCostUsd;
+        budgetState.rawTokenSanityCap = promotedBudget.rawTokenSanityCap;
+        onProfilePromotion?.(promotion);
+        nextMessages = [
+          ...stepMessages,
+          {
+            role: "assistant" as const,
+            content: [
+              "Model-only profile promotion note:",
+              promotion.reason,
+              "Full Agent tools and budget are now available for the remainder of this run.",
+            ].join("\n"),
+          },
+        ];
+      }
+
+      const verifyReminder = toolPolicy.consumeVerifyReminder();
+      if (verifyReminder) {
+        nextMessages = [
+          ...nextMessages,
+          {
+            role: "assistant" as const,
+            content: verifyReminder,
+          },
+        ];
+      }
+
+      const verifyFixNote = toolPolicy.consumeVerifyFixNote();
+      if (verifyFixNote) {
+        nextMessages = [
+          ...nextMessages,
+          {
+            role: "assistant" as const,
+            content: verifyFixNote,
+          },
+        ];
+      }
+
+      const staleReadNote = toolPolicy.consumeStaleReadNote();
+      if (staleReadNote) {
+        nextMessages = [
+          ...nextMessages,
+          {
+            role: "assistant" as const,
+            content: staleReadNote,
+          },
+        ];
+      }
+
+      const duplicateReplay = messagesHaveDuplicateToolReplay(nextMessages);
+      const compacted = duplicateReplay
+        ? dedupeToolReplayMessages(nextMessages)
+        : nextMessages;
+      const forceFinalReason = toolPolicy.shouldForceFinal() ?? forceFinalAnswerReason(steps);
+      if (forceFinalReason && toolPolicy.shouldEmitLoopGuardEvent(forceFinalReason)) {
+        onLoopGuard?.({
+          reason: forceFinalReason,
+          blockedTools: currentActiveToolNames,
+          forceFinal: true,
+        });
+      }
+      const activeToolsDifferFromInitial =
+        currentActiveToolNames.length !== initialActiveToolNames.length ||
+        currentActiveToolNames.some(
+          (name, index) => name !== initialActiveToolNames[index],
+        );
+      if (
+        !forceFinalReason &&
+        !duplicateReplay &&
+        nextMessages === stepMessages &&
+        !promotion &&
+        !verifyReminder &&
+        !verifyFixNote &&
+        !staleReadNote &&
+        !activeToolsDifferFromInitial
+      ) {
+        return undefined;
+      }
       return {
-        ...(compacted === stepMessages ? {} : { messages: compacted }),
+        ...(duplicateReplay && compacted !== nextMessages
+          ? { messages: compacted }
+          : promotion || verifyReminder || verifyFixNote || staleReadNote
+            ? { messages: compacted }
+          : {}),
+        activeTools: currentActiveToolNames,
         ...(forceFinalReason
           ? {
-              activeTools: [],
-              system: [
-                system,
-                "",
-                "Loop guard:",
-                forceFinalReason,
-                "Write the final answer now without calling more tools.",
-              ].join("\n"),
+              messages: [
+                ...compacted,
+                {
+                  role: "assistant" as const,
+                  content: [
+                    "Loop guard:",
+                    forceFinalReason,
+                    "Write the final answer now without calling more tools.",
+                  ].join("\n"),
+                },
+              ],
             }
           : {}),
       };
@@ -612,6 +842,7 @@ export async function runAgent({
         ...usageAudit(usage, providerMetadata),
       });
       onStepFinish?.({ stepNumber });
+      onStepUsageUpdate?.([...stepUsage]);
     },
     experimental_onToolCallStart: ({ stepNumber, toolCall }) => {
       const key = toolCallSemanticKey(toolCall);
@@ -649,14 +880,65 @@ export async function runAgent({
         output: event.success ? event.output : undefined,
         error: event.success ? undefined : event.error,
       });
+      if (event.success) {
+        const output = event.output;
+        if (
+          isRecord(output) &&
+          output.code === "LOOP_GUARD_BLOCKED" &&
+          typeof output.message === "string" &&
+          toolPolicy.shouldEmitLoopGuardEvent(output.message)
+        ) {
+          onLoopGuard?.({
+            reason: output.message,
+            blockedTools: [event.toolCall.toolName],
+            forceFinal: false,
+            ...(typeof output.affectedPath === "string"
+              ? { affectedPath: output.affectedPath }
+              : {}),
+            ...(typeof output.phase === "string" ? { phase: output.phase } : {}),
+            ...(typeof output.failureCode === "string"
+              ? { failureCode: output.failureCode }
+              : {}),
+            ...(typeof output.recommendedNext === "string"
+              ? { recommendedNext: output.recommendedNext }
+              : {}),
+          });
+        }
+      }
     },
     onFinish: async ({ totalUsage, finishReason, providerMetadata }) => {
+      const tokenUsage = buildTokenUsageMetrics({
+        usage: totalUsage,
+        providerMetadata,
+        stepProviderMetadata,
+      });
+      const workspaceContextText = extractWorkspaceContextText(messages);
+      const promptCache = buildPromptCacheAudit({
+        modelId: selectedModel,
+        system,
+        tools,
+        nativeToolNames,
+        mcpToolNames: Object.keys(mcpTools.tools),
+        activeToolNames: currentActiveToolNames,
+        workspaceContextText,
+        messages,
+        tokenUsage,
+        previousAudit: previousPromptCacheAudit,
+      });
+      const segmentTokens = finiteNumber(totalUsage.totalTokens) ?? 0;
+      const segmentEffective = tokenUsage?.effectiveTokens ?? segmentTokens;
+      const tokenBudgetReached =
+        priorEffectiveTokens + segmentEffective >= budgetState.maxEffectiveTokens;
       const tokenAudit: TokenAudit = {
         ...tokenAuditBase,
+        profile: effectiveProfile,
+        ...(promotionReason ? { promotionReason, effectiveProfile } : {}),
+        tokenBudgetReached,
+        promptCache,
+        loopGuardCount: toolPolicy.loopGuardCount,
         usage: usageAudit(totalUsage, providerMetadata),
         steps: stepUsage,
       };
-      const segmentTokens = finiteNumber(totalUsage.totalTokens) ?? 0;
       const segmentCost =
         openRouterCostFromMetadata(undefined, stepProviderMetadata) ?? 0;
       onFinish?.({
@@ -665,19 +947,27 @@ export async function runAgent({
         providerMetadata,
         stepProviderMetadata,
         stepCount: observedStepCount,
-        maxSteps: budget.maxSteps,
+        maxSteps: budgetState.maxSteps,
         maxTotalTokens: budget.maxTotalTokens,
+        maxEffectiveTokens: budgetState.maxEffectiveTokens,
         baseMaxTotalTokens: baseBudget.maxTotalTokens,
-        maxCostUsd: budget.maxCostUsd,
+        baseMaxEffectiveTokens: baseBudget.maxEffectiveTokens,
+        maxCostUsd: budgetState.maxCostUsd,
         priorTokensUsed,
         priorCostUsd,
         maxStepLimitReached:
-          observedStepCount >= budget.maxSteps && finishReason === "tool-calls",
+          observedStepCount >= budgetState.maxSteps && finishReason === "tool-calls",
         tokenBudgetReached:
-          priorTokensUsed + segmentTokens >= budget.maxTotalTokens,
+          priorEffectiveTokens + segmentEffective >= budgetState.maxEffectiveTokens,
         costBudgetReached:
-          priorCostUsd + segmentCost >= budget.maxCostUsd &&
+          priorCostUsd + segmentCost >= budgetState.maxCostUsd &&
           segmentCost > 0,
+        loopGuardIncomplete:
+          toolPolicy.endedWithoutStateChange ||
+          toolPolicy.endedUnverified ||
+          toolPolicy.endedWithFailedVerification,
+        unverifiedEdit: toolPolicy.endedUnverified,
+        verificationFailed: toolPolicy.endedWithFailedVerification,
         tokenAudit,
       });
       await closeMcpTools();
@@ -703,7 +993,34 @@ export function profileForMode(mode: AgentRunMode): AgentRunProfile {
 }
 
 export function profileAllowsMcp(profile: AgentRunProfile): boolean {
-  return profile === "general-chat" || profile === "approval-continuation";
+  return profile === "general-chat";
+}
+
+function extractWorkspaceContextText(modelMessages: ModelMessage[]): string {
+  for (const message of modelMessages) {
+    if (message.role !== "assistant") continue;
+    const text =
+      typeof message.content === "string"
+        ? message.content
+        : Array.isArray(message.content)
+          ? message.content
+              .flatMap((part) =>
+                typeof part === "object" &&
+                part !== null &&
+                "type" in part &&
+                part.type === "text" &&
+                "text" in part &&
+                typeof part.text === "string"
+                  ? [part.text]
+                  : [],
+              )
+              .join("\n")
+          : "";
+    if (text.startsWith("Model-only context for this run:")) {
+      return text;
+    }
+  }
+  return "";
 }
 
 function emptyLoadedMcpTools(): LoadedMcpTools {
@@ -730,14 +1047,64 @@ function reasoningOptionsForProfile(profile: AgentRunProfile): {
 function openRouterProviderOptions(
   profile: AgentRunProfile,
   thinkingEnabled: boolean,
+  modelId: string,
 ): {
   reasoning?: ReturnType<typeof reasoningOptionsForProfile>;
   usage: { include: true };
+  provider?: {
+    order?: string[];
+    allow_fallbacks?: boolean;
+    require_parameters?: boolean;
+  };
 } {
+  const provider = openRouterProviderRouting(modelId);
   return {
     ...(thinkingEnabled ? { reasoning: reasoningOptionsForProfile(profile) } : {}),
     usage: { include: true },
+    ...(provider ? { provider } : {}),
   };
+}
+
+function openRouterProviderRouting(
+  modelId: string,
+): {
+  order?: string[];
+  allow_fallbacks?: boolean;
+  require_parameters?: boolean;
+} | undefined {
+  const envOrder = providerOrderFromEnv();
+  if (envOrder.length > 0) {
+    return {
+      order: envOrder,
+      allow_fallbacks: envBoolean("OPENROUTER_ALLOW_FALLBACKS") ?? true,
+      require_parameters: true,
+    };
+  }
+
+  if (modelId === "deepseek/deepseek-v4-pro") {
+    return {
+      order: ["alibaba"],
+      allow_fallbacks: true,
+      require_parameters: true,
+    };
+  }
+
+  return undefined;
+}
+
+function providerOrderFromEnv(): string[] {
+  return (process.env.OPENROUTER_PROVIDER_ORDER ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+}
+
+function envBoolean(name: string): boolean | undefined {
+  const value = process.env[name]?.trim().toLowerCase();
+  if (!value) return undefined;
+  if (["1", "true", "yes", "on"].includes(value)) return true;
+  if (["0", "false", "no", "off"].includes(value)) return false;
+  return undefined;
 }
 
 function usageAudit(
@@ -763,6 +1130,30 @@ function usageAudit(
     result.cachedInputTokens = cachedInputTokens;
   }
   return result;
+}
+
+function messagesHaveDuplicateToolReplay(messages: ModelMessage[]): boolean {
+  const semanticToolCalls = new Map<string, string>();
+  const seenToolResults = new Set<string>();
+
+  for (const message of messages) {
+    if (message.role === "assistant" && Array.isArray(message.content)) {
+      for (const part of message.content) {
+        if (!isToolCallPart(part)) continue;
+        const key = toolCallSemanticKey(part);
+        if (semanticToolCalls.has(key)) return true;
+        semanticToolCalls.set(key, part.toolCallId);
+      }
+    }
+    if (message.role === "tool" && Array.isArray(message.content)) {
+      for (const part of message.content) {
+        if (!isToolResultPart(part)) continue;
+        if (seenToolResults.has(part.toolCallId)) return true;
+        seenToolResults.add(part.toolCallId);
+      }
+    }
+  }
+  return false;
 }
 
 function dedupeToolReplayMessages(messages: ModelMessage[]): ModelMessage[] {

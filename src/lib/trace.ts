@@ -55,6 +55,8 @@ export type AntonRunData = {
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
+  rawTotalTokens?: number;
+  effectiveTokens?: number;
   costUsd?: number;
   costMetadata?: Record<string, unknown> | null;
   stepCount?: number;
@@ -63,6 +65,15 @@ export type AntonRunData = {
   maxStepLimitReached?: boolean;
   maxCostUsd?: number;
   costBudgetReached?: boolean;
+  profile?: string;
+  mode?: string;
+  tokenBudgetMultiplier?: number;
+  cacheHitRate?: number;
+  loopGuardCount?: number;
+  verificationSummary?: string;
+  promotionReason?: string;
+  effectiveProfile?: string;
+  hadSuccessfulEdit?: boolean;
 };
 
 export type AntonRunMetricSnapshot = {
@@ -127,17 +138,22 @@ export type AntonTodoSnapshot = {
   updatedAt: number;
 };
 
-export type TokenBudgetMultiplierOption = 2 | 3 | 5;
+export type TokenBudgetMultiplierOption = 2 | 3;
 
 export type AntonBudgetGateData = {
   runId: string;
   status: "open" | "resolved" | "exhausted";
   tokensUsed: number;
+  effectiveTokensUsed?: number;
+  cachedInputTokens?: number;
+  uncachedInputTokens?: number;
   baseMaxTotalTokens: number;
   currentMaxTotalTokens: number;
+  currentMaxEffectiveTokens?: number;
   currentMultiplier: number;
   options: readonly TokenBudgetMultiplierOption[];
   selectedMultiplier?: TokenBudgetMultiplierOption;
+  lastFailedToolReason?: string;
 };
 
 export type AntonDataParts = {
@@ -321,6 +337,8 @@ export function hasFailedToolOutput(message: AntonUIMessage): boolean {
 
 export function failedToolOutputMessage(output: unknown): string | undefined {
   if (!isRecord(output)) return undefined;
+  const message = output.message;
+  if (typeof message === "string" && message.trim().length > 0) return message.trim();
   const error = output.error;
   if (typeof error === "string" && error.trim().length > 0) return error.trim();
   const failedReason = output.failedReason;
@@ -332,6 +350,43 @@ export function failedToolOutputMessage(output: unknown): string | undefined {
     return `Command exited with code ${exitCode}.`;
   }
   return undefined;
+}
+
+const STATE_CHANGING_TOOL_NAMES = new Set([
+  "edit_file",
+  "edit_text",
+  "replace_text",
+  "replace_lines",
+  "multi_replace_text",
+  "write_file",
+]);
+
+export function messageHadSuccessfulStateChangingEdit(
+  message: AntonUIMessage,
+): boolean {
+  return getToolTraceEntries([message]).some((entry) => {
+    if (entry.state !== "output-available") return false;
+    if (!STATE_CHANGING_TOOL_NAMES.has(entry.name)) return false;
+    return isRecord(entry.output) && entry.output.ok === true;
+  });
+}
+
+export function messageIsLoopGuardIncomplete(message: AntonUIMessage): boolean {
+  return getRunDataList(message).some(
+    (run) => run.finishReason === "loop_guard_incomplete",
+  );
+}
+
+export function messageIsUnverifiedEdit(message: AntonUIMessage): boolean {
+  return getRunDataList(message).some(
+    (run) => run.finishReason === "unverified_edit",
+  );
+}
+
+export function messageIsVerificationFailed(message: AntonUIMessage): boolean {
+  return getRunDataList(message).some(
+    (run) => run.finishReason === "verification_failed",
+  );
 }
 
 function isFailedToolOutput(output: unknown): boolean {
@@ -1206,15 +1261,18 @@ export function cumulativeRunCostUsd(message: AntonUIMessage): number {
 export function priorSegmentUsage(
   message: AntonUIMessage,
   excludeRunId?: string,
-): { tokensUsed: number; costUsd: number } {
+): { tokensUsed: number; effectiveTokensUsed: number; costUsd: number } {
   return getRunDataList(message)
     .filter((run) => run.runId !== excludeRunId)
     .reduce(
       (totals, run) => ({
-        tokensUsed: totals.tokensUsed + (run.totalTokens ?? 0),
+        tokensUsed: totals.tokensUsed + (run.rawTotalTokens ?? run.totalTokens ?? 0),
+        effectiveTokensUsed:
+          totals.effectiveTokensUsed +
+          (run.effectiveTokens ?? run.totalTokens ?? 0),
         costUsd: totals.costUsd + (run.costUsd ?? 0),
       }),
-      { tokensUsed: 0, costUsd: 0 },
+      { tokensUsed: 0, effectiveTokensUsed: 0, costUsd: 0 },
     );
 }
 
