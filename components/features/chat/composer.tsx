@@ -39,6 +39,7 @@ import type { SessionTokenUsage } from "@/src/lib/token-usage";
 import { BranchSwitcher } from "@/components/features/projects/branch-switcher";
 import { ProjectPicker } from "@/components/features/projects/project-picker";
 import { ModelPicker } from "./model-picker";
+import { SessionMetricsHoverCard } from "./metrics-hover-card";
 
 interface ComposerProps {
   onSend: (text: string) => boolean | Promise<boolean>;
@@ -451,57 +452,6 @@ function TokenCounter({
   tokenUsage: SessionTokenUsage;
   pending: boolean;
 }) {
-  const tokens = tokenUsage.effectiveTokens;
-  if (tokens <= 0 && !pending) return null;
-  return (
-    <span
-      className="inline-flex h-5 items-center gap-1 rounded-md bg-secondary px-1.5 text-[11px] font-mono text-muted-foreground"
-      title={tokenUsageTitle(tokenUsage)}
-    >
-      <span className="size-1.5 rounded-full bg-muted-foreground/50" aria-hidden />
-      <span className="text-muted-foreground/70">session</span>
-      {formatTokens(tokens)}
-      <span className="text-muted-foreground/70">tok</span>
-    </span>
-  );
-}
-
-function tokenUsageTitle(usage: SessionTokenUsage): string {
-  const lines = [
-    "Effective session usage",
-    `Effective: ${formatInteger(usage.effectiveTokens)} tokens`,
-    `Raw: ${formatInteger(usage.rawTokens)} tokens`,
-    `Cached input: ${formatInteger(usage.cachedInputTokens)} tokens`,
-  ];
-  if (usage.cacheWriteTokens > 0) {
-    lines.push(`Cache write: ${formatInteger(usage.cacheWriteTokens)} tokens`);
-  }
-  if (usage.costUsd !== undefined) {
-    lines.push(`Cost: ${formatCost(usage.costUsd)}`);
-  }
-  if (!usage.hasEffectiveMetrics) {
-    lines.push("Effective value falls back to raw tokens for older runs.");
-  }
-  return lines.join("\n");
-}
-
-function formatTokens(n: number): string {
-  if (n < 1000) return String(n);
-  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
-  return `${(n / 1_000_000).toFixed(1)}M`;
-}
-
-function formatInteger(n: number): string {
-  return new Intl.NumberFormat().format(Math.round(n));
-}
-
-function formatCost(n: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    currencyDisplay: "symbol",
-    maximumFractionDigits: 4,
-  })
-    .format(n)
-    .replace("US$", "$");
+  if (tokenUsage.effectiveTokens <= 0 && !pending) return null;
+  return <SessionMetricsHoverCard tokenUsage={tokenUsage} />;
 }

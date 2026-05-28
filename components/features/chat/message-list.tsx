@@ -3,14 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChatAddToolApproveResponseFunction } from "ai";
 import {
-  ArrowDownToLine,
-  ArrowUpFromLine,
   Check,
-  Clock,
   Copy,
-  Cpu,
-  DollarSign,
-  Hash,
   Pencil,
   Play,
 } from "lucide-react";
@@ -36,20 +30,13 @@ import { Markdown } from "./markdown";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  formatMetricCost,
-  formatMetricDuration,
-  formatMetricNumber,
   messageMetrics,
   type ResponseMetrics,
 } from "./message-metrics";
+import { ResponseMetricsHoverCard } from "./metrics-hover-card";
 import { RunTraceAccordion } from "@/components/features/run-trace/run-trace";
 import { isFailedToolOutput } from "@/components/features/run-trace/tool-display";
 import { getTodoTraceDisplay } from "@/components/features/run-trace/trace-data";
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@/components/ui/hover-card";
 
 interface MessageListProps {
   messages: AntonUIMessage[];
@@ -441,7 +428,7 @@ function MessageActions({
   return (
     <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover/msg:opacity-100 focus-within:opacity-100">
       <CopyMessageButton text={text} />
-      {metrics && <StatsHoverCard metrics={metrics} />}
+      {metrics && <ResponseMetricsHoverCard metrics={metrics} />}
       {responseTime && (
         <span className="px-1 py-0.5 font-mono text-[10px] text-muted-foreground">
           {responseTime}
@@ -449,87 +436,6 @@ function MessageActions({
       )}
     </div>
   );
-}
-
-function StatsHoverCard({ metrics }: { metrics: ResponseMetrics }) {
-  const modelName = formatModelName(metrics.model);
-  return (
-    <HoverCard openDelay={150} closeDelay={80}>
-      <HoverCardTrigger asChild>
-        <button
-          type="button"
-          className="inline-flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus:bg-accent focus:text-foreground focus:outline-none"
-          aria-label="Response metrics"
-        >
-          <Cpu className="size-3" />
-        </button>
-      </HoverCardTrigger>
-      <HoverCardContent className="w-64 px-2.5 py-2">
-        <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
-          <Cpu className="size-3" />
-          {modelName}
-        </div>
-        <div className="space-y-1.5 text-[10px]">
-          <div className="flex items-center gap-1.5 text-muted-foreground">
-            <Hash className="size-3" />
-            <span>Total</span>
-            <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatMetricNumber(metrics.totalTokens)}</span>
-          </div>
-          {metrics.effectiveTokens !== undefined && (
-            <div className="flex items-center gap-1.5 text-muted-foreground">
-              <Hash className="size-3" />
-              <span>Effective</span>
-              <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatMetricNumber(metrics.effectiveTokens)}</span>
-            </div>
-          )}
-          <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-            <div className="flex items-center gap-1.5">
-              <ArrowDownToLine className="size-3 text-muted-foreground" />
-              <span className="text-muted-foreground">In</span>
-              <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatMetricNumber(metrics.inputTokens)}</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <ArrowUpFromLine className="size-3 text-muted-foreground" />
-              <span className="text-muted-foreground">Out</span>
-              <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatMetricNumber(metrics.outputTokens)}</span>
-            </div>
-          </div>
-          {(metrics.cachedInputTokens !== undefined ||
-            metrics.cacheWriteTokens !== undefined) && (
-            <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-              <div className="flex items-center gap-1.5">
-                <Hash className="size-3 text-muted-foreground" />
-                <span className="text-muted-foreground">Cached</span>
-                <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatMetricNumber(metrics.cachedInputTokens)}</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <Hash className="size-3 text-muted-foreground" />
-                <span className="text-muted-foreground">Write</span>
-                <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatMetricNumber(metrics.cacheWriteTokens)}</span>
-              </div>
-            </div>
-          )}
-          <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-            <div className="flex items-center gap-1.5">
-              <DollarSign className="size-3 text-muted-foreground" />
-              <span className="text-muted-foreground">Cost</span>
-              <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatMetricCost(metrics.costUsd)}</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <Clock className="size-3 text-muted-foreground" />
-              <span className="text-muted-foreground">Duration</span>
-              <span className="ml-auto whitespace-nowrap font-mono text-foreground">{formatMetricDuration(metrics.durationMs)}</span>
-            </div>
-          </div>
-        </div>
-      </HoverCardContent>
-    </HoverCard>
-  );
-}
-
-function formatModelName(value: string | undefined): string {
-  if (!value) return "—";
-  return value.split("/").at(-1) ?? value;
 }
 
 function CopyMessageButton({ text }: { text: string }) {

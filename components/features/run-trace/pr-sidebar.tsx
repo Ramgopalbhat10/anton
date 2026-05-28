@@ -88,12 +88,19 @@ export function PullRequestPanel({
               {pullRequest.title}
             </h2>
             <div className="mt-2 flex flex-wrap items-center gap-1.5 font-mono text-[10px] text-muted-foreground">
-              <span className="rounded bg-secondary px-1.5 py-0.5">
-                {pullRequest.baseBranch}
-              </span>
-              <span>&lt;-</span>
-              <span className="rounded bg-secondary px-1.5 py-0.5">
-                {pullRequest.headBranch}
+              <span className="inline-flex items-center gap-1">
+                <span className="rounded bg-secondary px-1.5 py-0.5">
+                  {pullRequest.baseBranch}
+                </span>
+                <span
+                  aria-hidden
+                  className="inline-flex w-3.5 ml-1 shrink-0 items-center justify-center"
+                >
+                  &lt;-
+                </span>
+                <span className="rounded bg-secondary px-1.5 py-0.5">
+                  {pullRequest.headBranch}
+                </span>
               </span>
               <span className="text-muted-foreground/50">|</span>
               <InlineStat value={pullRequest.changedFiles} label="files" />
@@ -365,17 +372,19 @@ export function LocalChangesView({
                 aria-expanded={expanded}
                 aria-controls={diffPanelId(file.filename)}
                 className={cn(
-                  "grid w-full grid-cols-[0.75rem_1rem_minmax(0,1fr)_auto] items-center gap-2 px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent/35 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                  "grid w-full grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-1 px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent/35 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                   expanded && "bg-accent/35",
                 )}
               >
-                {expanded ? (
-                  <ChevronDown className="size-3 text-muted-foreground" />
-                ) : (
-                  <ChevronRight className="size-3 text-muted-foreground" />
-                )}
+                <span className="inline-flex size-4 shrink-0 items-center justify-center rounded transition-colors hover:bg-accent/50">
+                  {expanded ? (
+                    <ChevronDown className="size-3 text-muted-foreground" />
+                  ) : (
+                    <ChevronRight className="size-3 text-muted-foreground" />
+                  )}
+                </span>
                 <FileStatusBadge status={file.status} />
-                <span className="min-w-0">
+                <span className="min-w-0 pl-1.5">
                   <span className="block truncate font-medium">{file.filename}</span>
                   {file.previousFilename ? (
                     <span className="block truncate font-mono text-[10px] text-muted-foreground">
@@ -403,7 +412,7 @@ function FileStatusBadge({ status }: { status: string }) {
   return (
     <span
       className={cn(
-        "inline-flex size-4 items-center justify-center rounded-sm font-mono text-[10px] font-semibold ring-1",
+        "inline-flex size-3.5 items-center justify-center rounded-sm font-mono text-[9px] font-semibold leading-none ring-1",
         meta.className,
       )}
       title={meta.label}

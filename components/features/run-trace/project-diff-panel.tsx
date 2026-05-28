@@ -124,12 +124,6 @@ export function ProjectDiffPanel({
                 </span>
                 <span>·</span>
                 <span>{gitStatus.dirtyCount} dirty</span>
-                {gitStatus.upstream ? (
-                  <>
-                    <span>·</span>
-                    <span className="font-mono">{gitStatus.upstream}</span>
-                  </>
-                ) : null}
                 {gitStatus.ahead !== null && gitStatus.behind !== null ? (
                   <>
                     <span>·</span>
