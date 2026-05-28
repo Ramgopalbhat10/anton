@@ -33,7 +33,6 @@ export function ProjectDiffPanel({
   const [localDiff, setLocalDiff] = useState<ProjectLocalDiffSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
 
   const projectId = project?.status === "ready" ? project.id : null;
 
@@ -112,8 +111,6 @@ export function ProjectDiffPanel({
   }
 
   const files = localDiff?.files ?? [];
-  const selected =
-    files.find((file) => file.filename === selectedFile) ?? files[0] ?? null;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -173,11 +170,7 @@ export function ProjectDiffPanel({
         </div>
       ) : files.length > 0 ? (
         <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-          <LocalChangesView
-            files={files}
-            selected={selected}
-            onSelect={setSelectedFile}
-          />
+          <LocalChangesView files={files} />
         </div>
       ) : (
         <div className="px-3 py-4">
