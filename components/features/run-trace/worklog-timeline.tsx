@@ -19,11 +19,12 @@ import type { BashOutput } from "@/components/features/run-trace/terminal-utils"
 import { TerminalOutput } from "@/components/features/run-trace/terminal-output";
 import { LiveTerminalOutput } from "@/components/features/run-trace/live-terminal";
 import { ApprovalDetails } from "@/components/features/run-trace/approval-details";
-import { DiffView } from "@/components/features/run-trace/diff-view";
+import { DiffView, PatchDiffView } from "@/components/features/run-trace/diff-view";
 import { TodoCard } from "@/components/features/run-trace/todo-card";
 import {
   effectiveToolState,
   isOkEditFileOutput,
+  isOkEditTextOutput,
   isOkWriteFileOutput,
   pickString,
   riskCategoryBadge,
@@ -278,11 +279,18 @@ function ToolEntryExpandPanel({
     isOkWriteFileOutput(entry.output) &&
     pickString(entry.input, "content") !== undefined;
   const editOutput = isOkEditFileOutput(entry.output) ? entry.output : undefined;
+  const editTextOutput = isOkEditTextOutput(entry.output)
+    ? entry.output
+    : undefined;
   const showEditDiff =
     entry.name === "edit_file" &&
     entry.state === "output-available" &&
     typeof editOutput?.previousContent === "string" &&
     typeof editOutput.nextContent === "string";
+  const showEditTextDiff =
+    entry.name === "edit_text" &&
+    entry.state === "output-available" &&
+    typeof editTextOutput?.patchPreview === "string";
 
   return (
     <TraceExpandPanel errored={errored} denied={denied}>
@@ -396,6 +404,11 @@ function ToolEntryExpandPanel({
             previous={editOutput?.previousContent ?? ""}
             next={editOutput?.nextContent ?? ""}
             filename={pickString(entry.input, "path")}
+          />
+        ) : showEditTextDiff ? (
+          <PatchDiffView
+            patch={editTextOutput?.patchPreview ?? null}
+            filename={editTextOutput?.path ?? pickString(entry.input, "path") ?? "diff.txt"}
           />
         ) : entry.name === "bash" &&
           runStatus === "running" &&

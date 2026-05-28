@@ -43,6 +43,18 @@ export type EditFileOkOutput = {
   nextHash?: string;
 };
 
+export type EditTextOkOutput = {
+  ok: true;
+  path?: string;
+  editCount?: number;
+  appliedReplacementCount?: number;
+  bytesWritten?: number;
+  previousHash?: string;
+  nextHash?: string;
+  diff?: string;
+  patchPreview?: string;
+};
+
 export function isOkEditFileOutput(
   value: unknown,
 ): value is EditFileOkOutput {
@@ -51,6 +63,19 @@ export function isOkEditFileOutput(
     value !== null &&
     "ok" in value &&
     (value as { ok: unknown }).ok === true
+  );
+}
+
+export function isOkEditTextOutput(
+  value: unknown,
+): value is EditTextOkOutput {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "ok" in value &&
+    (value as { ok: unknown }).ok === true &&
+    "patchPreview" in value &&
+    typeof (value as { patchPreview: unknown }).patchPreview === "string"
   );
 }
 

@@ -835,7 +835,8 @@ function latestPendingProfileHandoffRun(
       run.status === "completed" &&
       run.finishReason === "profile_handoff_required" &&
       run.profileHandoffRequired === true &&
-      run.handoffFromProfile === "localized-edit" &&
+      (run.handoffFromProfile === "localized-edit" ||
+        run.handoffFromProfile === "single-file-edit") &&
       run.handoffToProfile === "general-chat"
     );
   });

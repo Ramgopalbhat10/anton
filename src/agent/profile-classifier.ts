@@ -185,6 +185,7 @@ function isAgentRunProfile(value: unknown): value is AgentRunProfile {
     value === "command-run" ||
     value === "general-chat" ||
     value === "localized-edit" ||
+    value === "single-file-edit" ||
     value === "approval-continuation"
   );
 }

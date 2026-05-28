@@ -3,8 +3,11 @@ import {
   listProjects,
 } from "@/src/db/queries";
 import {
+  getAuthenticatedGitHubUser,
+  getGitHubAuthMode,
   isGitHubConfigured,
   listInstallationRepositories,
+  listTokenRepositories,
 } from "@/src/github/app";
 
 export const runtime = "nodejs";
@@ -12,17 +15,50 @@ export const runtime = "nodejs";
 export async function GET() {
   if (!isGitHubConfigured()) {
     return Response.json(
-      { error: "GitHub App environment variables are not configured." },
+      { error: "GitHub auth is not configured. Set GITHUB_TOKEN/GITHUB_PAT or configure the GitHub App." },
       { status: 503 },
     );
   }
 
   try {
-    const installations = listGithubInstallations();
     const projects = listProjects();
     const projectByRepoId = new Map(
       projects.map((project) => [project.githubRepoId, project]),
     );
+    if (getGitHubAuthMode() === "pat") {
+      const [account, repos] = await Promise.all([
+        getAuthenticatedGitHubUser(),
+        listTokenRepositories(),
+      ]);
+      return Response.json({
+        installations: [
+          {
+            installationId: null,
+            accountLogin: account.login,
+            accountType: "Personal access token",
+          },
+        ],
+        repositories: repos.map((repo) => {
+          const project = projectByRepoId.get(repo.id);
+          return {
+            id: repo.id,
+            installationId: null,
+            accountLogin: account.login,
+            accountType: "Personal access token",
+            name: repo.name,
+            fullName: repo.full_name,
+            owner: repo.owner.login,
+            private: repo.private,
+            defaultBranch: repo.default_branch,
+            htmlUrl: repo.html_url,
+            clonedProjectId: project?.id ?? null,
+            cloneStatus: project?.status ?? null,
+          };
+        }),
+      });
+    }
+
+    const installations = listGithubInstallations();
     const repositories = [];
     for (const installation of installations) {
       const repos = await listInstallationRepositories(

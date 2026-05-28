@@ -103,6 +103,15 @@ const RUN_BUDGETS = {
     priorRunContextChars: 1_500,
     workspaceContextChars: 1_500,
   },
+  "single-file-edit": {
+    maxSteps: 5,
+    maxOutputTokens: 2_048,
+    maxInputTokens: 20_000,
+    maxTotalTokens: 32_000,
+    maxCostUsd: 0.04,
+    priorRunContextChars: 0,
+    workspaceContextChars: 0,
+  },
   "approval-continuation": {
     maxSteps: 32,
     maxOutputTokens: 8_192,
@@ -201,7 +210,7 @@ export function availableTokenBudgetMultipliers(
   profile?: AgentRunProfile,
 ): TokenBudgetMultiplierOption[] {
   const allowed =
-    profile === "localized-edit"
+    profile === "localized-edit" || profile === "single-file-edit"
       ? ([2] as const)
       : profile === "general-chat" || profile === "approval-continuation"
         ? ([2, 3] as const)

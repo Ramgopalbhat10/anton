@@ -10,7 +10,7 @@ export type WorkspaceSettingsSummary = {
 
 export type GitHubRepositorySummary = {
   id: number;
-  installationId: number;
+  installationId: number | null;
   accountLogin: string;
   accountType: string;
   name?: string;
@@ -24,7 +24,7 @@ export type GitHubRepositorySummary = {
 };
 
 export type GitHubInstallationSummary = {
-  installationId: number;
+  installationId: number | null;
   accountLogin: string;
   accountType: string;
 };

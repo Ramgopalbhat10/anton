@@ -14,11 +14,7 @@ export async function POST(_req: Request, { params }: Ctx) {
   if (!project) {
     return Response.json({ error: "project not found" }, { status: 404 });
   }
-  if (
-    project.provider !== "github" ||
-    project.githubRepoId === null ||
-    project.githubInstallationId === null
-  ) {
+  if (project.provider !== "github" || project.githubRepoId === null) {
     if (project.cloneUrl) {
       const linked = await attemptLinkLocalProject(project.id);
       if (linked) {
@@ -27,7 +23,7 @@ export async function POST(_req: Request, { params }: Ctx) {
       }
     }
     return Response.json(
-      { error: "project is not backed by GitHub and could not be linked to any active GitHub installation" },
+      { error: "project is not backed by GitHub and could not be linked with configured GitHub auth" },
       { status: 400 },
     );
   }

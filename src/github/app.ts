@@ -28,6 +28,11 @@ const installationTokenSchema = z.object({
   expires_at: z.string(),
 });
 
+const userSchema = z.object({
+  login: z.string(),
+  type: z.string().default("User"),
+});
+
 const repositorySchema = z.object({
   id: z.number().int(),
   name: z.string(),
@@ -163,6 +168,7 @@ const checkRunsResponseSchema = z.object({
 });
 
 export type GitHubRepository = z.infer<typeof repositorySchema>;
+export type GitHubAuthMode = "pat" | "app";
 type GitHubPullRequest = z.infer<typeof pullRequestSchema>;
 type GitHubIssue = z.infer<typeof issueSchema>;
 type GitHubPullRequestFile = z.infer<typeof pullRequestFileSchema>;
@@ -173,7 +179,17 @@ type GitHubCombinedStatus = z.infer<typeof combinedStatusSchema>;
 type GitHubCheckRun = z.infer<typeof checkRunSchema>;
 
 export function isGitHubConfigured(): boolean {
-  return readGitHubAppConfig() !== null;
+  return getGitHubAuthMode() !== null;
+}
+
+export function getGitHubAuthMode(): GitHubAuthMode | null {
+  if (readGitHubPatToken() !== null) return "pat";
+  if (readGitHubAppConfig() !== null) return "app";
+  return null;
+}
+
+export function isGitHubPatConfigured(): boolean {
+  return readGitHubPatToken() !== null;
 }
 
 export function githubInstallUrl(): string {
@@ -199,21 +215,43 @@ export async function listInstallationRepositories(
   return repositoriesResponseSchema.parse(json).repositories;
 }
 
+export async function listTokenRepositories(): Promise<GitHubRepository[]> {
+  const token = requireGitHubPatToken();
+  const searchParams = new URLSearchParams({
+    affiliation: "owner,collaborator,organization_member",
+    sort: "updated",
+    per_page: "100",
+  });
+  const json = await githubFetch(`/user/repos?${searchParams}`, { token });
+  return z.array(repositorySchema).parse(json);
+}
+
+export async function getAuthenticatedGitHubUser(): Promise<{
+  login: string;
+  type: string;
+}> {
+  const token = requireGitHubPatToken();
+  return userSchema.parse(await githubFetch("/user", { token }));
+}
+
 export async function findInstallationRepository(input: {
-  installationId: number;
+  installationId: number | null;
   repositoryId: number;
 }): Promise<GitHubRepository | undefined> {
-  const repos = await listInstallationRepositories(input.installationId);
+  const repos =
+    readGitHubPatToken() !== null
+      ? await listTokenRepositories()
+      : await listInstallationRepositories(requireInstallationId(input.installationId));
   return repos.find((repo) => repo.id === input.repositoryId);
 }
 
 export async function findPullRequestForBranch(input: {
-  installationId: number;
+  installationId: number | null;
   owner: string;
   repo: string;
   branch: string;
 }): Promise<ProjectPullRequestSummary | null> {
-  const token = await createInstallationToken(input.installationId);
+  const token = await createGitHubAccessToken(input.installationId);
   const searchParams = new URLSearchParams({
     state: "all",
     head: `${input.owner}:${input.branch}`,
@@ -239,12 +277,12 @@ export async function findPullRequestForBranch(input: {
 }
 
 export async function getPullRequestByNumber(input: {
-  installationId: number;
+  installationId: number | null;
   owner: string;
   repo: string;
   number: number;
 }): Promise<ProjectPullRequestSummary> {
-  const token = await createInstallationToken(input.installationId);
+  const token = await createGitHubAccessToken(input.installationId);
   return fetchPullRequestSummary({
     token: token.token,
     owner: input.owner,
@@ -254,11 +292,11 @@ export async function getPullRequestByNumber(input: {
 }
 
 export async function listPullRequestsForRepository(input: {
-  installationId: number;
+  installationId: number | null;
   owner: string;
   repo: string;
 }): Promise<ProjectPullRequestListItem[]> {
-  const token = await createInstallationToken(input.installationId);
+  const token = await createGitHubAccessToken(input.installationId);
   const searchParams = new URLSearchParams({
     state: "all",
     sort: "updated",
@@ -329,11 +367,11 @@ async function fetchPullRequestSummary(input: {
 }
 
 export async function listOpenIssuesForRepository(input: {
-  installationId: number;
+  installationId: number | null;
   owner: string;
   repo: string;
 }): Promise<ProjectIssueSummary[]> {
-  const token = await createInstallationToken(input.installationId);
+  const token = await createGitHubAccessToken(input.installationId);
   const searchParams = new URLSearchParams({
     state: "open",
     sort: "updated",
@@ -352,7 +390,7 @@ export async function listOpenIssuesForRepository(input: {
 }
 
 export async function createPullRequestForBranch(input: {
-  installationId: number;
+  installationId: number | null;
   owner: string;
   repo: string;
   branch: string;
@@ -360,7 +398,7 @@ export async function createPullRequestForBranch(input: {
   title: string;
   body: string | null;
 }): Promise<ProjectPullRequestSummary> {
-  const token = await createInstallationToken(input.installationId);
+  const token = await createGitHubAccessToken(input.installationId);
   const created = pullRequestSchema.parse(
     await githubFetch(`/repos/${repoPath(input.owner, input.repo)}/pulls`, {
       method: "POST",
@@ -424,6 +462,27 @@ export async function createPullRequestForBranch(input: {
 
 const tokenCache = new Map<number, { token: string; expiresAt: Date }>();
 
+export async function createGitHubAccessToken(
+  installationId: number | null | undefined,
+): Promise<{
+  token: string;
+  expiresAt: Date | null;
+  source: GitHubAuthMode;
+}> {
+  const pat = readGitHubPatToken();
+  if (pat !== null) {
+    return { token: pat, expiresAt: null, source: "pat" };
+  }
+  const installationToken = await createInstallationToken(
+    requireInstallationId(installationId),
+  );
+  return {
+    token: installationToken.token,
+    expiresAt: installationToken.expiresAt,
+    source: "app",
+  };
+}
+
 export async function createInstallationToken(installationId: number): Promise<{
   token: string;
   expiresAt: Date;
@@ -451,12 +510,12 @@ export async function createInstallationToken(installationId: number): Promise<{
 }
 
 export async function getWorkflowJobLogs(input: {
-  installationId: number;
+  installationId: number | null;
   owner: string;
   repo: string;
   jobId: number;
 }): Promise<string> {
-  const token = await createInstallationToken(input.installationId);
+  const token = await createGitHubAccessToken(input.installationId);
   const url = `${GITHUB_API}/repos/${repoPath(input.owner, input.repo)}/actions/jobs/${input.jobId}/logs`;
 
   const res = await fetch(url, {
@@ -489,12 +548,12 @@ export async function getWorkflowJobLogs(input: {
 }
 
 export async function rerunWorkflowJob(input: {
-  installationId: number;
+  installationId: number | null;
   owner: string;
   repo: string;
   jobId: number;
 }): Promise<void> {
-  const token = await createInstallationToken(input.installationId);
+  const token = await createGitHubAccessToken(input.installationId);
   await githubFetch(
     `/repos/${repoPath(input.owner, input.repo)}/actions/jobs/${input.jobId}/rerun`,
     {
@@ -850,6 +909,32 @@ function requireGitHubAppConfig(): GitHubAppConfig {
     throw new GitHubAppError("GitHub App environment variables are not configured.");
   }
   return config;
+}
+
+function requireGitHubPatToken(): string {
+  const token = readGitHubPatToken();
+  if (token === null) {
+    throw new GitHubAppError(
+      "GitHub personal access token is not configured. Set GITHUB_TOKEN or GITHUB_PAT.",
+    );
+  }
+  return token;
+}
+
+function readGitHubPatToken(): string | null {
+  const token = process.env.GITHUB_TOKEN?.trim() || process.env.GITHUB_PAT?.trim();
+  return token && token.length > 0 ? token : null;
+}
+
+function requireInstallationId(
+  installationId: number | null | undefined,
+): number {
+  if (installationId === null || installationId === undefined) {
+    throw new GitHubAppError(
+      "GitHub auth requires GITHUB_TOKEN/GITHUB_PAT or a GitHub App installation.",
+    );
+  }
+  return installationId;
 }
 
 function readGitHubAppConfig(): GitHubAppConfig | null {

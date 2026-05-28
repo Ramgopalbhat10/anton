@@ -23,10 +23,17 @@ import {
 } from "@/src/agent/loop";
 import {
   classifyRunProfile,
+  isBroadScopeRequest,
+  isImplementationRequest,
   executionModelFromCostMetadata,
   executionProfileFromCostMetadata,
   runIdFromAssistantMessage,
 } from "@/src/agent/profile-classifier";
+import {
+  resolveSingleFileTarget,
+  singleFileTargetContext,
+  type SingleFileTargetResolution,
+} from "@/src/agent/single-file-target";
 import {
   budgetMessagesForModel,
   type ContextBudgetReport,
@@ -184,7 +191,7 @@ export async function POST(req: Request) {
     isProfileHandoffContinuation && profileHandoffContinuation
       ? getRunById(profileHandoffContinuation.runId)
       : undefined;
-  const profile = resolveRunProfile({
+  let profile = resolveRunProfile({
     mode,
     messages: incomingHistory,
     approvalContinuation,
@@ -405,6 +412,36 @@ export async function POST(req: Request) {
     parsed.data.thinkingEnabled ??
     false;
 
+  const isSegmentContinuation =
+    isBudgetContinuation || isProfileHandoffContinuation;
+  const userText = latestUserText(uiMessages);
+  const inheritedSingleFileTargetResolution =
+    profile === "single-file-edit"
+      ? singleFileTargetResolutionFromCostMetadata(
+          budgetContinuationRun?.costMetadata ??
+            approvalContinuationRun?.costMetadata,
+        )
+      : undefined;
+  const singleFileTargetResolution =
+    inheritedSingleFileTargetResolution ??
+    (shouldAttemptSingleFileEditRouting({
+        mode,
+        profile,
+        latestUserText: userText,
+        isSegmentContinuation,
+        approvalContinuation,
+      })
+        ? resolveSingleFileTarget(userText, project?.localPath)
+        : undefined);
+  if (
+    singleFileTargetResolution?.targetResolution === "exact" ||
+    singleFileTargetResolution?.targetResolution === "unique_search"
+  ) {
+    profile = "single-file-edit";
+  } else if (singleFileTargetResolution) {
+    profile = "general-chat";
+  }
+
   const baseBudget = applyThinkingBudgetAdjustment(
     applyTokenBudgetMultiplier(
       capRunBudget(budgetForProfile(profile), workspaceSettings.defaultMaxSteps),
@@ -436,11 +473,8 @@ export async function POST(req: Request) {
     isProfileHandoffContinuation && profileHandoffRun
       ? profileHandoffTransitionLabel(profileHandoffRun.costMetadata)
       : undefined;
-  const isSegmentContinuation =
-    isBudgetContinuation || isProfileHandoffContinuation;
-  const userText = latestUserText(uiMessages);
   const sessionContextDigest =
-    mode === "chat" || isSegmentContinuation
+    mode === "chat" || isSegmentContinuation || profile === "single-file-edit"
       ? undefined
       : buildSessionContextDigest({
           sessionId,
@@ -448,7 +482,7 @@ export async function POST(req: Request) {
           budgetChars: budget.priorRunContextChars,
         });
   const workspaceContextDigest =
-    mode === "chat" || isSegmentContinuation
+    mode === "chat" || isSegmentContinuation || profile === "single-file-edit"
       ? undefined
       : buildWorkspaceContextDigest({
           workspaceRoot: project?.localPath,
@@ -459,6 +493,10 @@ export async function POST(req: Request) {
     isBudgetContinuation
     || isProfileHandoffContinuation
       ? (continuationNote ?? "")
+      : profile === "single-file-edit" &&
+          singleFileTargetResolution &&
+          "targetPath" in singleFileTargetResolution
+        ? singleFileTargetContext(singleFileTargetResolution)
       : (modelOnlyContextMessageText({
           sessionContextDigest,
           workspaceContextDigest,
@@ -513,6 +551,7 @@ export async function POST(req: Request) {
               profileHandoffContinuationOfRunId: profileHandoffRun.id,
             }
           : {}),
+        ...(singleFileTargetMetadata(singleFileTargetResolution) ?? {}),
       },
     },
   });
@@ -525,6 +564,13 @@ export async function POST(req: Request) {
   const modelMessages = isBudgetContinuation
     || isProfileHandoffContinuation
     ? appendModelOnlyContextMessage(convertedMessages, continuationNote ?? "")
+    : profile === "single-file-edit" &&
+        singleFileTargetResolution &&
+        "targetPath" in singleFileTargetResolution
+      ? addSingleFileTargetContextMessage(
+          convertedMessages,
+          singleFileTargetContext(singleFileTargetResolution),
+        )
     : addModelOnlyContextMessage(convertedMessages, {
         sessionContextDigest,
         workspaceContextDigest,
@@ -583,6 +629,7 @@ export async function POST(req: Request) {
       if (modelSelectionNote) {
         trace.noteModelSelection(modelSelectionNote);
       }
+      trace.noteTargetResolution(singleFileTargetResolution);
 
       try {
         const result = await runAgent({
@@ -602,6 +649,14 @@ export async function POST(req: Request) {
           priorToolHistory,
           previousPromptCacheAudit,
           promptCacheIntentionalSegmentTransition,
+          singleFileTargetPath:
+            singleFileTargetResolution && "targetPath" in singleFileTargetResolution
+              ? singleFileTargetResolution.targetPath
+              : undefined,
+          singleFileTargetResolution:
+            singleFileTargetResolution?.targetResolution,
+          singleFileTargetResolutionReason:
+            singleFileTargetResolution?.targetResolutionReason,
           permissionMode,
           enabledMcpServerIds: parsed.data.enabledMcpServerIds,
           onStepStart: ({ stepNumber }) => trace.startStep(stepNumber),
@@ -706,7 +761,7 @@ export async function POST(req: Request) {
         contextTerminalError = err;
         trace.fail(err);
         contextCollector.persist({ status: "error", error: err });
-        throw err;
+        writeStreamErrorText(writer, runId, err);
       }
     },
     onFinish: ({ messages }) => {
@@ -764,6 +819,18 @@ function finalAssistantText(messages: AntonUIMessage[]): string | undefined {
   const display = getAssistantTextDisplay(assistant);
   const finalText = display.finalText || display.progressText;
   return finalText.trim() || undefined;
+}
+
+function writeStreamErrorText(
+  writer: UIMessageStreamWriter<AntonUIMessage>,
+  runId: string,
+  error: unknown,
+): void {
+  const id = `${runId}:stream-error-text`;
+  const message = `Run failed: ${redactText(errorMessage(error))}`;
+  writer.write({ type: "text-start", id });
+  writer.write({ type: "text-delta", id, delta: message });
+  writer.write({ type: "text-end", id });
 }
 
 function prepareMessagesForModel(
@@ -954,6 +1021,27 @@ function addModelOnlyContextMessage(
   },
 ): ModelMessage[] {
   const text = modelOnlyContextMessageText(context);
+  if (!text) return messages;
+  const contextMessage: ModelMessage = {
+    role: "assistant",
+    content: text,
+  };
+  const latestUserIndex = messages.findLastIndex(
+    (message) => message.role === "user",
+  );
+  if (latestUserIndex === -1) return [...messages, contextMessage];
+  return [
+    ...messages.slice(0, latestUserIndex),
+    contextMessage,
+    ...messages.slice(latestUserIndex),
+  ];
+}
+
+function addSingleFileTargetContextMessage(
+  messages: ModelMessage[],
+  contextText: string,
+): ModelMessage[] {
+  const text = contextText.trim();
   if (!text) return messages;
   const contextMessage: ModelMessage = {
     role: "assistant",
@@ -1388,6 +1476,9 @@ function createTraceWriter({
         handoffFromProfile: limits.profileHandoff?.fromProfile,
         handoffToProfile: limits.profileHandoff?.toProfile,
         handoffReason: limits.profileHandoff?.reason,
+        targetPath: limits.tokenAudit?.targetPath,
+        targetResolution: limits.tokenAudit?.targetResolution,
+        targetResolutionReason: limits.tokenAudit?.targetResolutionReason,
       },
     );
     const storedFinishReason = limits.profileHandoffRequired
@@ -1611,13 +1702,33 @@ function createTraceWriter({
         summary,
       });
     },
+    noteTargetResolution(resolution: SingleFileTargetResolution | undefined) {
+      if (!resolution) return;
+      const target =
+        "targetPath" in resolution ? resolution.targetPath : undefined;
+      startEvent({
+        id: `${runId}:target-resolution:${sequence + 1}`,
+        kind: "progress",
+        status: "completed",
+        label: "Single-file target resolution",
+        summary: target
+          ? `${resolution.targetResolution}: ${target}`
+          : resolution.targetResolutionReason,
+        details: {
+          targetResolution: {
+            ...resolution,
+            routedProfile: profile,
+          },
+        },
+      });
+    },
     noteProfilePromotion(event: ProfilePromotionEvent) {
       promotionReason = event.reason;
       startEvent({
         id: `${runId}:profile-promotion:${sequence + 1}`,
         kind: "progress",
         status: "completed",
-        label: "Fast-edit needs full Agent segment",
+        label: "Profile needs full Agent segment",
         summary: event.reason,
         details: {
           profileHandoff: {
@@ -2012,9 +2123,12 @@ function runCostMetadata(
     effectiveProfile?: AgentRunProfile;
     hadSuccessfulEdit?: boolean;
     profileHandoffRequired?: boolean;
-    handoffFromProfile?: "localized-edit";
+    handoffFromProfile?: "localized-edit" | "single-file-edit";
     handoffToProfile?: "general-chat";
     handoffReason?: string;
+    targetPath?: string;
+    targetResolution?: "exact" | "unique_search" | "unresolved" | "ambiguous";
+    targetResolutionReason?: string;
   },
 ): Record<string, unknown> | null {
   const providerCostMetadata = openRouterCostMetadata(
@@ -2073,6 +2187,13 @@ function runCostMetadata(
         ...(execution.handoffReason
           ? { handoffReason: execution.handoffReason }
           : {}),
+        ...(execution.targetPath ? { targetPath: execution.targetPath } : {}),
+        ...(execution.targetResolution
+          ? { targetResolution: execution.targetResolution }
+          : {}),
+        ...(execution.targetResolutionReason
+          ? { targetResolutionReason: execution.targetResolutionReason }
+          : {}),
       },
       costBudget: costBudgetMetadata,
     }) as Record<string, unknown>;
@@ -2122,6 +2243,13 @@ function runCostMetadata(
       ...(execution.handoffReason
         ? { handoffReason: execution.handoffReason }
         : {}),
+      ...(execution.targetPath ? { targetPath: execution.targetPath } : {}),
+      ...(execution.targetResolution
+        ? { targetResolution: execution.targetResolution }
+        : {}),
+      ...(execution.targetResolutionReason
+        ? { targetResolutionReason: execution.targetResolutionReason }
+        : {}),
     },
     costBudget: costBudgetMetadata,
   }) as Record<string, unknown>;
@@ -2154,9 +2282,75 @@ function runEligibleForProfileHandoffContinuation(run: {
   const handoff = profileHandoffFromCostMetadata(run.costMetadata);
   return (
     handoff.profileHandoffRequired === true &&
-    handoff.handoffFromProfile === "localized-edit" &&
+    (handoff.handoffFromProfile === "localized-edit" ||
+      handoff.handoffFromProfile === "single-file-edit") &&
     handoff.handoffToProfile === "general-chat"
   );
+}
+
+function shouldAttemptSingleFileEditRouting({
+  mode,
+  profile,
+  latestUserText,
+  isSegmentContinuation,
+  approvalContinuation,
+}: {
+  mode: ChatMode;
+  profile: AgentRunProfile;
+  latestUserText: string;
+  isSegmentContinuation: boolean;
+  approvalContinuation: boolean;
+}): boolean {
+  if (mode !== "agent") return false;
+  if (isSegmentContinuation || approvalContinuation) return false;
+  if (
+    profile === "accepted-plan-simple" ||
+    profile === "accepted-plan-general" ||
+    profile === "command-run"
+  ) {
+    return false;
+  }
+  const normalized = latestUserText.trim().toLowerCase();
+  return isImplementationRequest(normalized) && !isBroadScopeRequest(normalized);
+}
+
+function singleFileTargetMetadata(
+  resolution: SingleFileTargetResolution | undefined,
+): Record<string, unknown> | undefined {
+  if (!resolution) return undefined;
+  return {
+    ...("targetPath" in resolution ? { targetPath: resolution.targetPath } : {}),
+    targetResolution: resolution.targetResolution,
+    targetResolutionReason: resolution.targetResolutionReason,
+  };
+}
+
+function singleFileTargetResolutionFromCostMetadata(
+  costMetadata: unknown,
+): SingleFileTargetResolution | undefined {
+  if (!isRecord(costMetadata)) return undefined;
+  const execution = isRecord(costMetadata.execution)
+    ? costMetadata.execution
+    : undefined;
+  if (!execution) return undefined;
+  const targetPath = execution.targetPath;
+  const targetResolution = execution.targetResolution;
+  const targetResolutionReason = execution.targetResolutionReason;
+  if (
+    typeof targetPath !== "string" ||
+    (targetResolution !== "exact" && targetResolution !== "unique_search")
+  ) {
+    return undefined;
+  }
+  return {
+    targetPath,
+    targetResolution,
+    targetResolutionReason:
+      typeof targetResolutionReason === "string"
+        ? targetResolutionReason
+        : "inherited single-file target from previous segment",
+    candidates: [targetPath],
+  };
 }
 
 function resolveRunProfile({
@@ -2198,7 +2392,7 @@ function resolveRunProfile({
 
 function profileHandoffFromCostMetadata(costMetadata: unknown): {
   profileHandoffRequired?: boolean;
-  handoffFromProfile?: "localized-edit";
+  handoffFromProfile?: "localized-edit" | "single-file-edit";
   handoffToProfile?: "general-chat";
   handoffReason?: string;
 } {
@@ -2211,8 +2405,9 @@ function profileHandoffFromCostMetadata(costMetadata: unknown): {
     ...(execution.profileHandoffRequired === true
       ? { profileHandoffRequired: true }
       : {}),
-    ...(execution.handoffFromProfile === "localized-edit"
-      ? { handoffFromProfile: "localized-edit" as const }
+    ...(execution.handoffFromProfile === "localized-edit" ||
+    execution.handoffFromProfile === "single-file-edit"
+      ? { handoffFromProfile: execution.handoffFromProfile }
       : {}),
     ...(execution.handoffToProfile === "general-chat"
       ? { handoffToProfile: "general-chat" as const }

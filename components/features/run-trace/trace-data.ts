@@ -644,7 +644,7 @@ export function getTraceRows(
       reasoningIndex += 1;
       rows.push({
         id: event?.id ?? `${message.id}:reasoning:${index}`,
-        order: index,
+        order: event?.sequence ?? index,
         kind: "reasoning",
         event,
         text,
@@ -693,7 +693,7 @@ export function getTraceRows(
     if (tool.name === "update_todos") return;
     rows.push({
       id: tool.id,
-      order: index,
+      order: tool.activity?.sequence ?? index,
       kind: "tool",
       tool,
     });
@@ -706,7 +706,7 @@ export function getTraceRows(
     if (isTokenBudgetActivity(event)) continue;
     rows.push({
       id: event.id,
-      order: 10_000 + event.sequence,
+      order: event.sequence,
       kind: "activity",
       event,
     });

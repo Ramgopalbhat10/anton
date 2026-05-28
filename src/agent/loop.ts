@@ -76,6 +76,7 @@ export type AgentRunProfile =
   | "accepted-plan-general"
   | "command-run"
   | "localized-edit"
+  | "single-file-edit"
   | "general-chat"
   | "approval-continuation";
 
@@ -97,10 +98,14 @@ export type TokenAudit = {
   loopGuardCount?: number;
   promotionReason?: string;
   effectiveProfile?: AgentRunProfile;
+  forcedToolChoiceSupported?: boolean;
   profileHandoffRequired?: boolean;
-  handoffFromProfile?: "localized-edit";
+  handoffFromProfile?: "localized-edit" | "single-file-edit";
   handoffToProfile?: "general-chat";
   handoffReason?: string;
+  targetPath?: string;
+  targetResolution?: "exact" | "unique_search" | "unresolved" | "ambiguous";
+  targetResolutionReason?: string;
   tokenBudgetReached?: boolean;
   usage?: UsageAudit;
   steps: StepUsageAudit[];
@@ -203,6 +208,12 @@ const COMMAND_RUN_TOOLS = [
 const LOCALIZED_EDIT_TOOLS =
   localizedEditToolNames() as readonly NativeAntonToolName[];
 
+const SINGLE_FILE_EDIT_TOOLS = [
+  "read_file",
+  "edit_text",
+  "verify",
+] as const satisfies readonly NativeAntonToolName[];
+
 const PROFILE_NATIVE_TOOLS = {
   "pure-chat": CHAT_MODE_TOOLS,
   ask: ASK_MODE_TOOLS,
@@ -211,6 +222,7 @@ const PROFILE_NATIVE_TOOLS = {
   "accepted-plan-general": ACCEPTED_PLAN_GENERAL_TOOLS,
   "command-run": COMMAND_RUN_TOOLS,
   "localized-edit": LOCALIZED_EDIT_TOOLS,
+  "single-file-edit": SINGLE_FILE_EDIT_TOOLS,
   "general-chat": NATIVE_ANTON_TOOL_NAMES,
   "approval-continuation": NATIVE_ANTON_TOOL_NAMES,
 } as const satisfies Record<AgentRunProfile, readonly NativeAntonToolName[]>;
@@ -368,6 +380,16 @@ function runProfilePromptLines(
       "- Run `verify` before the final answer. If verification fails, report it honestly.",
     ];
   }
+  if (profile === "single-file-edit") {
+    return [
+      ...header,
+      "- This is a deterministic single-file edit run. A resolved target path appears in model-only context after the stable prompt prefix.",
+      "- First call `read_file` on that exact target path. Do not read or edit any other path.",
+      "- Use `edit_text` for the change. If text anchors are missing or ambiguous, you may make one targeted `read_file` retry on the same target before trying `edit_text` again.",
+      "- Run `verify` after a successful edit before writing the final answer.",
+      "- If the task needs another file, shell/git context, search, fallback edit tools, or repeated edit recovery, the harness will hand off to general-chat.",
+    ];
+  }
   return [
     ...header,
     "- For multi-step coding tasks, call `update_todos` with a full checklist snapshot before the first edit and update it as work progresses.",
@@ -454,6 +476,9 @@ export async function runAgent({
   priorToolHistory = [],
   previousPromptCacheAudit,
   promptCacheIntentionalSegmentTransition,
+  singleFileTargetPath,
+  singleFileTargetResolution,
+  singleFileTargetResolutionReason,
   onStepStart,
   onStepFinish,
   onStepUsageUpdate,
@@ -484,6 +509,9 @@ export async function runAgent({
   priorToolHistory?: readonly PriorToolCallRecord[];
   previousPromptCacheAudit?: PromptCacheAudit | null;
   promptCacheIntentionalSegmentTransition?: string;
+  singleFileTargetPath?: string;
+  singleFileTargetResolution?: "exact" | "unique_search" | "unresolved" | "ambiguous";
+  singleFileTargetResolutionReason?: string;
   onStepStart?: (event: { stepNumber: number }) => void;
   onStepFinish?: (event: { stepNumber: number }) => void;
   onStepUsageUpdate?: (steps: StepUsageAudit[]) => void;
@@ -588,7 +616,7 @@ export async function runAgent({
   const suppressedToolCallIds = new Set<string>();
   const finishedToolCallIds = new Set<string>();
   const finishedToolCallKeys = new Set<string>();
-  const toolPolicy = new ToolPolicyEngine(profile);
+  const toolPolicy = new ToolPolicyEngine(profile, { targetPath: singleFileTargetPath });
   toolPolicy.seed(seedFromPriorToolRecords(priorToolHistory));
   const tools = createAntonTools({
     model: selectedModel,
@@ -660,9 +688,16 @@ export async function runAgent({
     },
     contextComposition,
     ...(contextBudget ? { contextBudget } : {}),
+    ...(singleFileTargetPath ? { targetPath: singleFileTargetPath } : {}),
+    ...(singleFileTargetResolution
+      ? { targetResolution: singleFileTargetResolution }
+      : {}),
+    ...(singleFileTargetResolutionReason
+      ? { targetResolutionReason: singleFileTargetResolutionReason }
+      : {}),
   };
   const profileHandoffStopCondition: StopCondition<ToolSet> = ({ steps }) => {
-    if (!isFastEditStart) return false;
+    if (!isFastEditStart && profile !== "single-file-edit") return false;
     toolPolicy.observeSteps(steps);
     if (profileHandoff) return true;
     const segmentEffective = effectiveTokensForSteps(steps);
@@ -687,6 +722,7 @@ export async function runAgent({
           ),
         }
       : undefined;
+  const canForceToolChoice = supportsForcedToolChoice(selectedModel);
 
   return streamText({
     model: getLanguageModel(selectedModel),
@@ -751,6 +787,15 @@ export async function runAgent({
         ? dedupeToolReplayMessages(nextMessages)
         : nextMessages;
       const forceFinalReason = toolPolicy.shouldForceFinal() ?? forceFinalAnswerReason(steps);
+      const forcedToolChoice =
+        canForceToolChoice && profile === "single-file-edit" && steps.length === 0
+          ? ({ type: "tool" as const, toolName: "read_file" as const })
+          : canForceToolChoice &&
+              profile === "single-file-edit" &&
+              toolPolicy.needsVerify &&
+              !toolPolicy.needsVerifyFix()
+            ? ({ type: "tool" as const, toolName: "verify" as const })
+            : undefined;
       if (forceFinalReason && toolPolicy.shouldEmitLoopGuardEvent(forceFinalReason)) {
         onLoopGuard?.({
           reason: forceFinalReason,
@@ -770,11 +815,13 @@ export async function runAgent({
         !verifyReminder &&
         !verifyFixNote &&
         !staleReadNote &&
-        !activeToolsDifferFromInitial
+        !activeToolsDifferFromInitial &&
+        !forcedToolChoice
       ) {
         return undefined;
       }
       return {
+        ...(forcedToolChoice ? { toolChoice: forcedToolChoice } : {}),
         ...(duplicateReplay && compacted !== nextMessages
           ? { messages: compacted }
           : verifyReminder || verifyFixNote || staleReadNote
@@ -919,6 +966,7 @@ export async function runAgent({
         profile: effectiveProfile,
         ...(promotionReason ? { promotionReason } : {}),
         ...(promotionReason && !profileHandoff ? { effectiveProfile } : {}),
+        forcedToolChoiceSupported: canForceToolChoice,
         ...(profileHandoff
           ? {
               profileHandoffRequired: true,
@@ -1090,6 +1138,11 @@ function openRouterProviderRouting(
   }
 
   return undefined;
+}
+
+function supportsForcedToolChoice(modelId: string): boolean {
+  const providerModelId = getProviderModelId(modelId).toLowerCase();
+  return !providerModelId.includes("deepseek");
 }
 
 function providerOrderFromEnv(): string[] {
