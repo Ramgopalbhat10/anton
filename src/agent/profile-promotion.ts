@@ -1,7 +1,7 @@
 import type { AgentRunProfile } from "./loop";
 
 export type ProfilePromotionEvent = {
-  fromProfile: "localized-edit";
+  fromProfile: "localized-edit" | "single-file-edit";
   toProfile: "general-chat";
   reason: string;
 };
@@ -55,5 +55,13 @@ export function evaluateFastEditPromotion(
     fromProfile: "localized-edit",
     toProfile: "general-chat",
     reason: reasons[0],
+  };
+}
+
+export function singleFileEditHandoff(reason: string): ProfilePromotionEvent {
+  return {
+    fromProfile: "single-file-edit",
+    toProfile: "general-chat",
+    reason,
   };
 }

@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { ensureWorkspaceRootAt } from "@/src/agent/sandbox";
 import { getProject } from "@/src/db/queries";
-import { createInstallationToken } from "@/src/github/app";
+import { createGitHubAccessToken } from "@/src/github/app";
 import type { ProjectBranchesSummary } from "@/src/lib/api-types";
 import { redactText } from "@/src/lib/redaction";
 
@@ -32,11 +32,17 @@ export async function GET(req: Request, { params }: Ctx) {
 
   try {
     const refresh = new URL(req.url).searchParams.get("refresh") === "1";
+    let refreshError: string | null = null;
     if (refresh) {
-      await fetchOrigin(project.project, project.root);
+      try {
+        await fetchOrigin(project.project, project.root);
+      } catch (err) {
+        refreshError = redactText(errorMessage(err));
+      }
     }
     return Response.json({
       branches: await branchSummary(project.project.id, project.project.defaultBranch, project.root),
+      refreshError,
     });
   } catch (err) {
     return Response.json(
@@ -174,10 +180,10 @@ async function gitAuthEnv(project: {
   provider: string;
   githubInstallationId: number | null;
 }): Promise<Record<string, string> | undefined> {
-  if (project.provider !== "github" || project.githubInstallationId === null) {
+  if (project.provider !== "github") {
     return undefined;
   }
-  const { token } = await createInstallationToken(project.githubInstallationId);
+  const { token } = await createGitHubAccessToken(project.githubInstallationId);
   const auth = Buffer.from(`x-access-token:${token}`, "utf8").toString("base64");
   return {
     GIT_CONFIG_COUNT: "1",

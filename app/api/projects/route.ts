@@ -7,7 +7,7 @@ import {
   LocalImportError,
 } from "@/src/workspace/import-local";
 import { listProjects } from "@/src/db/queries";
-import { listInstallationRepositories } from "@/src/github/app";
+import { findInstallationRepository } from "@/src/github/app";
 import { serializeProject } from "@/src/lib/api-serializers";
 
 export const runtime = "nodejs";
@@ -16,7 +16,7 @@ const createSchema = z.union([
   z.object({
     source: z.literal("github").optional(),
     repositoryId: z.number().int().positive(),
-    installationId: z.number().int().positive(),
+    installationId: z.number().int().positive().nullable().optional(),
   }),
   z.object({
     source: z.literal("local"),
@@ -50,15 +50,17 @@ export async function POST(req: Request) {
       return Response.json({ project: serializeProject(project) }, { status: 201 });
     }
 
-    const repos = await listInstallationRepositories(data.installationId);
-    const repository = repos.find((repo) => repo.id === data.repositoryId);
+    const repository = await findInstallationRepository({
+      installationId: data.installationId ?? null,
+      repositoryId: data.repositoryId,
+    });
     if (!repository) {
       return Response.json({ error: "repository not found" }, { status: 404 });
     }
 
     const project = await cloneGitHubRepository({
       repository,
-      installationId: data.installationId,
+      installationId: data.installationId ?? null,
     });
     return Response.json({ project: serializeProject(project) }, { status: 201 });
   } catch (err) {

@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { execa } from "execa";
 
-import { createInstallationToken, type GitHubRepository } from "@/src/github/app";
+import { createGitHubAccessToken, type GitHubRepository } from "@/src/github/app";
 import { redactText } from "@/src/lib/redaction";
 import {
   getProjectByGithubRepoId,
@@ -13,7 +13,7 @@ import { checkoutPathForRepo, getLocalWorkspacesRoot } from "./local";
 
 export async function cloneGitHubRepository(input: {
   repository: GitHubRepository;
-  installationId: number;
+  installationId: number | null;
 }) {
   const root = getLocalWorkspacesRoot();
   if (!root.path) {
@@ -61,10 +61,10 @@ export async function cloneGitHubRepository(input: {
 async function cloneOrFetch(input: {
   cloneUrl: string;
   localPath: string;
-  installationId: number;
+  installationId: number | null;
 }): Promise<void> {
   const gitDir = path.join(input.localPath, ".git");
-  const { token } = await createInstallationToken(input.installationId);
+  const { token } = await createGitHubAccessToken(input.installationId);
   const auth = Buffer.from(`x-access-token:${token}`, "utf8").toString("base64");
   const gitEnv = {
     GIT_CONFIG_COUNT: "1",

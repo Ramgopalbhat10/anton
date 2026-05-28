@@ -280,8 +280,8 @@ export function WorkspaceSettingsPanel() {
                         <SelectItem value="all">All accounts</SelectItem>
                         {installations.map((installation) => (
                           <SelectItem
-                            key={installation.installationId}
-                            value={String(installation.installationId)}
+                            key={installationKey(installation.installationId)}
+                            value={installationKey(installation.installationId)}
                           >
                             {installation.accountLogin}
                           </SelectItem>
@@ -292,7 +292,7 @@ export function WorkspaceSettingsPanel() {
                 </div>
                 <ul className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
                   {installations.map((installation) => (
-                    <li key={installation.installationId}>
+                    <li key={installationKey(installation.installationId)}>
                       <span className="text-foreground/80">
                         {installation.accountLogin}
                       </span>{" "}
@@ -313,7 +313,7 @@ export function WorkspaceSettingsPanel() {
               <ul className="grid gap-2 lg:grid-cols-2">
                 {filteredRepositories.map((repo) => (
                   <li
-                    key={`${repo.installationId}:${repo.id}`}
+                    key={`${installationKey(repo.installationId)}:${repo.id}`}
                     className="rounded-md bg-background/45 p-2.5 ring-1 ring-border"
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -361,9 +361,13 @@ export function WorkspaceSettingsPanel() {
 }
 
 function repositoryCountForInstallation(
-  repositories: { installationId: number }[],
-  installationId: number,
+  repositories: { installationId: number | null }[],
+  installationId: number | null,
 ): number {
   return repositories.filter((repo) => repo.installationId === installationId)
     .length;
+}
+
+function installationKey(installationId: number | null): string {
+  return installationId === null ? "pat" : String(installationId);
 }

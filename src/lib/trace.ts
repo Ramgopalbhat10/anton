@@ -44,7 +44,7 @@ export type AntonMessageMetadata = {
   maxCostUsd?: number;
   costBudgetReached?: boolean;
   profileHandoffRequired?: boolean;
-  handoffFromProfile?: "localized-edit";
+  handoffFromProfile?: "localized-edit" | "single-file-edit";
   handoffToProfile?: "general-chat";
   handoffReason?: string;
 };
@@ -78,7 +78,7 @@ export type AntonRunData = {
   promotionReason?: string;
   effectiveProfile?: string;
   profileHandoffRequired?: boolean;
-  handoffFromProfile?: "localized-edit";
+  handoffFromProfile?: "localized-edit" | "single-file-edit";
   handoffToProfile?: "general-chat";
   handoffReason?: string;
   hadSuccessfulEdit?: boolean;
@@ -680,8 +680,8 @@ export function hydrateMessagesWithRunState<UI extends AntonUIMessage>(
 
   return metricsHydrated.map((message) => {
     const runIds = [
-      ...messageRunIds(message),
       ...(message.id === orphanTargetMessageId ? orphanRunIds : []),
+      ...messageRunIds(message),
     ];
     if (runIds.length === 0) return message;
 
@@ -997,8 +997,9 @@ function profileHandoffDataFromMetadata(
     ...(execution.profileHandoffRequired === true
       ? { profileHandoffRequired: true }
       : {}),
-    ...(execution.handoffFromProfile === "localized-edit"
-      ? { handoffFromProfile: "localized-edit" as const }
+    ...(execution.handoffFromProfile === "localized-edit" ||
+    execution.handoffFromProfile === "single-file-edit"
+      ? { handoffFromProfile: execution.handoffFromProfile }
       : {}),
     ...(execution.handoffToProfile === "general-chat"
       ? { handoffToProfile: "general-chat" as const }

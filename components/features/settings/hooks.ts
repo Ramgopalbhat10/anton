@@ -84,7 +84,7 @@ export function useWorkspaceSettings() {
       setInstallationFilter((current) => {
         if (current === "all") return current;
         return reposData?.installations.some(
-          (installation) => String(installation.installationId) === current,
+          (installation) => installationKey(installation.installationId) === current,
         )
           ? current
           : "all";
@@ -199,7 +199,7 @@ export function useWorkspaceSettings() {
     installationFilter === "all"
       ? repositories
       : repositories.filter(
-          (repo) => String(repo.installationId) === installationFilter,
+          (repo) => installationKey(repo.installationId) === installationFilter,
         );
 
   return {
@@ -230,4 +230,8 @@ export function useWorkspaceSettings() {
     removeProject,
     refreshProject,
   };
+}
+
+function installationKey(installationId: number | null): string {
+  return installationId === null ? "pat" : String(installationId);
 }

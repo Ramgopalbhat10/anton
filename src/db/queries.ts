@@ -406,7 +406,7 @@ export function getProjectByLocalPath(localPath: string): Project | undefined {
 
 export function upsertProject(input: {
   githubRepoId: number;
-  githubInstallationId: number;
+  githubInstallationId: number | null;
   owner: string;
   name: string;
   fullName: string;
@@ -506,7 +506,7 @@ export function updateProjectStatus(
 export function updateGithubProjectMetadata(input: {
   id: string;
   githubRepoId: number;
-  githubInstallationId: number;
+  githubInstallationId: number | null;
   owner: string;
   name: string;
   fullName: string;

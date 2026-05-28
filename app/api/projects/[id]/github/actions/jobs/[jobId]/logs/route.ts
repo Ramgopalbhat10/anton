@@ -14,7 +14,6 @@ export async function GET(_req: Request, { params }: Ctx) {
   }
   if (
     project.provider !== "github" ||
-    project.githubInstallationId === null ||
     project.status !== "ready"
   ) {
     return Response.json({ error: "project is not a ready GitHub repository" }, { status: 400 });

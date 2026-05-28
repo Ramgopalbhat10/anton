@@ -3,7 +3,12 @@ import { eq } from "drizzle-orm";
 import { db } from "@/src/db/client";
 import { getProject, listGithubInstallations } from "@/src/db/queries";
 import { projects } from "@/src/db/schema";
-import { listInstallationRepositories } from "./app";
+import {
+  isGitHubPatConfigured,
+  listInstallationRepositories,
+  listTokenRepositories,
+  type GitHubRepository,
+} from "./app";
 
 export function parseGitHubUrl(url: string): { owner: string; name: string } | null {
   const trimmed = url.trim();
@@ -33,6 +38,17 @@ export async function attemptLinkLocalProject(projectId: string): Promise<boolea
 
   const repoFullName = `${parsed.owner}/${parsed.name}`.toLowerCase();
 
+  if (isGitHubPatConfigured()) {
+    const repos = await listTokenRepositories();
+    const matchedRepo = repos.find(
+      (repo) => repo.full_name.toLowerCase() === repoFullName,
+    );
+    if (matchedRepo) {
+      linkProjectToRepository(projectId, matchedRepo, null);
+      return true;
+    }
+  }
+
   const installations = listGithubInstallations();
   for (const inst of installations) {
     try {
@@ -41,20 +57,7 @@ export async function attemptLinkLocalProject(projectId: string): Promise<boolea
         (r) => r.full_name.toLowerCase() === repoFullName,
       );
       if (matchedRepo) {
-        db.update(projects)
-          .set({
-            provider: "github",
-            githubRepoId: matchedRepo.id,
-            githubInstallationId: inst.installationId,
-            owner: matchedRepo.owner.login,
-            name: matchedRepo.name,
-            fullName: matchedRepo.full_name,
-            defaultBranch: matchedRepo.default_branch,
-            cloneUrl: matchedRepo.clone_url,
-            updatedAt: new Date(),
-          })
-          .where(eq(projects.id, projectId))
-          .run();
+        linkProjectToRepository(projectId, matchedRepo, inst.installationId);
         return true;
       }
     } catch (err) {
@@ -66,4 +69,25 @@ export async function attemptLinkLocalProject(projectId: string): Promise<boolea
   }
 
   return false;
+}
+
+function linkProjectToRepository(
+  projectId: string,
+  repository: GitHubRepository,
+  installationId: number | null,
+): void {
+  db.update(projects)
+    .set({
+      provider: "github",
+      githubRepoId: repository.id,
+      githubInstallationId: installationId,
+      owner: repository.owner.login,
+      name: repository.name,
+      fullName: repository.full_name,
+      defaultBranch: repository.default_branch,
+      cloneUrl: repository.clone_url,
+      updatedAt: new Date(),
+    })
+    .where(eq(projects.id, projectId))
+    .run();
 }
