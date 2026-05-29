@@ -12,6 +12,7 @@ export type ProcessResult = {
   stdout: string;
   stderr: string;
   timedOut?: boolean;
+  failedToStart?: boolean;
 };
 
 export async function runWorkspaceProcess(
@@ -39,6 +40,7 @@ export async function runWorkspaceProcess(
       stdout: truncate(outputText(err, "stdout")),
       stderr: truncate(outputText(err, "stderr") || errorMessage(err)),
       timedOut: timedOut(err),
+      failedToStart: failedToStart(err),
     };
   }
 }
@@ -67,6 +69,17 @@ function timedOut(err: unknown): boolean {
   if (typeof err !== "object" || err === null || !("killed" in err)) return false;
   const record = err as { killed?: unknown; signal?: unknown };
   return record.killed === true && record.signal === "SIGTERM";
+}
+
+function failedToStart(err: unknown): boolean {
+  if (typeof err !== "object" || err === null || !("code" in err)) return false;
+  const code = (err as { code: unknown }).code;
+  return (
+    code === "ENOENT" ||
+    code === "EACCES" ||
+    code === "EPERM" ||
+    code === "UNKNOWN"
+  );
 }
 
 function errorMessage(err: unknown): string {

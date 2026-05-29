@@ -76,8 +76,12 @@ export function createEditTextTool(workspaceRoot?: string) {
         }
 
         await atomicWriteTextFile(abs, result.content);
+        const diff = buildDisplayDiff(previous.content, result.content);
+        const patch = createPatch(relPath, previous.content, result.content);
+        const patchPreview =
+          patch.length > 8_000 ? `${patch.slice(0, 8_000)}\n...` : patch;
         const lint = await lintEditedFile(relPath, workspaceRoot);
-        if (!lint.ok && !lint.skipped) {
+        if (!lint.ok && !lint.skipped && lint.blocking) {
           await atomicWriteTextFile(abs, previous.content);
           return structuredError({
             code: "SYNTAX_OR_LINT_FAILED",
@@ -86,11 +90,12 @@ export function createEditTextTool(workspaceRoot?: string) {
             currentHash: previous.sha256,
             lintIssues: lint.issues,
             lintSummary: lint.summary,
+            failedPatchPreview: patchPreview,
+            postEditLint: "failed_blocking",
+            rolledBack: true,
           });
         }
 
-        const diff = buildDisplayDiff(previous.content, result.content);
-        const patch = createPatch(relPath, previous.content, result.content);
         return {
           ok: true as const,
           path: relPath,
@@ -100,11 +105,17 @@ export function createEditTextTool(workspaceRoot?: string) {
           nextHash: sha256(result.content),
           bytesWritten: Buffer.byteLength(result.content, "utf8"),
           diff,
-          patchPreview: patch.length > 8_000 ? `${patch.slice(0, 8_000)}\n…` : patch,
+          patchPreview,
           priorReadStale: true as const,
           ...(lint.skipped
             ? { postEditLint: "skipped" as const, postEditLintReason: lint.reason }
-            : { postEditLint: "passed" as const }),
+            : lint.ok
+              ? { postEditLint: "passed" as const }
+              : {
+                  postEditLint: "failed_non_blocking" as const,
+                  postEditLintSummary: lint.summary,
+                  postEditLintIssues: lint.issues.slice(0, 5),
+                }),
         };
       } catch (err) {
         if (err instanceof SandboxError && err.message.includes("guard")) {
@@ -143,9 +154,15 @@ function structuredError(input: {
     line: number;
     column: number;
     message: string;
+    severity?: string;
+    category?: string;
+    blocking?: boolean;
     ruleId?: string;
   }[];
   lintSummary?: string;
+  failedPatchPreview?: string;
+  postEditLint?: "failed_blocking";
+  rolledBack?: boolean;
 }) {
   const diagnostics =
     input.code === "FIND_NOT_FOUND" && input.find && input.content
@@ -161,6 +178,8 @@ function structuredError(input: {
     message: input.message,
     error: input.message,
     noChangesApplied: true as const,
+    ...(input.rolledBack ? { rolledBack: true as const } : {}),
+    ...(input.postEditLint ? { postEditLint: input.postEditLint } : {}),
     ...(input.failedEditIndex !== undefined
       ? { failedEditIndex: input.failedEditIndex }
       : {}),
@@ -168,6 +187,9 @@ function structuredError(input: {
     ...(input.lintSummary ? { lintSummary: input.lintSummary } : {}),
     ...(input.lintIssues?.length
       ? { lintIssues: input.lintIssues.slice(0, 5) }
+      : {}),
+    ...(input.failedPatchPreview
+      ? { failedPatchPreview: input.failedPatchPreview }
       : {}),
     ...diagnostics,
   };
@@ -184,6 +206,10 @@ function compactEditTextModelOutput(output: unknown): JSONValue {
       path: stringValue(output.path),
       message: stringValue(output.message) || stringValue(output.error),
       noChangesApplied: true,
+      ...(output.rolledBack === true ? { rolledBack: true } : {}),
+      ...(stringValue(output.postEditLint)
+        ? { postEditLint: stringValue(output.postEditLint) }
+        : {}),
       ...(typeof output.failedEditIndex === "number"
         ? { failedEditIndex: output.failedEditIndex }
         : {}),
@@ -209,6 +235,15 @@ function compactEditTextModelOutput(output: unknown): JSONValue {
     nextHash: stringValue(output.nextHash),
     diff: stringValue(output.diff),
     priorReadStale: true,
+    ...(stringValue(output.postEditLint)
+      ? { postEditLint: stringValue(output.postEditLint) }
+      : {}),
+    ...(stringValue(output.postEditLintSummary)
+      ? { postEditLintSummary: stringValue(output.postEditLintSummary) }
+      : {}),
+    ...(Array.isArray(output.postEditLintIssues)
+      ? { postEditLintIssues: output.postEditLintIssues.slice(0, 5) }
+      : {}),
   };
 }
 
