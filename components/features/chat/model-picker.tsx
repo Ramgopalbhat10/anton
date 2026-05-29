@@ -57,33 +57,27 @@ export function ModelPicker({
       <PopoverTrigger asChild>
         <Button
           type="button"
-          variant="ghost"
+          variant="secondary"
+          size="xs"
           disabled={disabled}
-          className={cn(
-            "h-7 min-w-0 justify-between gap-1 rounded-md bg-secondary px-2 text-xs font-medium text-muted-foreground hover:text-foreground",
-            triggerClassName,
-          )}
+          className={cn("min-w-0 justify-between", triggerClassName)}
         >
           <span className="truncate">{getModelLabel(value)}</span>
-          <ChevronDown className="size-3.5 shrink-0 opacity-70" />
+          <ChevronDown className="size-3 shrink-0 opacity-70" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-56 p-0">
+      <PopoverContent align="end" side="top" className="w-56 p-0">
         <Tabs
           value={activeProvider}
           onValueChange={(next) => setActiveProvider(next as ProviderId)}
+          className="min-w-0 gap-0"
         >
           <TabsList
-            variant="line"
-            size="sm"
-            className="h-7 w-full rounded-none border-b border-border px-1"
+            size="md"
+            className="w-full rounded-none rounded-t-md border-b border-layout-border"
           >
             {PROVIDERS.map((provider) => (
-              <TabsTrigger
-                key={provider.id}
-                value={provider.id}
-                className="flex-1 px-1 text-[11px]"
-              >
+              <TabsTrigger key={provider.id} value={provider.id}>
                 {provider.label}
               </TabsTrigger>
             ))}

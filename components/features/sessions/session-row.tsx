@@ -97,8 +97,8 @@ export function SessionRow({
       <Link
         href={`/s/${session.id}`}
         className={cn(
-          "group relative flex min-w-0 items-start rounded-md px-2 py-1.5 text-xs",
-          "text-foreground hover:bg-sidebar-accent/70",
+          "group relative flex min-w-0 items-start rounded-md px-2 py-1.5 text-xs transition-colors duration-150",
+          "text-foreground hover:bg-sidebar-accent/60",
           isActive && "bg-sidebar-accent",
         )}
       >

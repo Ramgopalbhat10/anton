@@ -20,12 +20,12 @@ export function BashCommandBar({
   return (
     <div
       className={cn(
-        "flex items-start gap-1.5 border-b border-white/8 px-2 py-1",
+        "flex items-center gap-1.5 border-b border-white/8 px-2 py-1",
         className,
       )}
     >
-      <span className="shrink-0 select-none pt-px text-emerald-400">$</span>
-      <span className="min-w-0 flex-1 whitespace-pre-wrap break-all text-foreground/90">
+      <span className="shrink-0 select-none text-emerald-400">$</span>
+      <span className="min-w-0 flex-1 whitespace-pre-wrap break-all leading-none text-foreground/90">
         {command}
       </span>
       <div className="flex shrink-0 items-center gap-0.5">

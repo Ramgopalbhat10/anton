@@ -1,6 +1,7 @@
 import type { AgentRunProfile } from "./loop";
 import {
   evaluateFastEditPromotion,
+  singleFileEditHandoff,
   type ProfilePromotionEvent,
   type PromotionTriggerInput,
 } from "./profile-promotion";
@@ -67,6 +68,11 @@ const MAP_CAP = 128;
 const EXPLORATION_ONLY_TOOLS = new Set(["grep", "glob"]);
 
 const LOCALIZED_EDIT_TOOL_SET = new Set<string>(localizedEditToolNames());
+const SINGLE_FILE_EDIT_TOOL_SET = new Set<string>([
+  "read_file",
+  "edit_text",
+  "verify",
+]);
 
 const EXPLORATION_BEFORE_VERIFY = new Set([
   "grep",
@@ -81,6 +87,7 @@ const EXPLORATION_BEFORE_VERIFY = new Set([
 
 const PROFILES_REQUIRING_VERIFY: ReadonlySet<AgentRunProfile> = new Set([
   "localized-edit",
+  "single-file-edit",
   "general-chat",
   "accepted-plan-simple",
   "accepted-plan-general",
@@ -89,6 +96,7 @@ const PROFILES_REQUIRING_VERIFY: ReadonlySet<AgentRunProfile> = new Set([
 
 const PROFILES_PREFER_EDIT_TEXT: ReadonlySet<AgentRunProfile> = new Set([
   "localized-edit",
+  "single-file-edit",
   "general-chat",
   "accepted-plan-simple",
   "accepted-plan-general",
@@ -134,9 +142,16 @@ export class ToolPolicyEngine {
   private pendingStaleReadNote: string | undefined;
   private editTextFailedPaths = new Set<string>();
   private readonly requireVerifyAfterEdit: boolean;
+  private readonly targetPath: string | undefined;
+  private targetRead = false;
+  private singleFileRecoveryReadAttempts = 0;
 
-  constructor(private readonly profile: AgentRunProfile) {
+  constructor(
+    private readonly profile: AgentRunProfile,
+    options: { targetPath?: string } = {},
+  ) {
     this.requireVerifyAfterEdit = PROFILES_REQUIRING_VERIFY.has(profile);
+    this.targetPath = options.targetPath ? normalizeToolPath(options.targetPath) : undefined;
   }
 
   get loopGuardCount(): number {
@@ -156,6 +171,9 @@ export class ToolPolicyEngine {
   }
 
   get endedWithoutStateChange(): boolean {
+    if (this.profile === "single-file-edit" && !this.hadStateChangingSuccess) {
+      return true;
+    }
     return (
       this.hadStateChangingSuccess === false &&
       (this.forceFinalReason !== undefined || this.blockedAttemptCount >= 3)
@@ -371,6 +389,11 @@ export class ToolPolicyEngine {
       );
     }
 
+    if (this.profile === "single-file-edit") {
+      const blocked = this.checkSingleFileEditBoundary(toolName, input);
+      if (blocked) return blocked;
+    }
+
     if (this.needsVerify && EXPLORATION_BEFORE_VERIFY.has(toolName)) {
       this.recordBlockedAttempt();
       const message = this.verifyFixPending
@@ -543,6 +566,75 @@ export class ToolPolicyEngine {
     return undefined;
   }
 
+  private checkSingleFileEditBoundary(
+    toolName: string,
+    input: unknown,
+  ): LoopGuardBlockedOutput | undefined {
+    if (!this.targetPath) {
+      return this.blockForSingleFileHandoff(
+        "single-file-edit has no resolved target path; continuing requires general Agent routing.",
+        toolName,
+        input,
+      );
+    }
+
+    if (!SINGLE_FILE_EDIT_TOOL_SET.has(toolName)) {
+      return this.blockForSingleFileHandoff(
+        `Tool \`${toolName}\` is unavailable in single-file-edit; continuing requires general Agent tools.`,
+        toolName,
+        input,
+      );
+    }
+
+    const inputPath = pathFromInput(input);
+    const normalizedInputPath = normalizeToolPath(inputPath);
+    const pathTool = toolName === "read_file" || toolName === "edit_text";
+    if (pathTool && normalizedInputPath !== this.targetPath) {
+      return this.blockForSingleFileHandoff(
+        `single-file-edit is locked to \`${this.targetPath}\`, but \`${toolName}\` targeted \`${inputPath ?? "unknown"}\`.`,
+        toolName,
+        input,
+      );
+    }
+
+    if (toolName === "edit_text" && !this.targetRead) {
+      this.recordBlockedAttempt();
+      return blockedOutput(
+        `Read \`${this.targetPath}\` with read_file before editing it.`,
+        "read_file",
+        { phase: this.phase, affectedPath: this.targetPath },
+      );
+    }
+
+    if (toolName === "verify" && !this.hadStateChangingSuccess) {
+      this.recordBlockedAttempt();
+      return blockedOutput(
+        `Edit \`${this.targetPath}\` with edit_text before verification.`,
+        this.targetRead ? "edit_text" : "read_file",
+        { phase: this.phase, affectedPath: this.targetPath },
+      );
+    }
+
+    return undefined;
+  }
+
+  private blockForSingleFileHandoff(
+    reason: string,
+    toolName: string,
+    input: unknown,
+  ): LoopGuardBlockedOutput {
+    this.promotionEvent = singleFileEditHandoff(reason);
+    this.recordBlockedAttempt();
+    return blockedOutput(reason, "final", {
+      phase: this.phase,
+      affectedPath: pathFromInput(input) ?? this.targetPath,
+      failureCode:
+        toolName === "read_file" || toolName === "edit_text"
+          ? "SINGLE_FILE_TARGET_MISMATCH"
+          : "SINGLE_FILE_TOOL_UNAVAILABLE",
+    });
+  }
+
   shouldForceFinal(): string | undefined {
     if (this.forceFinalReason) return this.forceFinalReason;
     if (this.blockedAttemptCount >= 3) {
@@ -657,6 +749,12 @@ export class ToolPolicyEngine {
       const hash = typeof output.sha256 === "string" ? output.sha256 : undefined;
       if (path && hash) this.lastHashByPath.set(path, hash);
       if (path) {
+        if (
+          this.profile === "single-file-edit" &&
+          normalizeToolPath(path) === this.targetPath
+        ) {
+          this.targetRead = true;
+        }
         this.distinctPathsRead.add(path);
         const readKey = readFileRangeKeyFromOutput(output, path);
         if (readKey) {
@@ -745,6 +843,24 @@ export class ToolPolicyEngine {
             failureCode === "PATCH_CONTEXT_FAILED")
         ) {
           this.editFileBlockedPaths.add(path);
+        }
+        if (
+          this.profile === "single-file-edit" &&
+          toolName === "edit_text" &&
+          normalizeToolPath(path) === this.targetPath
+        ) {
+          const anchorFailure =
+            failureCode === "FIND_NOT_FOUND" ||
+            failureCode === "FIND_NOT_UNIQUE";
+          if (anchorFailure && this.singleFileRecoveryReadAttempts === 0) {
+            this.phase = "recoverEdit";
+            this.singleFileRecoveryReadAttempts += 1;
+            this.recoveryReadAllowedByPath.add(path);
+          } else {
+            this.promotionEvent = singleFileEditHandoff(
+              `edit_text recovery failed for \`${path}\`; continuing requires general Agent tools.`,
+            );
+          }
         }
         if (failures >= 2 && failures < 3) {
           this.phase = "recoverEdit";
@@ -1007,6 +1123,10 @@ function pathFromInput(input: unknown): string | undefined {
   return typeof input.path === "string" && input.path.length > 0
     ? input.path
     : undefined;
+}
+
+function normalizeToolPath(value: string | undefined): string | undefined {
+  return value?.replace(/\\/g, "/").replace(/^\.\/+/, "");
 }
 
 function hashFromInput(input: unknown): string | undefined {

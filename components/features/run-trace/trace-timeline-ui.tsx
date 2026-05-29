@@ -233,11 +233,11 @@ export function TraceTimelineRow({
               {summary}
             </p>
           ) : null}
-
-          {expandable && expanded && children ? (
-            <div className="mt-1.5">{children}</div>
-          ) : null}
         </div>
+
+        {expandable && expanded && children ? (
+          <div className="col-span-2 mt-1.5 min-w-0">{children}</div>
+        ) : null}
       </div>
     </div>
   );

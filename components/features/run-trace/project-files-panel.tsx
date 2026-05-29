@@ -42,7 +42,7 @@ function countBadgeGitChanges(
 }
 
 const projectFilesHeaderRowClass =
-  "flex shrink-0 items-center border-b border-border p-1.5";
+  "flex shrink-0 items-center border-b border-layout-border p-1.5";
 
 type OpenFileState = {
   path: string;
@@ -148,7 +148,7 @@ export function ProjectFilesPanel({
             selectedPath={activePath}
             className={cn(
               expanded && openFiles.length > 0
-                ? "border-r border-border"
+                ? "border-r border-layout-border"
                 : "flex-1",
             )}
           />

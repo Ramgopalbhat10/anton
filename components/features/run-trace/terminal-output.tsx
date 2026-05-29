@@ -35,7 +35,7 @@ export function TerminalOutput({ command, output, className }: TerminalOutputPro
   return (
     <div
       className={cn(
-        "rounded-md bg-[#0d0d0d] ring-1 ring-white/8 font-mono text-[11px] leading-relaxed overflow-hidden",
+        "rounded-md bg-panel ring-1 ring-border font-mono text-ui-mono leading-relaxed overflow-hidden",
         className,
       )}
     >

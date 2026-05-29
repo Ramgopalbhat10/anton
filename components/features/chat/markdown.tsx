@@ -15,7 +15,7 @@ function MarkdownImpl({ children, className }: MarkdownProps) {
   const normalized = normalizeGithubMarkdown(children);
 
   return (
-    <div className={cn("anton-md space-y-1.5 leading-normal", className)}>
+    <div className={cn("anton-md space-y-1.5 leading-relaxed", className)}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={COMPONENTS}>
         {normalized}
       </ReactMarkdown>

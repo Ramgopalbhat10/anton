@@ -4,13 +4,15 @@ import type { ChatAddToolApproveResponseFunction } from "ai";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
 import { Disclosure } from "@/components/shared/disclosure";
+import { surfaceVariants } from "@/components/shared/surface";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ToolState } from "@/src/lib/trace";
 
-import { DiffView } from "./diff-view";
+import { DiffView, PatchDiffView } from "./diff-view";
 import {
   isOkEditFileOutput,
+  isOkEditTextOutput,
   isOkWriteFileOutput,
   pickString,
   safeStringify,
@@ -40,12 +42,9 @@ export function ToolCard({
 
   return (
     <Disclosure
-      className={cn(
-        "rounded-md text-xs not-prose",
-        "bg-card/50 text-foreground ring-1 ring-border",
-      )}
+      className={cn(surfaceVariants({ variant: "elevated" }), "overflow-hidden text-xs not-prose")}
       trigger={({ open }) => (
-        <span className="flex min-w-0 items-center justify-between gap-2 px-3 py-2">
+        <span className="flex min-w-0 items-center justify-between gap-2 px-3 py-2 transition-colors duration-150 hover:bg-accent/30">
           <span className="flex min-w-0 items-center gap-2">
             <span className="truncate font-mono text-[11px] font-semibold">
               {name}
@@ -75,6 +74,8 @@ export function ToolCard({
             <WriteFileBody input={input} output={output} state={state} />
           ) : name === "edit_file" ? (
             <EditFileBody input={input} output={output} state={state} />
+          ) : name === "edit_text" ? (
+            <EditTextBody input={input} output={output} state={state} />
           ) : (
             input !== undefined && (
               <Section title="input">
@@ -107,7 +108,8 @@ export function ToolCard({
 
           {state === "output-available" &&
             output !== undefined &&
-            name !== "write_file" && (
+            name !== "write_file" &&
+            name !== "edit_text" && (
               <Section title="output">
                 <pre className="overflow-x-auto whitespace-pre-wrap wrap-break-word">
                   {safeStringify(output)}
@@ -131,6 +133,52 @@ export function ToolCard({
         </div>
       </div>
     </Disclosure>
+  );
+}
+
+function EditTextBody({
+  input,
+  output,
+  state,
+}: {
+  input: unknown;
+  output: unknown;
+  state: ToolState;
+}) {
+  const relPath = pickString(input, "path");
+  const showDiff = state === "output-available" && isOkEditTextOutput(output);
+
+  if (showDiff) {
+    return (
+      <div className="space-y-2">
+        <Section title="file">
+          <span className="font-mono text-[11px]">
+            {output.path ?? relPath ?? "?"}
+          </span>
+        </Section>
+        <PatchDiffView
+          patch={output.patchPreview ?? null}
+          filename={output.path ?? relPath ?? "diff.txt"}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {relPath && (
+        <Section title="file">
+          <span className="font-mono text-[11px]">{relPath}</span>
+        </Section>
+      )}
+      {state === "output-available" && output !== undefined ? (
+        <Section title="output">
+          <pre className="overflow-x-auto whitespace-pre-wrap wrap-break-word">
+            {safeStringify(output)}
+          </pre>
+        </Section>
+      ) : null}
+    </div>
   );
 }
 

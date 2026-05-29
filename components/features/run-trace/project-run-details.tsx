@@ -516,7 +516,7 @@ function ToolCallExpandPanel({
   return (
     <div
       className={cn(
-        "mt-1.5 rounded-md border border-border/50 bg-background/30 px-2 py-1.5 text-[10px]",
+        "rounded-md border border-border/50 bg-background/30 px-2 py-1.5 text-[10px]",
         errored && "border-destructive/25 bg-destructive/[0.03]",
         denied && "border-border/40 bg-secondary/15",
       )}

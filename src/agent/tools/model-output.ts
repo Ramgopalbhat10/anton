@@ -299,7 +299,7 @@ export type VerifyToolDefaults = {
 };
 
 export function readFileDefaultMaxLines(profile: AgentRunProfile): number {
-  return profile === "localized-edit"
+  return profile === "localized-edit" || profile === "single-file-edit"
     ? READ_FILE_LOCALIZED_FULL_MAX_LINES
     : READ_FILE_MODEL_MAX_LINES;
 }
@@ -310,7 +310,7 @@ export function readFileReturnsFullByDefault(
   sizeBytes: number,
 ): boolean {
   return (
-    profile === "localized-edit" &&
+    (profile === "localized-edit" || profile === "single-file-edit") &&
     totalLines <= READ_FILE_LOCALIZED_FULL_MAX_LINES &&
     sizeBytes <= READ_FILE_LOCALIZED_FULL_MAX_CHARS
   );
@@ -319,7 +319,7 @@ export function readFileReturnsFullByDefault(
 export function verifyDefaultsForProfile(
   profile: AgentRunProfile,
 ): VerifyToolDefaults {
-  if (profile === "localized-edit") {
+  if (profile === "localized-edit" || profile === "single-file-edit") {
     return {
       targets: ["typecheck", "lint"],
       timeoutMs: 60_000,
