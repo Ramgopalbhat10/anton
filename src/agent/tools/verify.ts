@@ -21,6 +21,7 @@ import {
 } from "./model-output";
 
 const MAX_TIMEOUT_MS = 300_000;
+const DEFAULT_BUILD_TIMEOUT_MS = MAX_TIMEOUT_MS;
 const MODEL_OUTPUT_TEXT_CAP = 8_000;
 const PATH_HINT_CAP = 20;
 
@@ -80,6 +81,7 @@ type VerificationResult =
       skipped: false;
       ok: boolean;
       command?: string;
+      timeoutMs?: number;
       exitCode?: number;
       timedOut?: boolean;
       stdout?: string;
@@ -120,7 +122,7 @@ export function createVerifyTool(
         .max(MAX_TIMEOUT_MS)
         .optional()
         .describe(
-          `Per-command timeout in milliseconds. Defaults to ${defaults.timeoutMs}ms for this profile.`,
+          `Per-command timeout in milliseconds. Defaults to ${defaults.timeoutMs}ms for typecheck/lint and ${DEFAULT_BUILD_TIMEOUT_MS}ms for build in this profile.`,
         ),
     }),
     toModelOutput: ({ output }) => ({
@@ -150,61 +152,66 @@ export function createVerifyTool(
         });
       }
 
-      const results: VerificationResult[] = [];
-      for (const step of plan.steps) {
-        if (step.skipped || !step.command) {
-          results.push({
-            target: step.target,
-            skipped: true,
-            ok: true,
-            reason: step.reason ?? "No matching package script found.",
-          });
-          continue;
-        }
+      const results = await Promise.all(
+        plan.steps.map(async (step): Promise<VerificationResult> => {
+          if (step.skipped || !step.command) {
+            return {
+              target: step.target,
+              skipped: true,
+              ok: true,
+              reason: step.reason ?? "No matching package script found.",
+            };
+          }
 
-        const [file, ...args] = step.command;
-        if (!file) {
-          results.push({
+          const [file, ...args] = step.command;
+          const stepTimeoutMs = timeoutForTarget(
+            step.target,
+            defaults.timeoutMs,
+            timeoutMs,
+          );
+          if (!file) {
+            return {
+              target: step.target,
+              skipped: false,
+              ok: false,
+              timeoutMs: stepTimeoutMs,
+              error: "Verification command is empty.",
+              commandBroken: true,
+            };
+          }
+
+          const result = await runWorkspaceProcess(file, args, root, {
+            timeoutMs: stepTimeoutMs,
+          });
+          const ok = result.exitCode === 0;
+          return {
             target: step.target,
             skipped: false,
-            ok: false,
-            error: "Verification command is empty.",
-            commandBroken: true,
-          });
-          break;
-        }
-
-        const result = await runWorkspaceProcess(file, args, root, {
-          timeoutMs: timeoutMs ?? defaults.timeoutMs,
-        });
-        const ok = result.exitCode === 0;
-        results.push({
-          target: step.target,
-          skipped: false,
-          ok,
-          command: step.command.join(" "),
-          exitCode: result.exitCode,
-          timedOut: result.timedOut ?? false,
-          stdout: capOutput(result.stdout),
-          stderr: capOutput(result.stderr),
-          ...(result.failedToStart ? { commandBroken: true as const } : {}),
-          ...(ok
-            ? {}
-            : {
-                error:
-                  result.stderr ||
-                  result.stdout ||
-                  (result.timedOut
-                    ? "Verification command timed out."
-                    : "Verification command failed."),
-              }),
-        });
-        if (!ok) break;
-      }
+            ok,
+            command: step.command.join(" "),
+            timeoutMs: stepTimeoutMs,
+            exitCode: result.exitCode,
+            timedOut: result.timedOut ?? false,
+            stdout: capOutput(result.stdout),
+            stderr: capOutput(result.stderr),
+            ...(result.failedToStart ? { commandBroken: true as const } : {}),
+            ...(ok
+              ? {}
+              : {
+                  error: result.timedOut
+                    ? `Verification command timed out after ${formatDuration(stepTimeoutMs)}.`
+                    : result.stderr ||
+                      result.stdout ||
+                      "Verification command failed.",
+                }),
+          };
+        }),
+      );
 
       return buildVerificationOutput({
         editedPaths,
         packageManager: plan.packageManager,
+        parallel: true,
         results,
         workspaceRoot: root,
       });
@@ -215,6 +222,7 @@ export function createVerifyTool(
 function buildVerificationOutput(input: {
   editedPaths: readonly string[];
   packageManager: PackageManager | undefined;
+  parallel?: boolean;
   results: readonly VerificationResult[];
   planError?: string;
   workspaceRoot: string;
@@ -249,6 +257,7 @@ function buildVerificationOutput(input: {
     pathHints,
     ...(failureSummary ? { failureSummary } : {}),
     ...(input.packageManager ? { packageManager: input.packageManager } : {}),
+    ...(input.parallel ? { parallel: true as const } : {}),
     ranCount,
     skippedCount: input.results.length - ranCount,
     results: input.results,
@@ -261,6 +270,21 @@ function buildVerificationOutput(input: {
             ? "Verification command could not be executed."
             : `Verification failed for ${failed.length} target${failed.length === 1 ? "" : "s"}.`,
   };
+}
+
+function timeoutForTarget(
+  target: VerificationTarget,
+  defaultTimeoutMs: number,
+  requestedTimeoutMs: number | undefined,
+): number {
+  if (requestedTimeoutMs !== undefined) return requestedTimeoutMs;
+  if (target === "build") return Math.max(defaultTimeoutMs, DEFAULT_BUILD_TIMEOUT_MS);
+  return defaultTimeoutMs;
+}
+
+function formatDuration(timeoutMs: number): string {
+  if (timeoutMs % 1_000 !== 0) return `${timeoutMs}ms`;
+  return `${timeoutMs / 1_000}s`;
 }
 
 function verificationStatus(
