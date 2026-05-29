@@ -15,6 +15,9 @@ export type PostEditLintIssue = {
   line: number;
   column: number;
   message: string;
+  severity: "error" | "warning" | "unknown";
+  category: "parser" | "syntax" | "unused" | "formatting" | "style" | "other";
+  blocking: boolean;
   ruleId?: string;
 };
 
@@ -24,6 +27,7 @@ export type PostEditLintResult =
   | {
       ok: false;
       skipped: false;
+      blocking: boolean;
       issues: PostEditLintIssue[];
       summary: string;
       rawOutput?: string;
@@ -105,13 +109,14 @@ export async function lintEditedFile(
       (issue) =>
         `${normalizedPath}:${issue.line}:${issue.column} ${issue.message}${
           issue.ruleId ? ` (${issue.ruleId})` : ""
-        }`,
+        } [${issue.severity}/${issue.category}]`,
     )
     .join("; ");
 
   return {
     ok: false,
     skipped: false,
+    blocking: issues.some((issue) => issue.blocking),
     issues,
     summary,
     ...(combined.trim().length > 0 ? { rawOutput: combined.slice(0, 4_000) } : {}),
@@ -145,7 +150,24 @@ function parseJsonLintOutput(output: string, relPath: string): PostEditLintIssue
             : "eslint reported an issue on the edited file.";
         const ruleId =
           typeof message.ruleId === "string" ? message.ruleId : undefined;
-        return [{ line, column, message: text, ...(ruleId ? { ruleId } : {}) }];
+        const severity = lintSeverity(message.severity);
+        const classified = classifyLintIssue({
+          message: text,
+          ruleId,
+          severity,
+          fatal: message.fatal === true,
+        });
+        return [
+          {
+            line,
+            column,
+            message: text,
+            severity,
+            category: classified.category,
+            blocking: classified.blocking,
+            ...(ruleId ? { ruleId } : {}),
+          },
+        ];
       });
     });
   } catch {
@@ -187,6 +209,13 @@ function parseTextLintOutput(output: string, relPath: string): PostEditLintIssue
     const columnText = isUnix ? columnTextOrMessage : lineTextOrColumn;
     const message = isUnix ? messageOrRule : columnTextOrMessage;
     const ruleId = isUnix ? ruleIdOrUndefined : messageOrRule;
+    const severity = /\bwarning\b/i.test(trimmed) ? "warning" : "error";
+    const classified = classifyLintIssue({
+      message: message.trim(),
+      ruleId,
+      severity,
+      fatal: false,
+    });
     if (isUnix) {
       if (!filePart?.includes(basename) && !trimmed.includes(relPath)) continue;
     } else if (!currentFileMatches) {
@@ -196,10 +225,52 @@ function parseTextLintOutput(output: string, relPath: string): PostEditLintIssue
       line: Number.parseInt(lineText, 10),
       column: Number.parseInt(columnText, 10),
       message: message.trim(),
+      severity,
+      category: classified.category,
+      blocking: classified.blocking,
       ...(ruleId ? { ruleId: ruleId.trim() } : {}),
     });
   }
   return issues;
+}
+
+function lintSeverity(value: unknown): PostEditLintIssue["severity"] {
+  if (value === 1) return "warning";
+  if (value === 2) return "error";
+  return "unknown";
+}
+
+function classifyLintIssue(input: {
+  message: string;
+  ruleId?: string;
+  severity: PostEditLintIssue["severity"];
+  fatal: boolean;
+}): Pick<PostEditLintIssue, "category" | "blocking"> {
+  const message = input.message.toLowerCase();
+  const ruleId = input.ruleId?.toLowerCase() ?? "";
+  const parserOrSyntax =
+    input.fatal ||
+    ruleId.includes("parser") ||
+    /\b(parsing error|unexpected token|unexpected end of input|unterminated|string literal|missing initializer|declaration or statement expected|expression expected|identifier expected|invalid character)\b/i.test(
+      input.message,
+    ) ||
+    /('\}' expected|'\)' expected|'\]' expected|',' expected|';' expected|expected corresponding jsx closing tag|has no corresponding closing tag)/i.test(
+      input.message,
+    );
+
+  if (parserOrSyntax) {
+    return { category: ruleId.includes("parser") ? "parser" : "syntax", blocking: true };
+  }
+  if (ruleId.includes("no-unused") || message.includes("is defined but never used")) {
+    return { category: "unused", blocking: false };
+  }
+  if (ruleId.includes("prettier") || message.includes("prettier")) {
+    return { category: "formatting", blocking: false };
+  }
+  if (input.severity === "warning") {
+    return { category: "style", blocking: false };
+  }
+  return { category: "other", blocking: false };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

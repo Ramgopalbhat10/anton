@@ -165,7 +165,9 @@ export function createAntonTools({
     revert_changes: createRevertChangesTool(workspaceRoot),
     bash: createBashTool(workspaceRoot),
     inspect_project: createInspectProjectTool(workspaceRoot),
-    verify: createVerifyTool(workspaceRoot, profile),
+    verify: createVerifyTool(workspaceRoot, profile, {
+      getEditedPaths: () => toolPolicy?.getEditedPathsSnapshot() ?? [],
+    }),
     grep: createGrepTool(workspaceRoot),
     glob: createGlobTool(workspaceRoot),
     list_skills: createListSkillsTool(workspaceRoot),
