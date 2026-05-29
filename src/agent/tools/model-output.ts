@@ -171,6 +171,7 @@ export function compactVerifyForModel(output: unknown): unknown {
       ok: false,
       summary: output.summary,
       packageManager: output.packageManager,
+      parallel: output.parallel,
       ranCount: output.ranCount,
       skippedCount: output.skippedCount,
       ...(failureSummary ? { failureSummary } : {}),
@@ -179,6 +180,8 @@ export function compactVerifyForModel(output: unknown): unknown {
         ? {
             failedTarget: failed.target,
             failedCommand: failed.command,
+            timedOut: failed.timedOut,
+            timeoutMs: failed.timeoutMs,
             exitCode: failed.exitCode,
           }
         : {}),
@@ -189,6 +192,7 @@ export function compactVerifyForModel(output: unknown): unknown {
     ok: output.ok,
     summary: output.summary,
     packageManager: output.packageManager,
+    parallel: output.parallel,
     ranCount: output.ranCount,
     skippedCount: output.skippedCount,
     results,
@@ -270,6 +274,7 @@ function compactVerifyResultForModel(result: unknown): unknown {
       ? { reason: result.reason }
       : {
           command: result.command,
+          timeoutMs: result.timeoutMs,
           exitCode: result.exitCode,
           timedOut: result.timedOut,
           stdout: tailText(result.stdout),
