@@ -49,6 +49,7 @@ export type ToolPolicySeed = {
   recoveryReadUsedByPath?: string[];
   verifyCompleted?: boolean;
   verifyFixPending?: boolean;
+  verifyRecoveryUsed?: boolean;
   lastVerifyFailureSummary?: string;
   editedPaths?: string[];
   promoted?: boolean;
@@ -137,6 +138,7 @@ export class ToolPolicyEngine {
   private verifyNudgeCount = 0;
   private verifyFixPending = false;
   private verifyFixNoteCount = 0;
+  private verifyRecoveryUsed = false;
   private lastVerifyFailureSummary: string | undefined;
   private editedPaths = new Set<string>();
   private pendingStaleReadNote: string | undefined;
@@ -203,6 +205,10 @@ export class ToolPolicyEngine {
       this.hadStateChangingSuccess &&
       !this.verifyCompleted
     );
+  }
+
+  getEditedPathsSnapshot(): string[] {
+    return [...this.editedPaths];
   }
 
   consumeVerifyReminder(): string | undefined {
@@ -291,8 +297,11 @@ export class ToolPolicyEngine {
         this.lastVerifyFailureSummary = input.lastVerifyFailureSummary;
       }
     }
+    if (input.verifyRecoveryUsed === true) {
+      this.verifyRecoveryUsed = true;
+    }
     for (const path of input.editedPaths ?? []) {
-      this.editedPaths.add(path);
+      this.editedPaths.add(normalizeToolPath(path) ?? path);
     }
   }
 
@@ -405,12 +414,31 @@ export class ToolPolicyEngine {
     }
 
     if (this.needsVerifyFix()) {
+      const path = pathFromInput(input);
+      const normalizedPath = normalizeToolPath(path);
+      if (
+        toolName === "edit_text" &&
+        normalizedPath &&
+        !this.editedPaths.has(normalizedPath)
+      ) {
+        this.recordBlockedAttempt();
+        return blockedOutput(
+          `Verification recovery is limited to edited files. \`${path}\` was not edited in this run.`,
+          "edit_text",
+          { phase: this.phase, affectedPath: path },
+        );
+      }
       if (
         toolName === "bash" ||
         toolName === "grep" ||
         toolName === "glob" ||
         toolName === "inspect_project" ||
-        toolName === "delegate_task"
+        toolName === "delegate_task" ||
+        toolName === "edit_file" ||
+        toolName === "replace_text" ||
+        toolName === "replace_lines" ||
+        toolName === "multi_replace_text" ||
+        toolName === "write_file"
       ) {
         this.recordBlockedAttempt();
         return blockedOutput(
@@ -784,9 +812,12 @@ export class ToolPolicyEngine {
       const nextHash =
         typeof output.nextHash === "string" ? output.nextHash : undefined;
       if (path && nextHash) {
+        if (this.verifyFixPending) {
+          this.verifyRecoveryUsed = true;
+        }
         this.lastSuccessfulEdit = { path, nextHash };
         this.lastHashByPath.set(path, nextHash);
-        this.editedPaths.add(path);
+        this.editedPaths.add(normalizeToolPath(path) ?? path);
         this.fullCoveragePaths.delete(path);
         for (const key of [...this.lastReadHashByRange.keys()]) {
           if (key.startsWith(`read_file:${path}:`)) {
@@ -879,14 +910,27 @@ export class ToolPolicyEngine {
       }
     }
 
-    if (toolName === "verify" && success && isRecord(output)) {
-      if (output.ok === true) {
+    if (toolName === "verify" && isRecord(output)) {
+      const status = typeof output.status === "string" ? output.status : undefined;
+      const failureScope =
+        typeof output.failureScope === "string" ? output.failureScope : undefined;
+      const recoverableEditedFailure =
+        status === "failed" &&
+        failureScope === "edited_file" &&
+        !this.verifyRecoveryUsed;
+
+      if (output.ok === true || status === "passed" || status === "skipped") {
         this.verifyCompleted = true;
         this.verifyFixPending = false;
         this.verifyFixNoteCount = 0;
         this.lastVerifyFailureSummary = undefined;
         this.phase = "final";
-      } else {
+        if (status === "skipped") {
+          this.forceFinalReason =
+            extractVerifyFailureSummary(output) ??
+            "Verification was skipped. Write the final answer with that reason.";
+        }
+      } else if (recoverableEditedFailure) {
         this.verifyCompleted = false;
         this.verifyFixPending = true;
         this.phase = "recoverEdit";
@@ -895,6 +939,15 @@ export class ToolPolicyEngine {
         for (const editedPath of this.editedPaths) {
           this.recoveryReadAllowedByPath.add(editedPath);
         }
+      } else {
+        this.verifyCompleted = true;
+        this.verifyFixPending = false;
+        this.verifyFixNoteCount = 0;
+        this.phase = "final";
+        this.lastVerifyFailureSummary = extractVerifyFailureSummary(output);
+        this.forceFinalReason =
+          this.lastVerifyFailureSummary ??
+          "Verification did not pass. Write the final answer with the latest verification result.";
       }
     }
 
@@ -958,6 +1011,7 @@ export function seedFromPriorToolRecords(
   let lastSuccessfulEdit: { path: string; nextHash: string } | undefined;
   let phase: ToolPolicyPhase = "explore";
   let verifyFixPending = false;
+  let verifyRecoveryUsed = false;
   let lastVerifyFailureSummary: string | undefined;
   const editedPaths = new Set<string>();
 
@@ -999,7 +1053,8 @@ export function seedFromPriorToolRecords(
       if (path && nextHash) {
         lastSuccessfulEdit = { path, nextHash };
         lastHashByPath[path] = nextHash;
-        editedPaths.add(path);
+        if (verifyFixPending) verifyRecoveryUsed = true;
+        editedPaths.add(normalizeToolPath(path) ?? path);
         phase = "postEdit";
       }
     }
@@ -1033,12 +1088,27 @@ export function seedFromPriorToolRecords(
         if (path && hash) multiReplaceBlockedKeys.push(`${path}:${hash}`);
       }
     }
-    if (record.toolName === "verify" && record.success && isRecord(record.output)) {
-      if (record.output.ok === true) {
+    if (record.toolName === "verify" && isRecord(record.output)) {
+      const status =
+        typeof record.output.status === "string" ? record.output.status : undefined;
+      const failureScope =
+        typeof record.output.failureScope === "string"
+          ? record.output.failureScope
+          : undefined;
+      const recoverableEditedFailure =
+        status === "failed" &&
+        failureScope === "edited_file" &&
+        !verifyRecoveryUsed;
+      if (record.output.ok === true || status === "passed" || status === "skipped") {
         phase = "final";
-      } else {
-        phase = "postEdit";
+        verifyFixPending = false;
+      } else if (recoverableEditedFailure) {
+        phase = "recoverEdit";
         verifyFixPending = true;
+        lastVerifyFailureSummary = extractVerifyFailureSummary(record.output);
+      } else {
+        phase = "final";
+        verifyFixPending = false;
         lastVerifyFailureSummary = extractVerifyFailureSummary(record.output);
       }
     }
@@ -1047,9 +1117,13 @@ export function seedFromPriorToolRecords(
   const verifyCompleted = records.some(
     (record) =>
       record.toolName === "verify" &&
-      record.success &&
       isRecord(record.output) &&
-      record.output.ok === true,
+      (record.output.ok === true ||
+        record.output.status === "passed" ||
+        record.output.status === "skipped" ||
+        (record.output.status === "failed" &&
+          record.output.failureScope !== "edited_file") ||
+        record.output.status === "command_broken"),
   );
 
   return {
@@ -1068,6 +1142,7 @@ export function seedFromPriorToolRecords(
             ? { lastVerifyFailureSummary }
             : {}),
           editedPaths: [...editedPaths],
+          ...(verifyRecoveryUsed ? { verifyRecoveryUsed: true } : {}),
         }
       : {}),
     ...(lastSuccessfulEdit ? { lastSuccessfulEdit } : {}),

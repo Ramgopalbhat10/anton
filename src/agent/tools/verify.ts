@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { tool, type JSONValue } from "ai";
 import { z } from "zod";
 
@@ -21,10 +23,35 @@ import {
 const MAX_TIMEOUT_MS = 300_000;
 const DEFAULT_BUILD_TIMEOUT_MS = MAX_TIMEOUT_MS;
 const MODEL_OUTPUT_TEXT_CAP = 8_000;
+const PATH_HINT_CAP = 20;
 
 const verificationTargetSchema = z.enum(["typecheck", "lint", "build"]);
 
 export type VerificationTarget = z.infer<typeof verificationTargetSchema>;
+
+export type VerificationStatus =
+  | "passed"
+  | "failed"
+  | "skipped"
+  | "command_broken";
+
+export type VerificationFailureScope =
+  | "edited_file"
+  | "unrelated"
+  | "unknown";
+
+export type VerificationRecommendedNext =
+  | "final"
+  | "fix_edited_file"
+  | "report_unrelated"
+  | "report_skipped"
+  | "report_command_broken";
+
+export type VerificationPathHint = {
+  path: string;
+  line?: number;
+  column?: number;
+};
 
 export type VerificationPlan =
   | {
@@ -60,7 +87,12 @@ type VerificationResult =
       stdout?: string;
       stderr?: string;
       error?: string;
+      commandBroken?: boolean;
     };
+
+type CreateVerifyToolOptions = {
+  getEditedPaths?: () => readonly string[];
+};
 
 const DEFAULT_TARGETS: readonly VerificationTarget[] = [
   "typecheck",
@@ -71,6 +103,7 @@ const DEFAULT_TARGETS: readonly VerificationTarget[] = [
 export function createVerifyTool(
   workspaceRoot?: string,
   profile: AgentRunProfile = "general-chat",
+  options: CreateVerifyToolOptions = {},
 ) {
   const defaults = verifyDefaultsForProfile(profile);
   return tool({
@@ -100,6 +133,7 @@ export function createVerifyTool(
       const root = workspaceRoot
         ? ensureWorkspaceRootAt(workspaceRoot)
         : ensureWorkspaceRoot();
+      const editedPaths = normalizeUniquePaths(options.getEditedPaths?.() ?? []);
       const resolvedTargets =
         targets ??
         defaultTargetsForProfile(root, profile) ??
@@ -108,7 +142,15 @@ export function createVerifyTool(
       const plan = planVerification(root, {
         targets: resolvedTargets,
       });
-      if (!plan.ok) return plan;
+      if (!plan.ok) {
+        return buildVerificationOutput({
+          editedPaths,
+          packageManager: undefined,
+          results: [],
+          planError: plan.error,
+          workspaceRoot: root,
+        });
+      }
 
       const results = await Promise.all(
         plan.steps.map(async (step): Promise<VerificationResult> => {
@@ -134,6 +176,7 @@ export function createVerifyTool(
               ok: false,
               timeoutMs: stepTimeoutMs,
               error: "Verification command is empty.",
+              commandBroken: true,
             };
           }
 
@@ -151,6 +194,7 @@ export function createVerifyTool(
             timedOut: result.timedOut ?? false,
             stdout: capOutput(result.stdout),
             stderr: capOutput(result.stderr),
+            ...(result.failedToStart ? { commandBroken: true as const } : {}),
             ...(ok
               ? {}
               : {
@@ -164,24 +208,68 @@ export function createVerifyTool(
         }),
       );
 
-      const ranCount = results.filter((result) => !result.skipped).length;
-      const failed = results.filter((result) => !result.ok);
-      return {
-        ok: failed.length === 0,
+      return buildVerificationOutput({
+        editedPaths,
         packageManager: plan.packageManager,
         parallel: true,
-        ranCount,
-        skippedCount: results.length - ranCount,
         results,
-        summary:
-          ranCount === 0
-            ? "No verification scripts were available."
-            : failed.length === 0
-              ? `Verification passed for ${ranCount} target${ranCount === 1 ? "" : "s"}.`
-              : `Verification failed for ${failed.length} target${failed.length === 1 ? "" : "s"}.`,
-      };
+        workspaceRoot: root,
+      });
     },
   });
+}
+
+function buildVerificationOutput(input: {
+  editedPaths: readonly string[];
+  packageManager: PackageManager | undefined;
+  parallel?: boolean;
+  results: readonly VerificationResult[];
+  planError?: string;
+  workspaceRoot: string;
+}) {
+  const ranCount = input.results.filter((result) => !result.skipped).length;
+  const failed = input.results.filter((result) => !result.ok);
+  const status = verificationStatus(input.results, input.planError);
+  const failedText = failed
+    .map((result) => failedResultText(result))
+    .filter((text) => text.length > 0)
+    .join("\n");
+  const pathHints = extractPathHints(
+    failedText,
+    input.editedPaths,
+    input.workspaceRoot,
+  );
+  const failureScope = failureScopeForHints(pathHints, input.editedPaths);
+  const recommendedNext = recommendedNextForStatus(status, failureScope);
+  const failureSummary = failureSummaryForStatus({
+    status,
+    failed,
+    planError: input.planError,
+    pathHints,
+  });
+
+  return {
+    ok: status === "passed" || status === "skipped",
+    status,
+    failureScope,
+    recommendedNext,
+    editedPaths: input.editedPaths,
+    pathHints,
+    ...(failureSummary ? { failureSummary } : {}),
+    ...(input.packageManager ? { packageManager: input.packageManager } : {}),
+    ...(input.parallel ? { parallel: true as const } : {}),
+    ranCount,
+    skippedCount: input.results.length - ranCount,
+    results: input.results,
+    summary:
+      status === "passed"
+        ? `Verification passed for ${ranCount} target${ranCount === 1 ? "" : "s"}.`
+        : status === "skipped"
+          ? (input.planError ?? "No verification scripts were available.")
+          : status === "command_broken"
+            ? "Verification command could not be executed."
+            : `Verification failed for ${failed.length} target${failed.length === 1 ? "" : "s"}.`,
+  };
 }
 
 function timeoutForTarget(
@@ -197,6 +285,167 @@ function timeoutForTarget(
 function formatDuration(timeoutMs: number): string {
   if (timeoutMs % 1_000 !== 0) return `${timeoutMs}ms`;
   return `${timeoutMs / 1_000}s`;
+}
+
+function verificationStatus(
+  results: readonly VerificationResult[],
+  planError: string | undefined,
+): VerificationStatus {
+  if (planError) return "skipped";
+  const ran = results.filter((result) => !result.skipped);
+  if (ran.length === 0) return "skipped";
+  if (ran.some((result) => !result.ok && result.commandBroken === true)) {
+    return "command_broken";
+  }
+  if (ran.some((result) => !result.ok)) return "failed";
+  return "passed";
+}
+
+function recommendedNextForStatus(
+  status: VerificationStatus,
+  failureScope: VerificationFailureScope,
+): VerificationRecommendedNext {
+  if (status === "passed") return "final";
+  if (status === "skipped") return "report_skipped";
+  if (status === "command_broken") return "report_command_broken";
+  if (failureScope === "edited_file") return "fix_edited_file";
+  if (failureScope === "unrelated") return "report_unrelated";
+  return "final";
+}
+
+function failureScopeForHints(
+  pathHints: readonly VerificationPathHint[],
+  editedPaths: readonly string[],
+): VerificationFailureScope {
+  if (pathHints.length === 0) return "unknown";
+  const edited = new Set(editedPaths.map(normalizeToolPath));
+  return pathHints.some((hint) => edited.has(normalizeToolPath(hint.path)))
+    ? "edited_file"
+    : "unrelated";
+}
+
+function failureSummaryForStatus(input: {
+  status: VerificationStatus;
+  failed: readonly VerificationResult[];
+  planError?: string;
+  pathHints: readonly VerificationPathHint[];
+}): string | undefined {
+  if (input.status === "passed") return undefined;
+  if (input.status === "skipped") {
+    return input.planError ?? "No verification scripts were available.";
+  }
+  const firstFailed = input.failed.find((result) => !result.skipped);
+  if (!firstFailed || firstFailed.skipped) return undefined;
+  const text = failedResultText(firstFailed);
+  const primaryLine = firstMeaningfulLine(text);
+  const hint = input.pathHints[0];
+  const location = hint
+    ? `${hint.path}${hint.line !== undefined ? `:${hint.line}` : ""}${
+        hint.column !== undefined ? `:${hint.column}` : ""
+      }`
+    : undefined;
+  const prefix =
+    input.status === "command_broken"
+      ? "Verification command could not be executed"
+      : "Verification failed";
+  if (location && primaryLine) return `${prefix} at ${location}: ${primaryLine}`;
+  if (primaryLine) return `${prefix}: ${primaryLine}`;
+  return prefix;
+}
+
+function failedResultText(result: VerificationResult): string {
+  if (result.skipped) return result.reason;
+  return [result.stderr, result.stdout, result.error]
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
+    .join("\n");
+}
+
+function firstMeaningfulLine(text: string): string | undefined {
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (/^>/.test(trimmed)) continue;
+    return trimmed.length > 240 ? `${trimmed.slice(0, 240)}...` : trimmed;
+  }
+  return undefined;
+}
+
+function extractPathHints(
+  text: string,
+  editedPaths: readonly string[],
+  workspaceRoot: string,
+): VerificationPathHint[] {
+  const hints: VerificationPathHint[] = [];
+  const seen = new Set<string>();
+  const editedBasenames = new Set(
+    editedPaths.map((editedPath) => path.posix.basename(normalizeToolPath(editedPath))),
+  );
+  const regex =
+    /((?:[A-Za-z]:)?(?:[./\\]|\w)[\w .@()[\]/\\-]*\.(?:ts|tsx|js|jsx|mjs|cjs|json|css|md|mdx|yml|yaml))(?:[:(](\d+))?(?::(\d+))?/g;
+
+  for (const match of text.matchAll(regex)) {
+    const rawPath = match[1];
+    if (!rawPath) continue;
+    const normalized = normalizeHintPath(rawPath, workspaceRoot);
+    if (!normalized) continue;
+    const basename = path.posix.basename(normalized);
+    if (
+      normalized.includes("node_modules/") &&
+      !editedBasenames.has(basename)
+    ) {
+      continue;
+    }
+    const line = parsePositiveInt(match[2]);
+    const column = parsePositiveInt(match[3]);
+    const key = `${normalized}:${line ?? ""}:${column ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    hints.push({
+      path: normalized,
+      ...(line !== undefined ? { line } : {}),
+      ...(column !== undefined ? { column } : {}),
+    });
+    if (hints.length >= PATH_HINT_CAP) break;
+  }
+  return hints;
+}
+
+function normalizeHintPath(value: string, workspaceRoot: string): string | undefined {
+  const trimmed = value
+    .replace(/^file:\/\//, "")
+    .replace(/^["'`([{<]+/, "")
+    .replace(/[)"'`>\],;]+$/, "")
+    .replace(/\\/g, "/");
+  const withoutDot = trimmed.replace(/^\.\//, "");
+  if (withoutDot.length === 0) return undefined;
+  if (isAbsolutePath(withoutDot)) {
+    const relative = path.win32.isAbsolute(withoutDot)
+      ? path.win32.relative(workspaceRoot, withoutDot)
+      : path.posix.relative(workspaceRoot.replace(/\\/g, "/"), withoutDot);
+    if (!relative.startsWith("..") && !isAbsolutePath(relative)) {
+      return normalizeToolPath(relative);
+    }
+  }
+  return normalizeToolPath(withoutDot);
+}
+
+function normalizeUniquePaths(paths: readonly string[]): string[] {
+  return [...new Set(paths.map(normalizeToolPath).filter(Boolean))];
+}
+
+function normalizeToolPath(value: string): string {
+  const normalized = value.replace(/\\/g, "/").replace(/^\.\//, "");
+  return normalized;
+}
+
+function isAbsolutePath(value: string): boolean {
+  return path.win32.isAbsolute(value) || path.posix.isAbsolute(value);
+}
+
+function parsePositiveInt(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function defaultTargetsForProfile(

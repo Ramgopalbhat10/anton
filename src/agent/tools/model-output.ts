@@ -157,6 +157,24 @@ export function compactVerifyForModel(output: unknown): unknown {
     ? results.find((result) => isRecord(result) && result.ok === false)
     : undefined;
   const failureSummary = extractVerifyFailureSummary(output);
+  const base = {
+    ok: output.ok,
+    status: output.status,
+    failureScope: output.failureScope,
+    recommendedNext: output.recommendedNext,
+    summary: output.summary,
+    packageManager: output.packageManager,
+    parallel: output.parallel,
+    ranCount: output.ranCount,
+    skippedCount: output.skippedCount,
+    editedPaths: Array.isArray(output.editedPaths)
+      ? output.editedPaths.slice(0, 10)
+      : output.editedPaths,
+    pathHints: Array.isArray(output.pathHints)
+      ? output.pathHints.slice(0, 5)
+      : output.pathHints,
+    ...(failureSummary ? { failureSummary } : {}),
+  };
   const parseIssues =
     failed && isRecord(failed)
       ? extractParseIssuesFromText(
@@ -168,13 +186,8 @@ export function compactVerifyForModel(output: unknown): unknown {
 
   if (output.ok === false) {
     return {
+      ...base,
       ok: false,
-      summary: output.summary,
-      packageManager: output.packageManager,
-      parallel: output.parallel,
-      ranCount: output.ranCount,
-      skippedCount: output.skippedCount,
-      ...(failureSummary ? { failureSummary } : {}),
       ...(parseIssues.length > 0 ? { parseIssues: parseIssues.slice(0, 5) } : {}),
       ...(failed && isRecord(failed)
         ? {
@@ -189,18 +202,19 @@ export function compactVerifyForModel(output: unknown): unknown {
   }
 
   return {
-    ok: output.ok,
-    summary: output.summary,
-    packageManager: output.packageManager,
-    parallel: output.parallel,
-    ranCount: output.ranCount,
-    skippedCount: output.skippedCount,
+    ...base,
     results,
   };
 }
 
 export function extractVerifyFailureSummary(output: unknown): string | undefined {
   if (!isRecord(output)) return undefined;
+  if (
+    typeof output.failureSummary === "string" &&
+    output.failureSummary.trim().length > 0
+  ) {
+    return output.failureSummary.trim();
+  }
   if (typeof output.summary === "string" && output.summary.trim().length > 0) {
     const base = output.summary.trim();
     if (!Array.isArray(output.results)) return base;
