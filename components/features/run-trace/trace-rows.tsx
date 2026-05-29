@@ -176,11 +176,13 @@ function ReasoningRow({
         </span>
       )}
     >
-      <div className="min-h-0 overflow-hidden">
-        <pre className="ml-5 mt-1 max-h-40 overflow-y-auto pr-2 font-mono text-[10px] leading-relaxed text-foreground/80 whitespace-pre-wrap">
-          {text}
-        </pre>
-      </div>
+      {text.trim().length > 0 ? (
+        <div className="min-h-0 overflow-hidden">
+          <pre className="ml-5 mt-1 max-h-40 overflow-y-auto pr-2 font-mono text-[10px] leading-relaxed text-foreground/80 whitespace-pre-wrap">
+            {text}
+          </pre>
+        </div>
+      ) : null}
     </Disclosure>
   );
 }

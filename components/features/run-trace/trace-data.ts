@@ -632,6 +632,141 @@ export function getTodoTraceDisplay(
   return displayByFirstPart;
 }
 
+type PartSequenceMarker = {
+  partIndex: number;
+  sequence: number;
+};
+
+function reasoningPartIdFromDetails(
+  event: AntonActivityEvent,
+): string | undefined {
+  const details = event.details;
+  if (!details) return undefined;
+  const value = details.reasoningPartId;
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function buildPartSequenceMarkers(
+  message: AntonUIMessage,
+  toolEntries: ToolTraceEntry[],
+  activities: AntonActivityEvent[],
+): PartSequenceMarker[] {
+  const markers: PartSequenceMarker[] = [];
+  const seenKeys = new Set<string>();
+
+  const noteMarker = (partIndex: number, sequence: number, key: string) => {
+    if (seenKeys.has(key)) return;
+    seenKeys.add(key);
+    markers.push({ partIndex, sequence });
+  };
+
+  message.parts.forEach((part, index) => {
+    const toolCallId = toolCallIdForPart(part);
+    if (!toolCallId) return;
+    const tool = toolEntries.find((entry) => entry.id === toolCallId);
+    if (tool?.activity?.sequence !== undefined) {
+      noteMarker(index, tool.activity.sequence, `tool:${tool.id}`);
+    }
+  });
+
+  const reasoningEvents = activities
+    .filter((event) => event.kind === "reasoning")
+    .slice()
+    .sort((left, right) => left.sequence - right.sequence);
+  const matchedReasoningIds = new Set<string>();
+  message.parts.forEach((part, index) => {
+    if (!isReasoningPart(part)) return;
+    if (!("id" in part) || typeof part.id !== "string") return;
+    const event =
+      reasoningEvents.find(
+        (candidate) =>
+          !matchedReasoningIds.has(candidate.id) &&
+          reasoningPartIdFromDetails(candidate) === part.id,
+      ) ??
+      reasoningEvents.find(
+        (candidate) =>
+          !matchedReasoningIds.has(candidate.id) &&
+          candidate.id.endsWith(`:reasoning:${part.id}`),
+      );
+    if (!event) return;
+    matchedReasoningIds.add(event.id);
+    noteMarker(index, event.sequence, `reasoning:${event.id}`);
+  });
+
+  for (const event of activities) {
+    if (event.kind === "step") continue;
+    if (
+      event.kind === "tool" &&
+      toolEntries.some((entry) => entry.activity?.id === event.id)
+    ) {
+      continue;
+    }
+    if (
+      event.kind === "reasoning" &&
+      matchedReasoningIds.has(event.id)
+    ) {
+      continue;
+    }
+    noteMarker(-1, event.sequence, `activity:${event.id}`);
+  }
+
+  return markers.sort(
+    (left, right) =>
+      left.partIndex - right.partIndex || left.sequence - right.sequence,
+  );
+}
+
+function orderForPartIndex(
+  partIndex: number,
+  markers: readonly PartSequenceMarker[],
+): number {
+  const before = [...markers]
+    .reverse()
+    .find((marker) => marker.partIndex < partIndex);
+  const after = markers.find((marker) => marker.partIndex > partIndex);
+
+  if (before && after) {
+    const indexSpan = after.partIndex - before.partIndex;
+    const sequenceSpan = after.sequence - before.sequence;
+    if (indexSpan > 0 && sequenceSpan > 0) {
+      const fraction = (partIndex - before.partIndex) / indexSpan;
+      return before.sequence + fraction * sequenceSpan;
+    }
+    return before.sequence + 0.001;
+  }
+  if (before) return before.sequence + 0.001;
+  if (after) return after.sequence - 0.001;
+  return partIndex;
+}
+
+function isProgressTextPart(
+  message: AntonUIMessage,
+  partIndex: number,
+  isPlanResponse: boolean,
+): boolean {
+  if (isPlanResponse) return false;
+  const part = message.parts[partIndex];
+  if (part.type !== "text") return false;
+  if (stripLeakedProviderMarkup(part.text).length === 0) return false;
+
+  const hasToolAfter = message.parts
+    .slice(partIndex + 1)
+    .some((candidate) => toolCallIdForPart(candidate) !== undefined);
+  if (hasToolAfter) return true;
+
+  const lastToolIndex = message.parts.findLastIndex((candidate) =>
+    Boolean(toolCallIdForPart(candidate)),
+  );
+  if (lastToolIndex !== -1 && partIndex < lastToolIndex) return true;
+
+  if (!isAssistantTurnActive(message)) return false;
+
+  const lastTextPartIndex = message.parts.findLastIndex(
+    (candidate) => candidate.type === "text",
+  );
+  return lastTextPartIndex !== partIndex;
+}
+
 export function getTraceRows(
   message: AntonUIMessage,
   todoDisplay?: TodoTraceDisplay,
@@ -642,15 +777,15 @@ export function getTraceRows(
   );
   const reasoningByEventId = buildReasoningTextByEventId(message);
   const toolEntries = getToolTraceEntries([message]);
+  const partSequenceMarkers = buildPartSequenceMarkers(
+    message,
+    toolEntries,
+    activities,
+  );
   const rows: TraceRow[] = [];
   const representedActivityIds = new Set<string>();
   const isPlanResponse = message.metadata?.responseKind === "plan";
   let reasoningIndex = 0;
-  const lastToolIndex = message.parts.findLastIndex((part) =>
-    toolCallIdForPart(part)
-      ? toolEntries.some((entry) => entry.id === toolCallIdForPart(part))
-      : false,
-  );
   const latestToolPartIndexes = getLatestToolPartIndexes(message);
   const latestTodoPartIndexes = todoDisplay
     ? undefined
@@ -673,17 +808,12 @@ export function getTraceRows(
       return;
     }
 
-    if (
-      part.type === "text" &&
-      !isPlanResponse &&
-      lastToolIndex !== -1 &&
-      index < lastToolIndex
-    ) {
+    if (part.type === "text" && isProgressTextPart(message, index, isPlanResponse)) {
       const text = stripLeakedProviderMarkup(part.text);
       if (!text) return;
       rows.push({
         id: `${message.id}:progress:${index}`,
-        order: index,
+        order: orderForPartIndex(index, partSequenceMarkers),
         kind: "progress",
         text,
       });
@@ -699,7 +829,7 @@ export function getTraceRows(
       if (!todoSnapshot) return;
       rows.push({
         id: part.id ?? `${message.id}:todos:${index}`,
-        order: index,
+        order: orderForPartIndex(index, partSequenceMarkers),
         kind: "todos",
         snapshot: todoSnapshot,
       });
@@ -724,12 +854,8 @@ export function getTraceRows(
   for (const event of activities) {
     if (representedActivityIds.has(event.id)) continue;
     if (event.kind === "reasoning") {
-      const text = reasoningTextForEvent(
-        message,
-        event,
-        reasoningByEventId,
-      );
-      if (!text) continue;
+      const text =
+        reasoningTextForEvent(message, event, reasoningByEventId) ?? "";
       rows.push({
         id: event.id,
         order: event.sequence,
