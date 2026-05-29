@@ -483,12 +483,19 @@ function buildStatusTraceRunGroups(
       steps: groupTimelineItemsByStep<StatusTraceTimelineEvent>(
         segmentEvents.map((event) => ({
           ...event,
-          durationMs: event.durationMs ?? undefined,
+          durationMs: statusEventDurationMs(event),
           startedAt: event.startedAt,
         })),
       ),
     };
   });
+}
+
+function statusEventDurationMs(
+  event: ProjectRunDetailsEvent,
+): number | undefined {
+  if (event.durationMs !== null) return event.durationMs;
+  return event.status === "running" ? undefined : 0;
 }
 
 function PermissionLabel({ label }: { label: string }) {

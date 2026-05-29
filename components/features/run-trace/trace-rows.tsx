@@ -18,7 +18,12 @@ import {
   type AntonRunStatus,
 } from "@/src/lib/trace";
 
-import { formatDuration, type TraceRow, type StepGroup } from "./trace-data";
+import {
+  activityDisplayDurationMs,
+  formatDuration,
+  type TraceRow,
+  type StepGroup,
+} from "./trace-data";
 import { ToolTraceRow } from "./tool-trace-row";
 import { TodoCard } from "./todo-card";
 import { BudgetGateCard } from "@/components/features/chat/budget-gate-card";
@@ -171,11 +176,13 @@ function ReasoningRow({
         </span>
       )}
     >
-      <div className="min-h-0 overflow-hidden">
-        <pre className="ml-5 mt-1 max-h-40 overflow-y-auto pr-2 font-mono text-[10px] leading-relaxed text-foreground/80 whitespace-pre-wrap">
-          {text}
-        </pre>
-      </div>
+      {text.trim().length > 0 ? (
+        <div className="min-h-0 overflow-hidden">
+          <pre className="ml-5 mt-1 max-h-40 overflow-y-auto pr-2 font-mono text-[10px] leading-relaxed text-foreground/80 whitespace-pre-wrap">
+            {text}
+          </pre>
+        </div>
+      ) : null}
     </Disclosure>
   );
 }
@@ -248,10 +255,16 @@ function displayEventForRun(
   event: AntonActivityEvent,
   runStatus: AntonRunStatus,
 ): AntonActivityEvent {
-  if (event.status !== "running" || runStatus === "running") return event;
+  const durationMs =
+    activityDisplayDurationMs(event) ??
+    (runStatus === "running" ? undefined : 0);
+  if (event.status !== "running" || runStatus === "running") {
+    return durationMs === event.durationMs ? event : { ...event, durationMs };
+  }
   return {
     ...event,
     status: runStatus === "completed" ? "completed" : "error",
+    durationMs,
   };
 }
 

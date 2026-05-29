@@ -1199,6 +1199,8 @@ function createTraceWriter({
   const effectiveProfile: AgentRunProfile = profile;
   const events = new Map<string, AntonActivityEvent>();
   const reasoningBuffers = new Map<string, string>();
+  const activeReasoningEventIds = new Map<string, string>();
+  const reasoningOccurrences = new Map<string, number>();
 
   const metadata = (
     status: AntonRunStatus,
@@ -1964,22 +1966,36 @@ function createTraceWriter({
     },
     handleStreamPart(part: TextStreamPart<ToolSet>) {
       if (part.type === "reasoning-delta") {
+        const eventId = activeReasoningEventIds.get(part.id);
+        const bufferId = eventId ?? `${runId}:reasoning:${part.id}`;
         reasoningBuffers.set(
-          part.id,
-          `${reasoningBuffers.get(part.id) ?? ""}${part.text}`,
+          bufferId,
+          `${reasoningBuffers.get(bufferId) ?? ""}${part.text}`,
         );
       }
       if (part.type === "reasoning-start") {
+        const occurrence = (reasoningOccurrences.get(part.id) ?? 0) + 1;
+        reasoningOccurrences.set(part.id, occurrence);
+        const eventId = `${runId}:reasoning:${part.id}:${occurrence}`;
+        activeReasoningEventIds.set(part.id, eventId);
         startEvent({
-          id: `${runId}:reasoning:${part.id}`,
+          id: eventId,
           kind: "reasoning",
           label: "Thinking",
+          details: {
+            reasoningPartId: part.id,
+            reasoningOccurrence: occurrence,
+          },
         });
       }
       if (part.type === "reasoning-end") {
-        const summary = reasoningBuffers.get(part.id)?.trim();
-        reasoningBuffers.delete(part.id);
-        finishEvent(`${runId}:reasoning:${part.id}`, {
+        const eventId =
+          activeReasoningEventIds.get(part.id) ??
+          `${runId}:reasoning:${part.id}`;
+        const summary = reasoningBuffers.get(eventId)?.trim();
+        reasoningBuffers.delete(eventId);
+        activeReasoningEventIds.delete(part.id);
+        finishEvent(eventId, {
           status: "completed",
           label: "Thought",
           ...(summary ? { summary: redactText(summary) } : {}),

@@ -59,6 +59,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Polished trace workspace file tabs, headers, and Pierre code view scrolling/gutter behavior.
 - [✔️] Synced file tree git status badges with local `git status`, including header dirty counts and refresh on focus.
 - [✔️] Replaced global active-project localStorage with session-scoped composer project picker that locks after the first message (#107).
+- [✔️] Kept chat, Worklog, and Status reasoning traces aligned across live and persisted run views.
 - [✔️] Made verification run independent targets in parallel with build-safe timeout reporting (#134).
 - [✔️] Hardened verification classification and post-edit rollback for cache-safe agent recovery.
 
