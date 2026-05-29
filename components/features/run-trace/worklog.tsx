@@ -24,6 +24,7 @@ import {
   type ToolTraceEntry,
 } from "@/src/lib/trace";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/shared/feedback-states";
 import { cn } from "@/lib/utils";
 import { Markdown } from "@/components/features/chat/markdown";
 import { TodoCard } from "./todo-card";
@@ -42,10 +43,10 @@ import type {
 } from "@/src/lib/api-types";
 
 const traceWorkspaceHeaderRowClass =
-  "flex shrink-0 items-center border-b border-border p-1.5";
+  "flex shrink-0 items-center border-b border-layout-border p-1.5";
 
 const traceWorkspaceTabClass =
-  "inline-flex h-6 min-w-0 max-w-44 shrink-0 items-center gap-1.5 rounded pl-1.5 pr-2 text-[11px] font-normal transition-colors";
+  "inline-flex h-6 min-w-0 max-w-44 shrink-0 items-center gap-1.5 rounded pl-1.5 pr-2 text-[11px] font-normal transition-colors duration-150";
 
 const traceWorkspaceTabCloseButtonClass =
   "group/close relative inline-flex size-4 shrink-0 items-center justify-center rounded transition-colors hover:bg-background/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
@@ -137,7 +138,7 @@ export function Worklog({
   return (
     <aside
       className={cn(
-        "flex min-h-0 flex-col border-l border-border bg-card/35",
+        "flex min-h-0 flex-col border-l border-layout-border bg-panel/80",
         className,
       )}
       aria-label="Trace workspace"
@@ -196,7 +197,7 @@ export function Worklog({
                 <Plus />
               </Button>
               {menuOpen && availableTabs.length > 0 && (
-                <div className="absolute right-0 top-full z-50 mt-1 w-36 min-w-36 overflow-hidden rounded-md bg-popover text-popover-foreground shadow-none ring-1 ring-border">
+                <div className="absolute right-0 top-full z-50 mt-1 w-36 min-w-36 overflow-hidden rounded-md bg-popover text-popover-foreground shadow-md ring-1 ring-border">
                   <ul className="p-0.5">
                     {availableTabs.map((tab) => {
                       const meta = tabMeta(tab.id);
@@ -314,8 +315,11 @@ function tabMeta(tab: SidebarTab) {
 
 function EmptyTabsPanel() {
   return (
-    <div className="flex flex-1 items-center justify-center px-4 text-center text-xs text-muted-foreground">
-      Add a sidebar tab to view worklog activity, generated plans, todos, or files.
+    <div className="flex flex-1 items-center justify-center px-4">
+      <EmptyState
+        variant="centered"
+        message="Add a sidebar tab to view worklog activity, generated plans, todos, or files."
+      />
     </div>
   );
 }
@@ -340,15 +344,18 @@ function PlansPanel({ messages }: { messages: AntonUIMessage[] }) {
 
   if (plans.length === 0) {
     return (
-      <div className="flex flex-1 items-center justify-center px-4 text-center text-xs text-muted-foreground">
-        Generated plans will appear here after using the Plan composer action.
+      <div className="flex flex-1 items-center justify-center px-4">
+        <EmptyState
+          variant="centered"
+          message="Generated plans will appear here after using the Plan composer action."
+        />
       </div>
     );
   }
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <ol className="border-b border-border px-2 py-2">
+      <ol className="border-b border-layout-border px-2 py-2">
         {plans.map((plan, index) => (
           <li key={plan.id}>
             <button
@@ -389,8 +396,11 @@ function TodosPanel({ messages }: { messages: AntonUIMessage[] }) {
 
   if (!latest) {
     return (
-      <div className="flex flex-1 items-center justify-center px-4 text-center text-xs text-muted-foreground">
-        Todo snapshots will appear here when Anton starts implementation work.
+      <div className="flex flex-1 items-center justify-center px-4">
+        <EmptyState
+          variant="centered"
+          message="Todo snapshots will appear here when Anton starts implementation work."
+        />
       </div>
     );
   }

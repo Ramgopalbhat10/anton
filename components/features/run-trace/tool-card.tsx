@@ -4,6 +4,7 @@ import type { ChatAddToolApproveResponseFunction } from "ai";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
 import { Disclosure } from "@/components/shared/disclosure";
+import { surfaceVariants } from "@/components/shared/surface";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ToolState } from "@/src/lib/trace";
@@ -41,12 +42,9 @@ export function ToolCard({
 
   return (
     <Disclosure
-      className={cn(
-        "rounded-md text-xs not-prose",
-        "bg-card/50 text-foreground ring-1 ring-border",
-      )}
+      className={cn(surfaceVariants({ variant: "elevated" }), "overflow-hidden text-xs not-prose")}
       trigger={({ open }) => (
-        <span className="flex min-w-0 items-center justify-between gap-2 px-3 py-2">
+        <span className="flex min-w-0 items-center justify-between gap-2 px-3 py-2 transition-colors duration-150 hover:bg-accent/30">
           <span className="flex min-w-0 items-center gap-2">
             <span className="truncate font-mono text-[11px] font-semibold">
               {name}

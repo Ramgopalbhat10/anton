@@ -1,10 +1,11 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { ChevronLeft, Search, X } from "lucide-react";
+import { ChevronLeft, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { SearchField } from "@/components/shared/search-field";
+import { Surface } from "@/components/shared/surface";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
@@ -29,26 +30,22 @@ export function SettingsShell({
       aria-labelledby="settings-title"
     >
       <div className="grid h-dvh min-h-0 grid-cols-1 md:grid-cols-[300px_minmax(0,1fr)]">
-        <aside className="hidden min-h-0 border-r border-border bg-sidebar md:flex md:flex-col">
-          <div className="border-b border-border px-3 py-3">
+        <aside className="hidden min-h-0 border-r border-layout-border bg-sidebar md:flex md:flex-col">
+          <div className="border-b border-layout-border px-3 py-3">
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              className="-ml-2 mb-3 h-6 text-xs text-muted-foreground"
+              className="-ml-2 mb-2 h-6 text-xs text-muted-foreground"
               onClick={onClose}
             >
               <ChevronLeft />
               Back
             </Button>
-            <label className="relative block">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                className="h-8 pl-8"
-                placeholder="Search settings..."
-                aria-label="Search settings"
-              />
-            </label>
+            <SearchField
+              placeholder="Search settings..."
+              aria-label="Search settings"
+            />
           </div>
 
           <nav className="min-h-0 flex-1 overflow-y-auto p-2">
@@ -92,13 +89,13 @@ export function SettingsShell({
         </aside>
 
         <main className="flex min-h-0 min-w-0 flex-col bg-background">
-          <header className="flex h-10 items-center justify-between border-b border-border px-3 md:px-4">
+          <header className="flex h-10 items-center justify-between border-b border-layout-border px-3 md:px-4">
             <div className="flex min-w-0 items-center gap-2">
               <span className="hidden text-xs text-muted-foreground md:inline">
                 Settings
               </span>
               <span className="hidden text-muted-foreground md:inline">/</span>
-              <h1 id="settings-title" className="truncate text-xs font-semibold">
+              <h1 id="settings-title" className="truncate text-xs font-semibold tracking-tight">
                 {sectionTitle(section)}
               </h1>
             </div>
@@ -118,9 +115,9 @@ export function SettingsShell({
             onValueChange={(value) =>
               onSectionChange(value as SettingsSection)
             }
-            className="overflow-x-auto border-b border-border px-2 py-1.5 md:hidden"
+            className="overflow-x-auto border-b border-layout-border px-2 py-1 md:hidden"
           >
-            <TabsList>
+            <TabsList size="sm">
               <TabsTrigger value="workspaces">Workspaces</TabsTrigger>
               <TabsTrigger value="agent">Agent</TabsTrigger>
               <TabsTrigger value="mcp">MCP</TabsTrigger>
@@ -149,9 +146,9 @@ export function SettingsPageShell({
 }) {
   return (
     <div className="mx-auto w-full max-w-5xl space-y-3">
-      <div className="mb-5">
-        <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
-        <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+      <div className="mb-3">
+        <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">{description}</p>
       </div>
       {children}
     </div>
@@ -170,16 +167,16 @@ export function SettingsCard({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-md bg-card p-3 ring-1 ring-border">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="flex items-center gap-1.5 text-xs font-semibold [&_svg]:size-4">
+    <Surface variant="elevated" padding="md">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <h3 className="flex items-center gap-1.5 text-xs font-semibold [&_svg]:size-3.5">
           {icon}
           {title}
         </h3>
         {action}
       </div>
       {children}
-    </section>
+    </Surface>
   );
 }
 
@@ -191,8 +188,8 @@ function SettingsGroup({
   children: ReactNode;
 }) {
   return (
-    <section className="mb-4">
-      <h2 className="mb-1.5 px-2 text-[11px] font-medium text-muted-foreground">
+    <section className="mb-3">
+      <h2 className="mb-1 px-2 text-[11px] font-medium text-muted-foreground">
         {title}
       </h2>
       <div className="space-y-0.5">{children}</div>
@@ -214,10 +211,10 @@ function SettingsNavButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex h-7 w-full items-center rounded-md px-2 text-left text-xs font-medium transition-colors",
+        "flex h-7 w-full items-center rounded-md px-2 text-left text-xs font-medium transition-colors duration-150",
         active
           ? "bg-sidebar-accent text-sidebar-accent-foreground"
-          : "text-foreground hover:bg-sidebar-accent/70",
+          : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
       )}
     >
       {children}

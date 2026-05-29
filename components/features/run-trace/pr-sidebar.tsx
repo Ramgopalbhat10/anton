@@ -47,6 +47,7 @@ import type {
 import { errorMessage, getJson } from "@/src/lib/client-fetch";
 import { Markdown } from "@/components/features/chat/markdown";
 import { PopupSectionHeader } from "@/components/shared/popup-section-header";
+import { MetricTile } from "@/components/shared/metric-tile";
 import {
   PopupSortSelect,
   type PopupSortOption,
@@ -73,7 +74,7 @@ export function PullRequestPanel({
 }) {
   return (
     <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-      <section className="border-b border-border px-3 py-3">
+      <section className="border-b border-layout-border px-3 py-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
@@ -143,25 +144,17 @@ export function PullRequestPanel({
       </section>
 
       <Tabs defaultValue="changes" className="min-w-0 gap-0">
-        <div className="border-b border-border px-2 py-1.5">
-          <TabsList variant="line" className="h-auto w-full justify-start gap-1 p-0">
-            <TabsTrigger value="changes" className="h-6 flex-none px-2 py-0 text-[11px]">
-              Changes
-            </TabsTrigger>
-            <TabsTrigger value="description" className="h-6 flex-none px-2 py-0 text-[11px]">
-              Description
-            </TabsTrigger>
-            <TabsTrigger value="discussion" className="h-6 flex-none px-2 py-0 text-[11px]">
-              Discussion {pullRequest.discussion.length}
-            </TabsTrigger>
-            <TabsTrigger value="commits" className="h-6 flex-none px-2 py-0 text-[11px]">
-              Commits {pullRequest.commitItems.length}
-            </TabsTrigger>
-            <TabsTrigger value="checks" className="h-6 flex-none px-2 py-0 text-[11px]">
-              Checks
-            </TabsTrigger>
-          </TabsList>
-        </div>
+        <TabsList variant="workspace" className="overflow-x-auto pl-3 scrollbar-hide">
+          <TabsTrigger value="changes">Changes</TabsTrigger>
+          <TabsTrigger value="description">Description</TabsTrigger>
+          <TabsTrigger value="discussion">
+            Discussion {pullRequest.discussion.length}
+          </TabsTrigger>
+          <TabsTrigger value="commits">
+            Commits {pullRequest.commitItems.length}
+          </TabsTrigger>
+          <TabsTrigger value="checks">Checks</TabsTrigger>
+        </TabsList>
         <TabsContent value="changes" className="m-0 min-w-0">
           <LocalChangesView files={pullRequest.files} />
         </TabsContent>
@@ -213,7 +206,7 @@ export function PullRequestEmptyPanel({
       : null;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <section className="border-b border-border px-3 py-3">
+      <section className="border-b border-layout-border px-3 py-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-1.5">
@@ -246,8 +239,8 @@ export function PullRequestEmptyPanel({
         </div>
         {gitStatus ? (
           <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
-            <Metric label="Branch" value={gitStatus.branch ?? "detached"} />
-            <Metric label="Dirty" value={gitStatus.dirtyCount} />
+            <MetricTile label="Branch" value={gitStatus.branch ?? "detached"} />
+            <MetricTile label="Dirty" value={gitStatus.dirtyCount} />
           </div>
         ) : null}
         {canShowCreateAction ? (
@@ -1115,7 +1108,7 @@ export function PullRequestSelector({
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" side="bottom" className="w-80 overflow-hidden p-0">
-        <div className="border-b border-border p-1.5">
+        <div className="border-b border-layout-border p-1.5">
           <div className="grid grid-cols-[0.75rem_1fr_auto] items-center gap-1.5 rounded-md bg-background/70 px-1.5 py-1 ring-1 ring-border">
             <Search className="size-3 text-muted-foreground" />
             <input
@@ -1241,41 +1234,16 @@ function StateBadge({
   );
 }
 
-function Metric({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string | number;
-  tone?: "add" | "delete";
-}) {
-  return (
-    <div className="rounded-md bg-background/45 px-2 py-1.5 ring-1 ring-border">
-      <div className="text-[10px] uppercase text-muted-foreground">{label}</div>
-      <div
-        className={cn(
-          "font-mono text-xs font-semibold",
-          tone === "add" && "text-emerald-400",
-          tone === "delete" && "text-destructive",
-        )}
-      >
-        {value}
-      </div>
-    </div>
-  );
-}
-
 function checkStateMeta(state: ProjectPullRequestSummary["checks"]["state"]) {
   switch (state) {
     case "success":
-      return { Icon: CheckCircle2, label: "Checks passed", className: "text-emerald-400" };
+      return { Icon: CheckCircle2, label: "Checks passed", className: "text-success" };
     case "failure":
       return { Icon: XCircle, label: "Checks failed", className: "text-destructive" };
     case "error":
       return { Icon: AlertCircle, label: "Checks errored", className: "text-destructive" };
     case "pending":
-      return { Icon: Clock, label: "Checks pending", className: "text-amber-400" };
+      return { Icon: Clock, label: "Checks pending", className: "text-warning" };
     case "unknown":
       return { Icon: AlertCircle, label: "Checks unknown", className: "text-muted-foreground" };
   }

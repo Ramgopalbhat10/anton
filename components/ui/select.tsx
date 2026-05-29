@@ -24,7 +24,7 @@ function SelectTrigger({
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
       className={cn(
-        "inline-flex h-7 min-w-0 items-center justify-between gap-2 rounded-md bg-secondary px-2 text-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:shrink-0",
+        "inline-flex h-7 min-w-0 items-center justify-between gap-2 rounded-md bg-secondary/80 px-2 text-xs text-muted-foreground ring-1 ring-border outline-none transition-colors duration-150 hover:text-foreground focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:shrink-0",
         className,
       )}
       {...props}
@@ -50,7 +50,7 @@ function SelectContent({
         data-slot="select-content"
         position={position}
         className={cn(
-          "relative z-50 max-h-72 min-w-[8rem] overflow-hidden rounded-md bg-popover text-popover-foreground shadow-none ring-1 ring-border data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[side=bottom]:slide-in-from-top-1 data-[side=top]:slide-in-from-bottom-1",
+          "relative z-50 max-h-72 min-w-[8rem] overflow-hidden rounded-md bg-popover text-popover-foreground shadow-md ring-1 ring-border data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[side=bottom]:slide-in-from-top-1 data-[side=top]:slide-in-from-bottom-1",
           position === "popper" &&
             "data-[side=bottom]:translate-y-1 data-[side=top]:-translate-y-1",
           className,

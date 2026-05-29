@@ -596,7 +596,7 @@ function ChatSession({
 
   return (
     <div className="flex min-w-0 max-w-full flex-1 flex-col overflow-hidden bg-background">
-      <header className="flex h-10 w-full max-w-full items-center justify-between gap-2 border-b border-border px-3">
+      <header className="flex h-10 w-full max-w-full items-center justify-between gap-2 border-b border-layout-border px-3">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           {!sidebar.open && (
             <Button

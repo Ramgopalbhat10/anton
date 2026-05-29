@@ -330,11 +330,12 @@ export function BackgroundCommandsPanel({
               value={customCommand}
               onChange={(event) => setCustomCommand(event.target.value)}
               placeholder="python -m http.server"
-              className="h-7 font-mono text-[11px]"
+              className="h-6 px-2 font-mono text-[11px]"
             />
             <Button
               type="submit"
-              size="xs"
+              size="sm"
+              className="shrink-0 px-2.5"
               disabled={
                 !customCommand.trim() ||
                 activeCommands.has(customCommand.trim()) ||
@@ -483,12 +484,12 @@ function RunningCommandCard({
   const now = useElapsedClock(session.status !== "stopping");
   const primaryUrl = session.detectedUrls[0] ?? null;
   return (
-    <div className="rounded-md bg-background/25 px-2 py-1.5 ring-1 ring-border/50">
-      <div className="flex flex-wrap items-start gap-2">
+    <div className="rounded-md bg-card/30 px-2 py-1.5 ring-1 ring-border/50">
+      <div className="flex gap-2">
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex min-h-5 items-center gap-2">
             <StatusBadge status={session.status} />
-            <code className="truncate font-mono text-[10px] text-foreground">
+            <code className="truncate font-mono text-[10px] leading-none text-foreground">
               {session.command}
             </code>
           </div>
@@ -507,7 +508,7 @@ function RunningCommandCard({
             ) : null}
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-0.5">
+        <div className="flex h-5 shrink-0 items-center gap-0.5">
           <Button
             type="button"
             size="icon-xs"
@@ -586,12 +587,12 @@ function RecentCommandCard({
     : pendingAction === `rerun:${session.id}`;
 
   return (
-    <div className="rounded-md bg-background/25 px-2 py-1.5 ring-1 ring-border/50">
-      <div className="flex flex-wrap items-start gap-2">
+    <div className="rounded-md bg-card/30 px-2 py-1.5 ring-1 ring-border/50">
+      <div className="flex gap-2">
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex min-h-5 items-center gap-2">
             <StatusBadge status={session.status} />
-            <code className="truncate font-mono text-[10px] text-foreground">
+            <code className="truncate font-mono text-[10px] leading-none text-foreground">
               {session.command}
             </code>
           </div>
@@ -601,7 +602,7 @@ function RecentCommandCard({
             {session.signal ? ` · ${session.signal}` : null}
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-0.5">
+        <div className="flex h-5 shrink-0 items-center gap-0.5">
           <Button
             type="button"
             size="icon-xs"
@@ -719,7 +720,7 @@ function StatusBadge({ status }: { status: BackgroundCommandSessionSummary["stat
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1",
+        "inline-flex h-5 shrink-0 items-center gap-1 rounded-full px-2 text-[10px] font-medium leading-none ring-1",
         meta.className,
       )}
     >

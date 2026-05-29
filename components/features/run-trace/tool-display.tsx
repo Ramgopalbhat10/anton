@@ -137,22 +137,22 @@ export function toolStateMeta(state: ToolState) {
       return {
         label: "streaming",
         Icon: Loader2,
-        iconClass: "animate-spin text-sky-400",
-        textClass: "text-sky-400",
+        iconClass: "animate-spin text-info",
+        textClass: "text-info",
       };
     case "input-available":
       return {
         label: "running",
         Icon: Clock3,
-        iconClass: "text-sky-400",
-        textClass: "text-sky-400",
+        iconClass: "text-info",
+        textClass: "text-info",
       };
     case "approval-requested":
       return {
         label: "approval",
         Icon: AlertCircle,
-        iconClass: "text-amber-400",
-        textClass: "text-amber-400",
+        iconClass: "text-warning",
+        textClass: "text-warning",
       };
     case "approval-responded":
       return {
@@ -165,8 +165,8 @@ export function toolStateMeta(state: ToolState) {
       return {
         label: "",
         Icon: CheckCircle2,
-        iconClass: "text-emerald-400",
-        textClass: "text-emerald-400",
+        iconClass: "text-success",
+        textClass: "text-success",
       };
     case "output-error":
       return {
@@ -225,7 +225,7 @@ export function toolStateBadge(state: ToolState): {
     case "approval-requested":
       return {
         label: "needs approval",
-        tone: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
+        tone: "bg-warning/15 text-warning",
       };
     case "approval-responded":
       return {
@@ -235,7 +235,7 @@ export function toolStateBadge(state: ToolState): {
     case "output-available":
       return {
         label: "",
-        tone: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+        tone: "bg-success/15 text-success",
       };
     case "output-error":
       return {
@@ -270,11 +270,11 @@ export function riskCategoryBadge(
     case "read-only":
       return { label: "read", baseClass: "bg-secondary text-muted-foreground ring-1 ring-border" };
     case "write":
-      return { label: "write", baseClass: "bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/40" };
+      return { label: "write", baseClass: "bg-warning/15 text-warning ring-1 ring-warning/40" };
     case "delete":
-      return { label: "delete", baseClass: "bg-red-500/15 text-red-300 ring-1 ring-red-500/40" };
+      return { label: "delete", baseClass: "bg-destructive/15 text-destructive ring-1 ring-destructive/40" };
     case "network":
-      return { label: "network", baseClass: "bg-sky-500/15 text-sky-300 ring-1 ring-sky-500/40" };
+      return { label: "network", baseClass: "bg-info/15 text-info ring-1 ring-info/40" };
     case "package-install":
       return { label: "install", baseClass: "bg-purple-500/15 text-purple-300 ring-1 ring-purple-500/40" };
     case "git":

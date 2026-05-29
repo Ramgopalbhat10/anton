@@ -9,6 +9,7 @@ import {
 } from "react";
 import {
   ArrowUp,
+  ChevronDown,
   Code2,
   DatabaseZap,
   MessageCircle,
@@ -20,7 +21,9 @@ import {
   ShieldQuestion,
   Square,
 } from "lucide-react";
+import { Badge } from "@/components/shared/badge";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -31,6 +34,11 @@ import {
   SelectViewport,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import type { ModelId } from "@/src/lib/models";
 import type { ChatMode } from "@/src/lib/chat-modes";
 import type { PermissionMode } from "@/src/agent/permissions";
@@ -74,6 +82,9 @@ interface ComposerProps {
 const MIN_HEIGHT = 24;
 const MAX_HEIGHT = 44;
 
+const COMPOSER_TOOLBAR_CONTROL =
+  "h-5 gap-1 rounded-md bg-secondary px-1.5 text-[11px] font-medium leading-4 text-muted-foreground shadow-none ring-0 hover:bg-secondary/70 hover:text-foreground focus-visible:ring-0";
+
 export function Composer({
   onSend,
   onStop,
@@ -104,7 +115,6 @@ export function Composer({
   onOpenProjectStatus,
 }: ComposerProps) {
   const [input, setInput] = useState("");
-  const [mcpOpen, setMcpOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const sendDisabled = disabled || (mode !== "chat" && !project);
 
@@ -152,7 +162,7 @@ export function Composer({
             onKeyDown={onKeyDown}
             placeholder={placeholderForMode(mode)}
             rows={1}
-            className="field-sizing-fixed min-h-0 min-w-0 resize-none rounded-none border-0 bg-transparent p-0 font-mono text-xs leading-5 shadow-none placeholder:font-mono focus-visible:ring-0 dark:bg-transparent md:text-xs"
+            className="field-sizing-fixed min-h-0 min-w-0 resize-none rounded-none border-0 bg-transparent p-0 font-mono text-xs leading-5 shadow-none ring-0 placeholder:font-mono focus-visible:ring-0 focus-visible:ring-offset-0 dark:bg-transparent md:text-xs"
             style={{ minHeight: MIN_HEIGHT, maxHeight: MAX_HEIGHT }}
           />
           <div className="mt-1 flex items-center justify-between gap-2">
@@ -175,8 +185,6 @@ export function Composer({
               <McpSelector
                 servers={mcpServers}
                 selectedIds={selectedMcpServerIds}
-                open={mcpOpen}
-                onOpenChange={setMcpOpen}
                 onSelectedIdsChange={onSelectedMcpServerIdsChange}
                 disabled={disabled || mode !== "agent" || !project}
               />
@@ -190,7 +198,7 @@ export function Composer({
                 thinkingEnabled={thinkingEnabled}
                 onThinkingEnabledChange={onThinkingEnabledChange}
                 disabled={streaming}
-                triggerClassName="h-5 w-36 px-1.5 text-[11px]"
+                triggerClassName={cn(COMPOSER_TOOLBAR_CONTROL, "w-36 justify-between")}
               />
               {streaming ? (
                 <Button
@@ -238,13 +246,17 @@ export function Composer({
             contentAlign="start"
           />
           {runningCommandCount > 0 ? (
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="xs"
               onClick={onOpenProjectStatus}
-              className="inline-flex items-center gap-1 rounded-full bg-emerald-400/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400 ring-1 ring-emerald-400/30 hover:bg-emerald-400/15"
+              className="h-auto p-0 hover:bg-transparent"
             >
-              {runningCommandCount} running
-            </button>
+              <Badge variant="success" className="normal-case tracking-normal">
+                {runningCommandCount} running
+              </Badge>
+            </Button>
           ) : null}
         </div>
       </div>
@@ -280,7 +292,7 @@ function ModeSelector({
       onValueChange={(next) => onChange(next as ChatMode)}
       disabled={disabled}
     >
-      <SelectTrigger className="h-5 gap-1 border-0 bg-transparent px-1.5 text-[11px] font-medium leading-4 text-muted-foreground hover:bg-accent hover:text-foreground">
+      <SelectTrigger className={COMPOSER_TOOLBAR_CONTROL}>
         <selected.Icon className="size-3.5 shrink-0" />
         <SelectValue>{selected.label}</SelectValue>
       </SelectTrigger>
@@ -325,77 +337,72 @@ function placeholderForMode(mode: ChatMode): string {
 function McpSelector({
   servers,
   selectedIds,
-  open,
-  onOpenChange,
   onSelectedIdsChange,
   disabled,
 }: {
   servers: McpServerSummary[];
   selectedIds: string[];
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
   onSelectedIdsChange: (ids: string[]) => void;
   disabled: boolean;
 }) {
+  const [open, setOpen] = useState(false);
   const enabledServers = servers.filter((server) => server.enabled);
   const selectedCount = enabledServers.filter((server) =>
     selectedIds.includes(server.id),
   ).length;
+
   return (
-    <div className="relative">
-      <Button
-        type="button"
-        variant="ghost"
-        size="xs"
-        className="h-5 px-1.5 text-[11px] text-primary hover:bg-primary/10"
-        disabled={disabled}
-        onClick={() => onOpenChange(!open)}
-        aria-expanded={open}
-        aria-label="Select MCP servers"
-      >
-        <DatabaseZap />
-        MCP {selectedCount}
-      </Button>
-      {open && !disabled && (
-        <div className="absolute bottom-full left-0 z-50 mb-2 w-56 rounded-md bg-popover p-1 text-xs text-popover-foreground shadow-lg ring-1 ring-border">
-          {enabledServers.length === 0 ? (
-            <div className="px-1.5 py-1.5 text-muted-foreground">
-              No enabled MCP servers.
-            </div>
-          ) : (
-            <ul className="grid gap-0.5">
-              {enabledServers.map((server) => {
-                const checked = selectedIds.includes(server.id);
-                return (
-                  <li key={server.id}>
-                    <div
-                      className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded px-1.5 py-1 text-primary"
-                    >
-                      <span className="truncate text-[11px] font-medium leading-4">
-                        {server.displayName}
-                      </span>
-                      <Switch
-                        checked={checked}
-                        className="h-4 w-7 ring-0 data-[state=checked]:ring-0"
-                        thumbClassName="size-3 data-[state=checked]:translate-x-3.5 data-[state=unchecked]:translate-x-0.5"
-                        aria-label={`${checked ? "Disable" : "Enable"} ${server.displayName} MCP server`}
-                        onCheckedChange={() => {
-                          onSelectedIdsChange(
-                            checked
-                              ? selectedIds.filter((id) => id !== server.id)
-                              : [...selectedIds, server.id],
-                          );
-                        }}
-                      />
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      )}
-    </div>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="secondary"
+          size="xs"
+          className={COMPOSER_TOOLBAR_CONTROL}
+          disabled={disabled}
+          aria-label="Select MCP servers"
+        >
+          <DatabaseZap />
+          MCP {selectedCount}
+          <ChevronDown className="size-3 shrink-0 opacity-70" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" side="top" className="w-56 p-1">
+        {enabledServers.length === 0 ? (
+          <div className="px-1.5 py-1.5 text-xs text-muted-foreground">
+            No enabled MCP servers.
+          </div>
+        ) : (
+          <ul className="grid gap-0.5">
+            {enabledServers.map((server) => {
+              const checked = selectedIds.includes(server.id);
+              return (
+                <li key={server.id}>
+                  <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded px-1.5 py-1">
+                    <span className="truncate text-[11px] font-medium leading-4 text-foreground">
+                      {server.displayName}
+                    </span>
+                    <Switch
+                      checked={checked}
+                      className="h-4 w-7 ring-0 data-[state=checked]:ring-0"
+                      thumbClassName="size-3 data-[state=checked]:translate-x-3.5 data-[state=unchecked]:translate-x-0.5"
+                      aria-label={`${checked ? "Disable" : "Enable"} ${server.displayName} MCP server`}
+                      onCheckedChange={() => {
+                        onSelectedIdsChange(
+                          checked
+                            ? selectedIds.filter((id) => id !== server.id)
+                            : [...selectedIds, server.id],
+                        );
+                      }}
+                    />
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -419,9 +426,15 @@ function PermissionsDropdown({
   const selected =
     PERMISSION_MODE_ITEMS.find((item) => item.value === value) ??
     PERMISSION_MODE_ITEMS[1];
+  const isFullAccessMode = value === "full-access";
   return (
     <Select value={value} onValueChange={(v) => onChange(v as PermissionMode)}>
-      <SelectTrigger className="h-5 gap-1 border-0 bg-transparent px-1.5 text-[11px] font-medium leading-4 text-primary hover:bg-primary/10">
+      <SelectTrigger
+        className={cn(
+          COMPOSER_TOOLBAR_CONTROL,
+          isFullAccessMode && "text-primary hover:text-primary",
+        )}
+      >
         <selected.Icon className="size-3.5 shrink-0" />
         <SelectValue>{selected.label}</SelectValue>
       </SelectTrigger>

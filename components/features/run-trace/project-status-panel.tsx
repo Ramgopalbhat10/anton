@@ -19,6 +19,7 @@ import {
   ErrorBanner,
   LoadingState,
 } from "@/components/shared/feedback-states";
+import { MetricTile } from "@/components/shared/metric-tile";
 import { BackgroundCommandsPanel } from "@/components/features/projects/background-commands-panel";
 import { ProjectRunDetails } from "@/components/features/run-trace/project-run-details";
 import { cn } from "@/lib/utils";
@@ -53,7 +54,7 @@ export function ProjectStatusPanel({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <section className="border-b border-border px-3 py-2">
+      <section className="border-b border-layout-border px-3 py-2">
         <div className="flex items-center justify-between gap-2">
           <h2 className="truncate text-sm font-medium">{project.fullName}</h2>
           <Button
@@ -134,7 +135,7 @@ function StatusSection({
   children: ReactNode;
 }) {
   return (
-    <section className="border-b border-border px-3 py-2">
+    <section className="border-b border-layout-border px-3 py-2">
       <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         {title}
       </h3>
@@ -173,14 +174,6 @@ function PathRow({ path }: { path: string }) {
   );
 }
 
-function Metric({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="rounded-md bg-background/45 px-2 py-1.5 ring-1 ring-border">
-      <div className="text-[10px] uppercase text-muted-foreground">{label}</div>
-      <div className="truncate font-mono text-xs font-semibold">{value}</div>
-    </div>
-  );
-}
 
 function LastRunCard({
   projectId,
@@ -212,7 +205,7 @@ function LastRunCard({
         </span>
       </div>
       <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Metric
+        <MetricTile
           label="Duration"
           value={
             lastRun.durationMs !== null
@@ -220,9 +213,9 @@ function LastRunCard({
               : "—"
           }
         />
-        <Metric label="Steps" value={lastRun.stepCount ?? "—"} />
-        <Metric label="Tokens" value={lastRun.totalTokens ?? "—"} />
-        <Metric
+        <MetricTile label="Steps" value={lastRun.stepCount ?? "—"} />
+        <MetricTile label="Tokens" value={lastRun.totalTokens ?? "—"} />
+        <MetricTile
           label="Cost"
           value={
             lastRun.costUsd !== null ? `$${lastRun.costUsd.toFixed(4)}` : "—"

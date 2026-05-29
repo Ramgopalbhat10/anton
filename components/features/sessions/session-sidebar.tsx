@@ -1,16 +1,16 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  MessageSquare,
   PanelLeftClose,
   Plus,
-  Search,
   Settings,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ErrorBanner } from "@/components/shared/feedback-states";
+import { SearchField } from "@/components/shared/search-field";
 import { cn } from "@/lib/utils";
 import { SettingsDialog } from "@/components/features/settings/settings-dialog";
 
@@ -117,12 +117,6 @@ function ExpandedSidebar({
         </Button>
       </div>
 
-      <nav className="space-y-0.5 px-2 pb-2">
-        <SidebarNavItem active icon={<MessageSquare />}>
-          Sessions
-        </SidebarNavItem>
-      </nav>
-
       <div className="flex items-center justify-between gap-2 px-2 py-1.5">
         <span className="text-xs font-medium text-muted-foreground">Recent</span>
         <Button
@@ -137,16 +131,12 @@ function ExpandedSidebar({
       </div>
 
       <div className="px-2 pb-1.5">
-        <div className="grid grid-cols-[0.75rem_1fr] items-center gap-1.5 rounded-md bg-background/70 px-1.5 py-1 ring-1 ring-border">
-          <Search className="size-3 text-muted-foreground" />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search chats"
-            className="min-w-0 bg-transparent text-[11px] outline-none placeholder:text-muted-foreground"
-            aria-label="Search recent chats"
-          />
-        </div>
+        <SearchField
+          value={query}
+          onChange={setQuery}
+          placeholder="Search chats"
+          aria-label="Search recent chats"
+        />
       </div>
 
       <SessionList
@@ -163,7 +153,7 @@ function ExpandedSidebar({
           type="button"
           variant="ghost"
           size="sm"
-          className="w-full justify-start text-xs"
+          className="h-6 w-full justify-start text-xs text-muted-foreground transition-colors duration-150 hover:bg-sidebar-accent/60 hover:text-foreground"
           onClick={onOpenSettings}
           aria-label="Settings"
         >
@@ -187,16 +177,7 @@ function CollapsedSidebar({
       <div className="flex h-10 w-full items-center justify-center">
         <BrandMark />
       </div>
-      <nav className="flex w-full flex-col items-center gap-1">
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          className="bg-sidebar-accent text-sidebar-accent-foreground"
-          aria-label="Sessions"
-        >
-          <MessageSquare />
-        </Button>
+      <nav className="flex w-full flex-col items-center gap-1 px-1 pt-1">
         <Button
           type="button"
           size="icon-sm"
@@ -263,38 +244,14 @@ function SessionList({
         </ul>
       )}
       {error && (
-        <div className="mx-3 mt-2 rounded-md bg-destructive/10 px-2 py-1 text-[11px] text-destructive ring-1 ring-destructive/30">
-          {error}
+        <div className="mx-3 mt-2">
+          <ErrorBanner message={error} />
         </div>
       )}
     </div>
   );
 }
 
-function SidebarNavItem({
-  active,
-  icon,
-  children,
-}: {
-  active?: boolean;
-  icon: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      className={cn(
-        "flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left text-xs font-medium transition-colors",
-        active
-          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-          : "text-muted-foreground hover:bg-sidebar-accent/70 hover:text-foreground",
-      )}
-    >
-      <span className="text-muted-foreground [&_svg]:size-3.5">{icon}</span>
-      <span>{children}</span>
-    </button>
-  );
-}
 
 function BrandMark() {
   return (

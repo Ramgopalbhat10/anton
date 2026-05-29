@@ -26,9 +26,10 @@ import {
 } from "@/src/lib/trace";
 import type { ChatMode } from "@/src/lib/chat-modes";
 import { cn } from "@/lib/utils";
-import { Markdown } from "./markdown";
+import { Surface } from "@/components/shared/surface";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Markdown } from "./markdown";
 import {
   messageMetrics,
   type ResponseMetrics,
@@ -74,7 +75,7 @@ export function MessageList({
 
   if (messages.length === 0) {
     return (
-      <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">
+      <div className="flex flex-1 items-center justify-center px-6 text-center text-xs text-muted-foreground">
         {emptyMessageListText(recovering)}
       </div>
     );
@@ -220,67 +221,69 @@ function MessageEvent({
       <div
         className={cn(
           "max-w-full text-xs wrap-break-word",
-          isUser
-            ? "max-w-[88%] rounded-md bg-card px-2.5 py-1.5 text-foreground ring-1 ring-border"
-            : "w-full text-foreground",
+          isUser ? "max-w-[88%]" : "w-full text-foreground",
         )}
       >
-        {!isUser && (
-          <RunTraceAccordion
-            message={message}
-            status={status}
-            todoDisplay={todoDisplay}
-            onApproval={onApproval}
-            onExtendTokenBudget={
-              showBudgetGate ? onExtendTokenBudget : undefined
-            }
-          />
-        )}
         {isUser ? (
-          message.parts.map((part, i) => {
-            if (part.type !== "text") return null;
-            return (
-              <div key={i} className="whitespace-pre-wrap leading-normal">
-                {part.text}
+          <Surface variant="elevated" className="px-2 py-1 text-xs">
+            {message.parts.map((part, i) => {
+              if (part.type !== "text") return null;
+              return (
+                <div key={i} className="whitespace-pre-wrap leading-normal">
+                  {part.text}
+                </div>
+              );
+            })}
+          </Surface>
+        ) : (
+          <div>
+            <RunTraceAccordion
+              message={message}
+              status={status}
+              todoDisplay={todoDisplay}
+              onApproval={onApproval}
+              onExtendTokenBudget={
+                showBudgetGate ? onExtendTokenBudget : undefined
+              }
+            />
+            {showPlanCard ? (
+              <PlanMessageCard
+                markdown={responseText}
+                onAccept={onAcceptPlan}
+                disabled={!assistantFinal || pendingApproval || acceptPlanDisabled}
+              />
+            ) : showToolFailure ? (
+              <div className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive ring-1 ring-destructive/30">
+                Tool failed: {failedToolText}
               </div>
-            );
-          })
-        ) : showPlanCard ? (
-          <PlanMessageCard
-            markdown={responseText}
-            onAccept={onAcceptPlan}
-            disabled={!assistantFinal || pendingApproval || acceptPlanDisabled}
-          />
-        ) : showToolFailure ? (
-          <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            Tool failed: {failedToolText}
-          </div>
-        ) : incompleteWithoutEdits && assistantFinal ? (
-          <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            No changes were written. {failedToolText || "Loop guards stopped the run before a successful edit."}
-          </div>
-        ) : unverifiedWithEdits && assistantFinal ? (
-          <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-            Edit completed without verification. Run verify before treating this answer as done.
-            {responseText.length > 0 ? (
-              <div className="mt-2 opacity-90">
-                <Markdown className="text-xs">{responseText}</Markdown>
+            ) : incompleteWithoutEdits && assistantFinal ? (
+              <div className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive ring-1 ring-destructive/30">
+                No changes were written. {failedToolText || "Loop guards stopped the run before a successful edit."}
               </div>
+            ) : unverifiedWithEdits && assistantFinal ? (
+              <div className="rounded-md bg-warning/10 px-3 py-2 text-xs text-warning ring-1 ring-warning/30">
+                Edit completed without verification. Run verify before treating this answer as done.
+                {responseText.length > 0 ? (
+                  <div className="mt-2 opacity-90">
+                    <Markdown className="text-xs leading-relaxed">{responseText}</Markdown>
+                  </div>
+                ) : null}
+              </div>
+            ) : verificationFailedWithEdits && assistantFinal ? (
+              <div className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive ring-1 ring-destructive/30">
+                Verification failed after edits. Treat this answer as incomplete until the reported verification issue is fixed.
+                {responseText.length > 0 ? (
+                  <div className="mt-2 opacity-90">
+                    <Markdown className="text-xs leading-relaxed">{responseText}</Markdown>
+                  </div>
+                ) : null}
+              </div>
+            ) : responseKind === "plan" ? null
+            : responseText.length > 0 ? (
+              <Markdown className="text-xs leading-relaxed">{responseText}</Markdown>
             ) : null}
           </div>
-        ) : verificationFailedWithEdits && assistantFinal ? (
-          <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            Verification failed after edits. Treat this answer as incomplete until the reported verification issue is fixed.
-            {responseText.length > 0 ? (
-              <div className="mt-2 opacity-90">
-                <Markdown className="text-xs">{responseText}</Markdown>
-              </div>
-            ) : null}
-          </div>
-        ) : responseKind === "plan" ? null
-        : responseText.length > 0 ? (
-          <Markdown className="text-xs">{responseText}</Markdown>
-        ) : null}
+        )}
       </div>
       {showActions && (
         <MessageActions
@@ -307,12 +310,10 @@ function PlanMessageCard({
   const current = editing ? draft : markdown;
 
   return (
-    <section className="overflow-hidden rounded-md bg-card/80 ring-1 ring-border">
-      <div className="flex min-w-0 items-center justify-between gap-2 border-b border-border px-2.5 py-1.5">
+    <Surface variant="elevated" className="overflow-hidden">
+      <div className="flex min-w-0 items-center justify-between gap-2 border-b border-border/60 px-2.5 py-1.5">
         <div className="min-w-0">
-          <div className="flex h-5 items-center text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Plan
-          </div>
+          <div className="flex h-5 items-center text-ui-label">Plan</div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <Button
@@ -348,10 +349,10 @@ function PlanMessageCard({
             aria-label="Edit plan markdown"
           />
         ) : (
-          <Markdown className="text-xs">{current}</Markdown>
+          <Markdown className="text-xs leading-relaxed">{current}</Markdown>
         )}
       </div>
-    </section>
+    </Surface>
   );
 }
 
@@ -430,7 +431,7 @@ function MessageActions({
       <CopyMessageButton text={text} />
       {metrics && <ResponseMetricsHoverCard metrics={metrics} />}
       {responseTime && (
-        <span className="px-1 py-0.5 font-mono text-[10px] text-muted-foreground">
+        <span className="px-1 py-0.5 font-mono text-ui-label normal-case tracking-normal">
           {responseTime}
         </span>
       )}
@@ -450,10 +451,12 @@ function CopyMessageButton({ text }: { text: string }) {
     }
   };
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
+      size="xs"
       onClick={onClick}
-      className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus:bg-accent focus:text-foreground"
+      className="h-5 px-1.5 text-[10px] normal-case tracking-normal text-muted-foreground"
       aria-label={copied ? "Copied" : "Copy message"}
     >
       {copied ? (
@@ -465,6 +468,6 @@ function CopyMessageButton({ text }: { text: string }) {
           <Copy className="size-3" /> copy
         </>
       )}
-    </button>
+    </Button>
   );
 }
