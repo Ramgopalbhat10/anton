@@ -329,7 +329,7 @@ function buildRunTimelineItems(
         kind: "tool",
         label: event.label,
         summary: event.summary,
-        durationMs: event.durationMs,
+        durationMs: activityDisplayDurationMs(event),
         status: event.status,
         tool,
         expandable: true,
@@ -343,14 +343,15 @@ function buildRunTimelineItems(
         event,
         reasoningByEventId,
       );
+      const durationMs = activityDisplayDurationMs(event);
       items.push({
         ...base,
         kind: "reasoning",
         label:
-          event.durationMs !== undefined
-            ? `Thought for ${formatDuration(event.durationMs)}`
+          durationMs !== undefined
+            ? `Thought for ${formatDuration(durationMs)}`
             : event.label,
-        durationMs: event.durationMs,
+        durationMs,
         status: event.status,
         reasoningText,
         expandable: Boolean(reasoningText),
@@ -365,7 +366,7 @@ function buildRunTimelineItems(
         kind: "todos",
         label: event.label || "Todos updated",
         summary: event.summary,
-        durationMs: event.durationMs,
+        durationMs: activityDisplayDurationMs(event),
         status: event.status,
         todoSnapshot,
         expandable: Boolean(todoSnapshot),
@@ -378,7 +379,7 @@ function buildRunTimelineItems(
       kind: event.kind,
       label: event.label,
       summary: event.summary,
-      durationMs: event.durationMs,
+      durationMs: activityDisplayDurationMs(event),
       status: event.status,
       expandable:
         (event.kind === "error" && Boolean(event.summary)) ||
@@ -397,7 +398,9 @@ function buildRunTimelineItems(
       runId: run.runId,
       kind: "tool",
       label: tool.activity?.label ?? label,
-      durationMs: tool.activity?.durationMs,
+      durationMs: tool.activity
+        ? activityDisplayDurationMs(tool.activity)
+        : undefined,
       status:
         tool.activity?.status ??
         (runStatus === "running" ? "running" : "completed"),
@@ -409,6 +412,17 @@ function buildRunTimelineItems(
   }
 
   return items.sort(compareTimelineItems);
+}
+
+export function activityDisplayDurationMs(
+  event: AntonActivityEvent,
+): number | undefined {
+  if (event.durationMs !== undefined) return event.durationMs;
+  if (event.finishedAt !== undefined) {
+    return Math.max(0, event.finishedAt - event.startedAt);
+  }
+  if (event.status !== "running") return 0;
+  return undefined;
 }
 
 function compareTimelineEvents(
@@ -442,6 +456,9 @@ function reasoningTextForEvent(
   event: AntonActivityEvent,
   reasoningByEventId?: ReadonlyMap<string, string>,
 ): string | undefined {
+  const summary = event.summary?.trim();
+  if (summary) return summary;
+  if (event.status === "running") return undefined;
   const map = reasoningByEventId ?? buildReasoningTextByEventId(message);
   return map.get(event.id);
 }
@@ -623,8 +640,10 @@ export function getTraceRows(
   const reasoningActivities = activities.filter(
     (event) => event.kind === "reasoning",
   );
+  const reasoningByEventId = buildReasoningTextByEventId(message);
   const toolEntries = getToolTraceEntries([message]);
   const rows: TraceRow[] = [];
+  const representedActivityIds = new Set<string>();
   const isPlanResponse = message.metadata?.responseKind === "plan";
   let reasoningIndex = 0;
   const lastToolIndex = message.parts.findLastIndex((part) =>
@@ -638,6 +657,7 @@ export function getTraceRows(
       : getLatestTodoPartIndexes(message);
   message.parts.forEach((part, index) => {
     if (isReasoningPart(part)) {
+      if (reasoningActivities.length > 0) return;
       const text = part.text.trim();
       if (!text) return;
       const event = reasoningActivities[reasoningIndex];
@@ -649,6 +669,7 @@ export function getTraceRows(
         event,
         text,
       });
+      if (event) representedActivityIds.add(event.id);
       return;
     }
 
@@ -697,10 +718,36 @@ export function getTraceRows(
       kind: "tool",
       tool,
     });
+    if (tool.activity) representedActivityIds.add(tool.activity.id);
   });
 
   for (const event of activities) {
-    if (event.kind === "tool" || event.kind === "reasoning") continue;
+    if (representedActivityIds.has(event.id)) continue;
+    if (event.kind === "reasoning") {
+      const text = reasoningTextForEvent(
+        message,
+        event,
+        reasoningByEventId,
+      );
+      if (!text) continue;
+      rows.push({
+        id: event.id,
+        order: event.sequence,
+        kind: "reasoning",
+        event,
+        text,
+      });
+      continue;
+    }
+    if (event.kind === "tool") {
+      rows.push({
+        id: event.id,
+        order: event.sequence,
+        kind: "activity",
+        event,
+      });
+      continue;
+    }
     if (event.kind === "step") continue;
     if (event.kind === "progress" && eventHasTodos(event)) continue;
     if (isTokenBudgetActivity(event)) continue;

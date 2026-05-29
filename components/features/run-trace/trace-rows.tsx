@@ -18,7 +18,12 @@ import {
   type AntonRunStatus,
 } from "@/src/lib/trace";
 
-import { formatDuration, type TraceRow, type StepGroup } from "./trace-data";
+import {
+  activityDisplayDurationMs,
+  formatDuration,
+  type TraceRow,
+  type StepGroup,
+} from "./trace-data";
 import { ToolTraceRow } from "./tool-trace-row";
 import { TodoCard } from "./todo-card";
 import { BudgetGateCard } from "@/components/features/chat/budget-gate-card";
@@ -248,10 +253,16 @@ function displayEventForRun(
   event: AntonActivityEvent,
   runStatus: AntonRunStatus,
 ): AntonActivityEvent {
-  if (event.status !== "running" || runStatus === "running") return event;
+  const durationMs =
+    activityDisplayDurationMs(event) ??
+    (runStatus === "running" ? undefined : 0);
+  if (event.status !== "running" || runStatus === "running") {
+    return durationMs === event.durationMs ? event : { ...event, durationMs };
+  }
   return {
     ...event,
     status: runStatus === "completed" ? "completed" : "error",
+    durationMs,
   };
 }
 

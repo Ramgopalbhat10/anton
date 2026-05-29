@@ -1186,6 +1186,15 @@ export function buildReasoningTextByEventId(
         left.sequence - right.sequence ||
         left.id.localeCompare(right.id),
     );
+  const eventsByPartId = new Map<string, AntonActivityEvent[]>();
+  for (const event of reasoningActivities) {
+    const partId = reasoningPartIdFromEvent(event);
+    if (!partId) continue;
+    const events = eventsByPartId.get(partId) ?? [];
+    events.push(event);
+    eventsByPartId.set(partId, events);
+  }
+  const matchedEventIds = new Set<string>();
   let reasoningIndex = 0;
 
   for (const part of message.parts) {
@@ -1194,21 +1203,41 @@ export function buildReasoningTextByEventId(
     if (!text) continue;
 
     if ("id" in part && typeof part.id === "string") {
-      for (const event of reasoningActivities) {
-        if (event.id.endsWith(`:reasoning:${part.id}`)) {
-          map.set(event.id, text);
-        }
+      const matchingEvent =
+        eventsByPartId
+          .get(part.id)
+          ?.find((event) => !matchedEventIds.has(event.id)) ??
+        reasoningActivities.find(
+          (event) =>
+            !matchedEventIds.has(event.id) &&
+            event.id.endsWith(`:reasoning:${part.id}`),
+        );
+      if (matchingEvent) {
+        map.set(matchingEvent.id, text);
+        matchedEventIds.add(matchingEvent.id);
+        reasoningIndex += 1;
+        continue;
       }
     }
 
-    const event = reasoningActivities[reasoningIndex];
+    const event = reasoningActivities
+      .slice(reasoningIndex)
+      .find((candidate) => !matchedEventIds.has(candidate.id));
     if (event && !map.has(event.id)) {
       map.set(event.id, text);
+      matchedEventIds.add(event.id);
     }
     reasoningIndex += 1;
   }
 
   return map;
+}
+
+function reasoningPartIdFromEvent(event: AntonActivityEvent): string | undefined {
+  const details = event.details;
+  if (!details) return undefined;
+  const value = details.reasoningPartId;
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 export function isReasoningPart(
