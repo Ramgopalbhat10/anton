@@ -59,6 +59,7 @@ type SidebarTab = "worklog" | "plans" | "todos" | "pr" | "files" | "diff" | "sta
 
 interface WorklogProps {
   messages: AntonUIMessage[];
+  streaming?: boolean;
   onApproval: ChatAddToolApproveResponseFunction;
   project: ProjectSummary | null;
   className?: string;
@@ -71,6 +72,7 @@ interface WorklogProps {
 
 export function Worklog({
   messages,
+  streaming = false,
   onApproval,
   project,
   className,
@@ -134,6 +136,19 @@ export function Worklog({
       !tabs.includes(tab.id) &&
       (tab.id !== "pr" || hasGithubProject),
   );
+
+  if (!visible) {
+    return (
+      <aside
+        className={cn(
+          "flex min-h-0 flex-col border-l border-layout-border bg-panel/80",
+          className,
+        )}
+        aria-label="Trace workspace"
+        aria-hidden="true"
+      />
+    );
+  }
 
   return (
     <aside
@@ -247,7 +262,11 @@ export function Worklog({
         </header>
 
         {activeTab === "worklog" ? (
-          <WorklogPanel messages={messages} onApproval={onApproval} />
+          <WorklogPanel
+            messages={messages}
+            streaming={streaming}
+            onApproval={onApproval}
+          />
         ) : activeTab === "plans" ? (
           <PlansPanel messages={messages} />
         ) : activeTab === "todos" ? (
@@ -326,12 +345,20 @@ function EmptyTabsPanel() {
 
 function WorklogPanel({
   messages,
+  streaming,
   onApproval,
 }: {
   messages: AntonUIMessage[];
+  streaming: boolean;
   onApproval: ChatAddToolApproveResponseFunction;
 }) {
-  return <WorklogTimeline messages={messages} onApproval={onApproval} />;
+  return (
+    <WorklogTimeline
+      messages={messages}
+      streaming={streaming}
+      onApproval={onApproval}
+    />
+  );
 }
 export function getWorklogEntries(messages: AntonUIMessage[]): WorklogEntry[] {
   return getToolTraceEntries(messages);

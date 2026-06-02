@@ -299,6 +299,9 @@ const LEAKED_MARKUP_BLOCK =
 const LEAKED_MARKUP_TAG =
   /<\|(?:DSML|tool_call|tool_calls|function_call|invoke)[^|]*\|[^>]*>/gi;
 
+const PLAN_REASONING_MARKER =
+  /^\s*(?:#{1,6}\s*)?(?:\*\*)?(?:implementation\s+)?plan\s*:?\s*(?:\*\*)?\s*$/i;
+
 export function stripLeakedProviderMarkup(text: string): string {
   let next = text.replace(LEAKED_MARKUP_BLOCK, "");
   next = next.replace(LEAKED_MARKUP_TAG, "");
@@ -313,22 +316,50 @@ export function getAssistantTextDisplay(
   const lastToolIndex = message.parts.findLastIndex(isToolUIPart);
   const progressText: string[] = [];
   const finalText: string[] = [];
+  const trailingPlanReasoningText: string[] = [];
+  const usePlanReasoningFallback = message.metadata?.responseKind === "plan";
 
   for (const [index, part] of message.parts.entries()) {
-    if (part.type !== "text") continue;
-    const text = stripLeakedProviderMarkup(part.text);
-    if (!text) continue;
-    if (options.progressOnly || (lastToolIndex !== -1 && index < lastToolIndex)) {
-      progressText.push(text);
-    } else {
-      finalText.push(text);
+    if (part.type === "reasoning") {
+      const text = stripLeakedProviderMarkup(part.text);
+      if (text && usePlanReasoningFallback && index > lastToolIndex) {
+        trailingPlanReasoningText.push(text);
+      }
+      continue;
     }
+
+    if (part.type === "text") {
+      const text = stripLeakedProviderMarkup(part.text);
+      if (!text) continue;
+      if (options.progressOnly || (lastToolIndex !== -1 && index < lastToolIndex)) {
+        progressText.push(text);
+      } else {
+        finalText.push(text);
+      }
+    }
+  }
+
+  if (finalText.length === 0 && trailingPlanReasoningText.length > 0) {
+    const planFallback = extractPlanReasoningFallback(
+      trailingPlanReasoningText.join("\n\n"),
+    );
+    if (planFallback) finalText.push(planFallback);
   }
 
   return {
     progressText: progressText.join("\n\n"),
     finalText: finalText.join("\n\n"),
   };
+}
+
+function extractPlanReasoningFallback(text: string): string | undefined {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const markerIndex = lines.findIndex((line) =>
+    PLAN_REASONING_MARKER.test(line),
+  );
+  if (markerIndex === -1) return undefined;
+  const planText = lines.slice(markerIndex + 1).join("\n").trim();
+  return planText || undefined;
 }
 
 export function hasPendingToolApproval(message: AntonUIMessage): boolean {

@@ -7,11 +7,14 @@ import { cn } from "@/lib/utils";
 const DISCLOSURE_ANIMATION =
   "overflow-hidden transition-[max-height,opacity] ease-in-out will-change-[max-height,opacity] motion-reduce:transition-none";
 
+type DisclosureChildren = ReactNode | ((state: { open: boolean }) => ReactNode);
+
 export function Disclosure({
   className,
   defaultOpen = false,
   forceOpen = false,
   disabled = false,
+  lazyMount = false,
   trigger,
   children,
 }: {
@@ -19,15 +22,24 @@ export function Disclosure({
   defaultOpen?: boolean;
   forceOpen?: boolean;
   disabled?: boolean;
+  lazyMount?: boolean;
   trigger: (state: { open: boolean }) => ReactNode;
-  children: ReactNode;
+  children: DisclosureChildren;
 }) {
   const id = useId();
   const contentRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(defaultOpen);
   const effectiveOpen = forceOpen || open;
+  const renderContent = !lazyMount || effectiveOpen;
+  const renderedChildren = renderContent
+    ? typeof children === "function"
+      ? children({ open: effectiveOpen })
+      : children
+    : null;
 
   useEffect(() => {
+    if (!renderContent) return;
+
     const content = contentRef.current;
     const panel = content?.parentElement;
     if (!content || !panel) return;
@@ -47,7 +59,7 @@ export function Disclosure({
       observer.disconnect();
       window.removeEventListener("resize", updateHeight);
     };
-  }, [children]);
+  }, [children, renderContent]);
 
   if (disabled) {
     return <div className={className}>{trigger({ open: false })}</div>;
@@ -74,7 +86,7 @@ export function Disclosure({
           maxHeight: effectiveOpen ? "var(--disclosure-height, 0px)" : "0px",
         }}
       >
-        <div ref={contentRef}>{children}</div>
+        <div ref={contentRef}>{renderedChildren}</div>
       </div>
     </div>
   );

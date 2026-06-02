@@ -23,6 +23,39 @@ type RunContextFile = {
   action: string;
 };
 
+type RunContextTodoItem = {
+  text: string;
+  status: "pending" | "in_progress" | "completed";
+};
+
+type RunContextTodo = {
+  summary: string;
+  itemCount: number;
+  completedCount: number;
+  current?: string;
+  items: RunContextTodoItem[];
+};
+
+type RunContextVerification = {
+  status: string;
+  summary?: string;
+  failureScope?: string;
+  failureSummary?: string;
+  recommendedNext?: string;
+  editedPaths: string[];
+  failedTargets: string[];
+};
+
+type RunContextBlocker = {
+  reason: string;
+  blockedTools: string[];
+  forceFinal: boolean;
+  affectedPath?: string;
+  phase?: string;
+  failureCode?: string;
+  recommendedNext?: string;
+};
+
 type RunContextCommand = {
   command: string;
   exitCode: number | null;
@@ -40,6 +73,10 @@ type RunContextTool = {
   output?: string;
   exitCode?: number | null;
   error?: string;
+  todo?: RunContextTodo;
+  verification?: RunContextVerification;
+  blocker?: RunContextBlocker;
+  touchedFiles?: RunContextFile[];
 };
 
 export class RunContextCollector {
@@ -72,6 +109,17 @@ export class RunContextCollector {
       compactLine,
     );
     const exitCode = outputExitCode(event.output);
+    const todo = todoFromToolOutput(event.toolName, event.output);
+    const verification = verificationFromToolOutput(
+      event.toolName,
+      event.output,
+    );
+    const touchedFiles = touchedFilesFromTool(
+      event.toolName,
+      event.input,
+      event.output,
+      !error,
+    );
 
     this.tools.push({
       name: event.toolName,
@@ -80,11 +128,42 @@ export class RunContextCollector {
       ...(outputSummary ? { output: outputSummary } : {}),
       ...(exitCode !== undefined ? { exitCode } : {}),
       ...(error ? { error } : {}),
+      ...(todo ? { todo } : {}),
+      ...(verification ? { verification } : {}),
+      ...(touchedFiles.length > 0 ? { touchedFiles } : {}),
     });
 
     this.collectFacts(event.toolName, event.input, event.output);
-    this.collectFiles(event.toolName, event.input);
+    for (const file of touchedFiles) {
+      this.files.set(`${file.action}:${file.path}`, file);
+    }
     this.collectCommand(event.toolName, event.input, event.output, error);
+  }
+
+  addLoopGuard(event: RunContextBlocker): void {
+    const blocker = {
+      ...event,
+      reason: compactLine(event.reason, 500),
+      blockedTools: event.blockedTools
+        .map((tool) => compactLine(tool, 100))
+        .filter(Boolean),
+      ...(event.affectedPath
+        ? { affectedPath: compactLine(event.affectedPath, 500) }
+        : {}),
+      ...(event.phase ? { phase: compactLine(event.phase, 100) } : {}),
+      ...(event.failureCode
+        ? { failureCode: compactLine(event.failureCode, 100) }
+        : {}),
+      ...(event.recommendedNext
+        ? { recommendedNext: compactLine(event.recommendedNext, 300) }
+        : {}),
+    };
+    this.tools.push({
+      name: "loop_guard",
+      status: blocker.forceFinal ? "error" : "completed",
+      output: blocker.reason,
+      blocker,
+    });
   }
 
   persist(input: {
@@ -135,6 +214,16 @@ export class RunContextCollector {
       }
     }
 
+    if (toolName === "update_todos") {
+      const todo = todoFromToolOutput(toolName, output);
+      if (todo) this.addFact(`Todos: ${todo.summary}`);
+    }
+
+    if (toolName === "verify") {
+      const verification = verificationFromToolOutput(toolName, output);
+      if (verification) this.addFact(`Verification: ${verificationLine(verification)}`);
+    }
+
     if (toolName === "read_file" && readPath(input) === "package.json") {
       const packageFacts = packageFactsFromContent(stringValue(output.content));
       for (const fact of packageFacts) this.addFact(fact);
@@ -142,18 +231,6 @@ export class RunContextCollector {
 
     const summary = stringValue(output.summary);
     if (summary && toolName !== "inspect_project") this.addFact(summary);
-  }
-
-  private collectFiles(toolName: string, input: unknown): void {
-    if (!isRecord(input)) return;
-    for (const key of ["path", "sourcePath", "targetPath", "destinationPath"]) {
-      const path = stringValue(input[key]);
-      if (!path) continue;
-      this.files.set(`${toolName}:${path}`, {
-        path,
-        action: toolName,
-      });
-    }
   }
 
   private collectCommand(
@@ -252,12 +329,35 @@ function selectSummaries(
 }
 
 function contextBlock(summary: RunContextSummary): string {
-  const parts = [
-    `Run ${summary.createdAt.toISOString()}:`,
-    compactBlock(summary.summary, MAX_DIGEST_BLOCK_CHARS),
-  ];
-  const facts = stringArray(summary.facts).slice(0, 8);
-  if (facts.length > 0) parts.push(`Facts: ${facts.join("; ")}`);
+  const parts = [`Run ${summary.createdAt.toISOString()}:`];
+  const tools = toolArray(summary.tools);
+  const blockers = tools.flatMap((tool) => (tool.blocker ? [tool.blocker] : []));
+  if (blockers.length > 0) {
+    parts.push(`Blockers: ${blockers.slice(-3).map(blockerLine).join("; ")}`);
+  }
+
+  const verification = latestVerification(tools);
+  if (verification) parts.push(`Verification: ${verificationLine(verification)}`);
+
+  const todo = latestTodo(tools);
+  if (todo) parts.push(`Todos: ${todoLine(todo)}`);
+
+  const failedTools = tools
+    .filter((tool) => tool.status === "error" && !tool.blocker)
+    .slice(-5);
+  if (failedTools.length > 0) {
+    parts.push(`Failed tools: ${failedTools.map(failedToolLine).join("; ")}`);
+  }
+
+  const files = touchedFileArray(summary.files).slice(0, 10);
+  if (files.length > 0) {
+    parts.push(
+      `Touched files: ${files
+        .map((file) => `${file.action} ${file.path}`)
+        .join("; ")}`,
+    );
+  }
+
   const commands = commandArray(summary.commands).slice(0, 5);
   if (commands.length > 0) {
     parts.push(
@@ -270,12 +370,11 @@ function contextBlock(summary: RunContextSummary): string {
         .join("; ")}`,
     );
   }
-  const files = fileArray(summary.files).slice(0, 10);
-  if (files.length > 0) {
-    parts.push(
-      `Files: ${files.map((file) => `${file.action} ${file.path}`).join("; ")}`,
-    );
-  }
+
+  const facts = stringArray(summary.facts).slice(0, 8);
+  if (facts.length > 0) parts.push(`Facts: ${facts.join("; ")}`);
+
+  parts.push(compactBlock(summary.summary, MAX_DIGEST_BLOCK_CHARS));
   return compactBlock(parts.join("\n"), MAX_DIGEST_BLOCK_CHARS);
 }
 
@@ -332,6 +431,162 @@ function packageSectionNames(value: unknown): string[] {
   return Object.keys(value).sort((left, right) => left.localeCompare(right));
 }
 
+function todoFromToolOutput(
+  toolName: string,
+  output: unknown,
+): RunContextTodo | undefined {
+  if (toolName !== "update_todos" || !isRecord(output) || output.ok !== true) {
+    return undefined;
+  }
+  const items = todoItemArray(output.items);
+  if (items.length === 0) return undefined;
+  const completedCount =
+    numberValue(output.completedCount) ??
+    items.filter((item) => item.status === "completed").length;
+  const current = items.find((item) => item.status === "in_progress")?.text;
+  const summary =
+    stringValue(output.summary) ||
+    (current
+      ? `${completedCount}/${items.length} complete; current: ${current}`
+      : `${completedCount}/${items.length} complete`);
+  return {
+    summary: compactLine(summary, 500),
+    itemCount: numberValue(output.itemCount) ?? items.length,
+    completedCount,
+    ...(current ? { current: compactLine(current, 240) } : {}),
+    items: items.slice(0, 40),
+  };
+}
+
+function todoItemArray(value: unknown): RunContextTodoItem[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item): RunContextTodoItem[] => {
+    if (!isRecord(item)) return [];
+    const text = compactLine(stringValue(item.text), 240);
+    const status = item.status;
+    if (
+      !text ||
+      (status !== "pending" &&
+        status !== "in_progress" &&
+        status !== "completed")
+    ) {
+      return [];
+    }
+    return [{ text, status }];
+  });
+}
+
+function verificationFromToolOutput(
+  toolName: string,
+  output: unknown,
+): RunContextVerification | undefined {
+  if (toolName !== "verify" || !isRecord(output)) return undefined;
+  const status = compactLine(stringValue(output.status), 100);
+  if (!status) return undefined;
+  return {
+    status,
+    ...optionalCompactString("summary", output.summary, 500),
+    ...optionalCompactString("failureScope", output.failureScope, 100),
+    ...optionalCompactString("failureSummary", output.failureSummary, 500),
+    ...optionalCompactString("recommendedNext", output.recommendedNext, 200),
+    editedPaths: stringArray(output.editedPaths).slice(0, 10),
+    failedTargets: failedTargetsFromVerifyResults(output.results).slice(0, 5),
+  };
+}
+
+function failedTargetsFromVerifyResults(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item): string[] => {
+    if (!isRecord(item) || item.ok !== false) return [];
+    const target = compactLine(stringValue(item.target), 100);
+    if (!target) return [];
+    const exitCode = outputExitCode(item);
+    return [exitCode === undefined ? target : `${target} exit ${exitCode}`];
+  });
+}
+
+function touchedFilesFromTool(
+  toolName: string,
+  input: unknown,
+  output: unknown,
+  success: boolean,
+): RunContextFile[] {
+  if (!success || (isRecord(output) && output.ok === false)) return [];
+  const action = touchedFileAction(toolName);
+  if (!action) return [];
+  const record = isRecord(output) ? output : isRecord(input) ? input : {};
+  const files: RunContextFile[] = [];
+  addTouchedPath(files, action, stringValue(record.path));
+  if (toolName === "rename") {
+    addTouchedPath(files, "renamed from", stringValue(record.sourcePath));
+    addTouchedPath(files, "renamed to", stringValue(record.destinationPath));
+  } else if (toolName === "copy") {
+    addTouchedPath(files, "copied from", stringValue(record.sourcePath));
+    addTouchedPath(files, "copied to", stringValue(record.destinationPath));
+  } else {
+    addTouchedPath(files, action, stringValue(record.targetPath));
+    addTouchedPath(files, action, stringValue(record.destinationPath));
+  }
+  addTouchedPathList(files, action, record.paths);
+  addTouchedPathList(files, action, record.restoredPaths);
+  return uniqueFiles(files);
+}
+
+function touchedFileAction(toolName: string): string | undefined {
+  switch (toolName) {
+    case "edit_file":
+    case "replace_text":
+    case "replace_lines":
+    case "edit_text":
+    case "multi_replace_text":
+      return "edited";
+    case "write_file":
+      return "wrote";
+    case "format":
+      return "formatted";
+    case "mkdir":
+      return "created";
+    case "delete":
+      return "deleted";
+    case "rename":
+      return "renamed";
+    case "copy":
+      return "copied";
+    case "git_restore":
+    case "revert_changes":
+      return "restored";
+    default:
+      return undefined;
+  }
+}
+
+function addTouchedPath(
+  files: RunContextFile[],
+  action: string,
+  rawPath: string,
+): void {
+  const path = compactLine(rawPath, 500);
+  if (path) files.push({ path, action });
+}
+
+function addTouchedPathList(
+  files: RunContextFile[],
+  action: string,
+  value: unknown,
+): void {
+  for (const path of stringArray(value)) addTouchedPath(files, action, path);
+}
+
+function uniqueFiles(files: RunContextFile[]): RunContextFile[] {
+  const seen = new Set<string>();
+  return files.filter((file) => {
+    const key = `${file.action}:${file.path}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function readPath(input: unknown): string | undefined {
   if (!isRecord(input)) return undefined;
   const path = stringValue(input.path).replace(/\\/g, "/");
@@ -386,6 +641,191 @@ function fileArray(value: unknown): RunContextFile[] {
   });
 }
 
+function touchedFileArray(value: unknown): RunContextFile[] {
+  return fileArray(value).flatMap((file): RunContextFile[] => {
+    const action = digestFileAction(file.action);
+    return action ? [{ ...file, action }] : [];
+  });
+}
+
+function digestFileAction(action: string): string | undefined {
+  switch (action) {
+    case "edited":
+    case "wrote":
+    case "formatted":
+    case "created":
+    case "deleted":
+    case "renamed":
+    case "renamed from":
+    case "renamed to":
+    case "copied":
+    case "copied from":
+    case "copied to":
+    case "restored":
+      return action;
+    case "edit_file":
+    case "replace_text":
+    case "replace_lines":
+    case "edit_text":
+    case "multi_replace_text":
+      return "edited";
+    case "write_file":
+      return "wrote";
+    case "format":
+      return "formatted";
+    case "mkdir":
+      return "created";
+    case "delete":
+      return "deleted";
+    case "rename":
+      return "renamed";
+    case "copy":
+      return "copied";
+    case "git_restore":
+    case "revert_changes":
+      return "restored";
+    default:
+      return undefined;
+  }
+}
+
+function toolArray(value: unknown): RunContextTool[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item): RunContextTool[] => {
+    if (!isRecord(item)) return [];
+    const name = stringValue(item.name);
+    const status = item.status;
+    if (!name || (status !== "completed" && status !== "error")) return [];
+    const exitCode = outputExitCode(item);
+    const tool: RunContextTool = {
+      name,
+      status,
+      ...optionalString("input", item.input),
+      ...optionalString("output", item.output),
+      ...(exitCode !== undefined ? { exitCode } : {}),
+      ...optionalString("error", item.error),
+    };
+    const todo = todoValue(item.todo);
+    if (todo) tool.todo = todo;
+    const verification = verificationValue(item.verification);
+    if (verification) tool.verification = verification;
+    const blocker = blockerValue(item.blocker);
+    if (blocker) tool.blocker = blocker;
+    const touchedFiles = fileArray(item.touchedFiles);
+    if (touchedFiles.length > 0) tool.touchedFiles = touchedFiles;
+    return [tool];
+  });
+}
+
+function todoValue(value: unknown): RunContextTodo | undefined {
+  if (!isRecord(value)) return undefined;
+  const summary = compactLine(stringValue(value.summary), 500);
+  const items = todoItemArray(value.items);
+  const itemCount = numberValue(value.itemCount) ?? items.length;
+  const completedCount =
+    numberValue(value.completedCount) ??
+    items.filter((item) => item.status === "completed").length;
+  if (!summary || itemCount <= 0) return undefined;
+  const current = compactLine(stringValue(value.current), 240);
+  return {
+    summary,
+    itemCount,
+    completedCount,
+    ...(current ? { current } : {}),
+    items,
+  };
+}
+
+function verificationValue(
+  value: unknown,
+): RunContextVerification | undefined {
+  if (!isRecord(value)) return undefined;
+  const status = compactLine(stringValue(value.status), 100);
+  if (!status) return undefined;
+  return {
+    status,
+    ...optionalCompactString("summary", value.summary, 500),
+    ...optionalCompactString("failureScope", value.failureScope, 100),
+    ...optionalCompactString("failureSummary", value.failureSummary, 500),
+    ...optionalCompactString("recommendedNext", value.recommendedNext, 200),
+    editedPaths: stringArray(value.editedPaths).slice(0, 10),
+    failedTargets: stringArray(value.failedTargets).slice(0, 5),
+  };
+}
+
+function blockerValue(value: unknown): RunContextBlocker | undefined {
+  if (!isRecord(value)) return undefined;
+  const reason = compactLine(stringValue(value.reason), 500);
+  if (!reason) return undefined;
+  return {
+    reason,
+    blockedTools: stringArray(value.blockedTools).slice(0, 20),
+    forceFinal: booleanValue(value.forceFinal),
+    ...optionalCompactString("affectedPath", value.affectedPath, 500),
+    ...optionalCompactString("phase", value.phase, 100),
+    ...optionalCompactString("failureCode", value.failureCode, 100),
+    ...optionalCompactString("recommendedNext", value.recommendedNext, 300),
+  };
+}
+
+function latestTodo(tools: RunContextTool[]): RunContextTodo | undefined {
+  return tools.findLast((tool) => tool.todo)?.todo;
+}
+
+function latestVerification(
+  tools: RunContextTool[],
+): RunContextVerification | undefined {
+  return tools.findLast((tool) => tool.verification)?.verification;
+}
+
+function todoLine(todo: RunContextTodo): string {
+  if (todo.current && !todo.summary.includes("current:")) {
+    return `${todo.summary}; current: ${todo.current}`;
+  }
+  return todo.summary;
+}
+
+function verificationLine(verification: RunContextVerification): string {
+  return [
+    verification.status,
+    verification.failureScope ? `scope ${verification.failureScope}` : "",
+    verification.summary ?? "",
+    verification.failureSummary
+      ? `failure ${verification.failureSummary}`
+      : "",
+    verification.failedTargets.length > 0
+      ? `failed targets ${verification.failedTargets.join(", ")}`
+      : "",
+    verification.editedPaths.length > 0
+      ? `edited ${verification.editedPaths.join(", ")}`
+      : "",
+    verification.recommendedNext ? `next ${verification.recommendedNext}` : "",
+  ]
+    .filter(Boolean)
+    .join("; ");
+}
+
+function blockerLine(blocker: RunContextBlocker): string {
+  return [
+    blocker.reason,
+    blocker.blockedTools.length > 0
+      ? `blocked ${blocker.blockedTools.join(", ")}`
+      : "",
+    blocker.affectedPath ? `path ${blocker.affectedPath}` : "",
+    blocker.phase ? `phase ${blocker.phase}` : "",
+    blocker.failureCode ? `code ${blocker.failureCode}` : "",
+    blocker.recommendedNext ? `next ${blocker.recommendedNext}` : "",
+    blocker.forceFinal ? "final required" : "",
+  ]
+    .filter(Boolean)
+    .join("; ");
+}
+
+function failedToolLine(tool: RunContextTool): string {
+  const reason = tool.error ?? tool.output ?? "failed";
+  return `${tool.name}: ${compactLine(reason, 300)}`;
+}
+
 function textTailField<K extends "stdoutTail" | "stderrTail">(
   key: K,
   value: string,
@@ -401,6 +841,15 @@ function optionalString<K extends string>(
   value: unknown,
 ): Partial<Record<K, string>> {
   const text = stringValue(value);
+  return text ? ({ [key]: text } as Partial<Record<K, string>>) : {};
+}
+
+function optionalCompactString<K extends string>(
+  key: K,
+  value: unknown,
+  maxLength: number,
+): Partial<Record<K, string>> {
+  const text = compactLine(stringValue(value), maxLength);
   return text ? ({ [key]: text } as Partial<Record<K, string>>) : {};
 }
 

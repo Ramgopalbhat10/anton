@@ -645,6 +645,7 @@ function ChatSession({
             streamingResponseMode={streaming ? streamingResponseMode : null}
             onApproval={approveTool}
             onAcceptPlan={() => {
+              setMode("agent");
               void sendWithMcp("Implement plan", "agent");
             }}
             acceptPlanDisabled={streaming || !effectiveProjectId}
@@ -713,6 +714,7 @@ function ChatSession({
             ) : null}
             <Worklog
               messages={displayMessages}
+              streaming={streaming}
               onApproval={approveTool}
               project={project}
               visible={worklogOpen}
@@ -739,6 +741,7 @@ function ChatSession({
           >
             <Worklog
               messages={displayMessages}
+              streaming={streaming}
               onApproval={approveTool}
               project={project}
               visible

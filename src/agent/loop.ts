@@ -188,9 +188,11 @@ const PLAN_MODE_TOOLS = [
 
 const ACCEPTED_PLAN_SIMPLE_TOOLS = [
   "read_file",
+  "edit_text",
+  "replace_text",
+  "replace_lines",
+  "multi_replace_text",
   "edit_file",
-  "write_file",
-  "bash",
   "verify",
   "git_status",
 ] as const satisfies readonly NativeAntonToolName[];
@@ -349,7 +351,9 @@ function runProfilePromptLines(
       ...header,
       "- The user accepted an existing plan. Use the immediately preceding plan response as the source of truth.",
       "- Do not rediscover files already named in the plan; read only the target files needed to get fresh hashes before editing.",
-      "- Keep progress brief and use the narrow edit and verification tools supplied to this run.",
+      "- Use `edit_text` for surgical edits. Use `replace_lines`, `replace_text`, or `multi_replace_text` only when text anchors are not enough.",
+      "- Do not call `edit_file` unless an `edit_text` attempt failed on the same path.",
+      "- Keep progress brief and verify after editing.",
     ];
   }
   if (profile === "accepted-plan-general") {

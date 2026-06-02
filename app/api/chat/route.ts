@@ -667,7 +667,10 @@ export async function POST(req: Request) {
             contextCollector.addTool(event);
             trace.finishTool(event);
           },
-          onLoopGuard: (event) => trace.noteLoopGuard(event),
+          onLoopGuard: (event) => {
+            contextCollector.addLoopGuard(event);
+            trace.noteLoopGuard(event);
+          },
           onProfilePromotion: (event) => trace.noteProfilePromotion(event),
           onStreamPart: (part) => trace.handleStreamPart(part),
           onAbort: () => {
