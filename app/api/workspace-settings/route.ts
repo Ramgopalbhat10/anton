@@ -1,7 +1,9 @@
 import { z } from "zod";
 
 import { getWorkspaceSettings, updateWorkspaceSettings } from "@/src/db/queries";
-import { isSupportedModelId, resolveModelId } from "@/src/lib/models";
+import { isSupportedAgentModelId } from "@/src/lib/openrouter-catalog";
+import { resolveModelId } from "@/src/lib/models";
+import { sanitizeOpenRouterRoutingPreferences } from "@/src/lib/openrouter-routing";
 import {
   getLocalWorkspacesRoot,
   setLocalWorkspacesRoot,
@@ -11,12 +13,20 @@ import {
 export const runtime = "nodejs";
 
 const permissionModeSchema = z.enum(["default", "auto-review", "full-access"]);
+const routingPreferenceSchema = z.object({
+  order: z.array(z.string().trim().min(1).max(100)).max(24),
+  allowFallbacks: z.boolean(),
+});
 
 const patchSchema = z.object({
   localWorkspacesRoot: z.string().trim().min(1).nullable().optional(),
   defaultModel: z.string().trim().min(1).nullable().optional(),
   defaultMaxSteps: z.number().int().min(1).max(64).nullable().optional(),
   defaultPermissionMode: permissionModeSchema.nullable().optional(),
+  openRouterRoutingPreferences: z
+    .record(z.string().trim().min(1), routingPreferenceSchema)
+    .nullable()
+    .optional(),
 });
 
 export async function GET() {
@@ -38,7 +48,7 @@ export async function PATCH(req: Request) {
   if (
     parsed.data.defaultModel !== undefined &&
     parsed.data.defaultModel !== null &&
-    !isSupportedModelId(parsed.data.defaultModel)
+    !(await isSupportedAgentModelId(parsed.data.defaultModel))
   ) {
     return Response.json(
       { error: "unsupported model", model: parsed.data.defaultModel },
@@ -65,6 +75,13 @@ export async function PATCH(req: Request) {
       ...(parsed.data.defaultPermissionMode !== undefined
         ? { defaultPermissionMode: parsed.data.defaultPermissionMode }
         : {}),
+      ...(parsed.data.openRouterRoutingPreferences !== undefined
+        ? {
+            openRouterRoutingPreferences: sanitizeOpenRouterRoutingPreferences(
+              parsed.data.openRouterRoutingPreferences,
+            ),
+          }
+        : {}),
     };
     if (Object.keys(agentPatch).length > 0) {
       updateWorkspaceSettings(agentPatch);
@@ -87,6 +104,9 @@ function serializeSettings() {
     defaultModel: settings.defaultModel,
     defaultMaxSteps: settings.defaultMaxSteps,
     defaultPermissionMode: settings.defaultPermissionMode,
+    openRouterRoutingPreferences: sanitizeOpenRouterRoutingPreferences(
+      settings.openRouterRoutingPreferences,
+    ),
   };
 }
 

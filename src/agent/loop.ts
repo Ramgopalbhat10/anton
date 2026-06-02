@@ -18,6 +18,11 @@ import {
   getLanguageModel,
 } from "@/src/lib/providers";
 import {
+  openRouterProviderOptions as openRouterRoutingProviderOptions,
+  resolveOpenRouterRouting,
+  type OpenRouterRoutingResolution,
+} from "@/src/lib/openrouter-routing";
+import {
   buildTokenUsageMetrics,
   openRouterCostFromMetadata,
 } from "@/src/lib/token-usage";
@@ -95,6 +100,7 @@ export type TokenAudit = {
   budget: RunBudgetAudit;
   contextComposition: ContextCompositionAudit;
   promptCache?: PromptCacheAudit;
+  openRouterRouting?: OpenRouterRoutingResolution;
   loopGuardCount?: number;
   promotionReason?: string;
   effectiveProfile?: AgentRunProfile;
@@ -480,6 +486,7 @@ export async function runAgent({
   priorToolHistory = [],
   previousPromptCacheAudit,
   promptCacheIntentionalSegmentTransition,
+  openRouterRouting,
   singleFileTargetPath,
   singleFileTargetResolution,
   singleFileTargetResolutionReason,
@@ -513,6 +520,7 @@ export async function runAgent({
   priorToolHistory?: readonly PriorToolCallRecord[];
   previousPromptCacheAudit?: PromptCacheAudit | null;
   promptCacheIntentionalSegmentTransition?: string;
+  openRouterRouting?: OpenRouterRoutingResolution;
   singleFileTargetPath?: string;
   singleFileTargetResolution?: "exact" | "unique_search" | "unresolved" | "ambiguous";
   singleFileTargetResolutionReason?: string;
@@ -716,13 +724,15 @@ export async function runAgent({
     return true;
   };
 
+  const resolvedOpenRouterRouting =
+    openRouterRouting ?? resolveOpenRouterRouting(selectedModel);
   const openRouterOptions =
     getProviderId(selectedModel) === "openrouter"
       ? {
           openrouter: openRouterProviderOptions(
             profile,
             thinkingEnabled,
-            getProviderModelId(selectedModel),
+            resolvedOpenRouterRouting,
           ),
         }
       : undefined;
@@ -960,6 +970,7 @@ export async function runAgent({
         tokenUsage,
         previousAudit: previousPromptCacheAudit,
         intentionalSegmentTransition: promptCacheIntentionalSegmentTransition,
+        openRouterRouting: resolvedOpenRouterRouting,
       });
       const segmentTokens = finiteNumber(totalUsage.totalTokens) ?? 0;
       const segmentEffective = tokenUsage?.effectiveTokens ?? segmentTokens;
@@ -980,6 +991,9 @@ export async function runAgent({
             }
           : {}),
         tokenBudgetReached,
+        ...(resolvedOpenRouterRouting
+          ? { openRouterRouting: resolvedOpenRouterRouting }
+          : {}),
         promptCache,
         loopGuardCount: toolPolicy.loopGuardCount,
         usage: usageAudit(totalUsage, providerMetadata),
@@ -1099,69 +1113,26 @@ function reasoningOptionsForProfile(profile: AgentRunProfile): {
 function openRouterProviderOptions(
   profile: AgentRunProfile,
   thinkingEnabled: boolean,
-  modelId: string,
+  routing: OpenRouterRoutingResolution | undefined,
 ): {
   reasoning?: ReturnType<typeof reasoningOptionsForProfile>;
   usage: { include: true };
   provider?: {
     order?: string[];
-    allow_fallbacks?: boolean;
-    require_parameters?: boolean;
+    allow_fallbacks: boolean;
+    require_parameters: true;
   };
 } {
-  const provider = openRouterProviderRouting(modelId);
   return {
     ...(thinkingEnabled ? { reasoning: reasoningOptionsForProfile(profile) } : {}),
     usage: { include: true },
-    ...(provider ? { provider } : {}),
+    ...openRouterRoutingProviderOptions(routing),
   };
-}
-
-function openRouterProviderRouting(
-  modelId: string,
-): {
-  order?: string[];
-  allow_fallbacks?: boolean;
-  require_parameters?: boolean;
-} | undefined {
-  const envOrder = providerOrderFromEnv();
-  if (envOrder.length > 0) {
-    return {
-      order: envOrder,
-      allow_fallbacks: envBoolean("OPENROUTER_ALLOW_FALLBACKS") ?? true,
-      require_parameters: true,
-    };
-  }
-
-  if (modelId === "deepseek/deepseek-v4-pro") {
-    return {
-      order: ["alibaba"],
-      allow_fallbacks: true,
-      require_parameters: true,
-    };
-  }
-
-  return undefined;
 }
 
 function supportsForcedToolChoice(modelId: string): boolean {
   const providerModelId = getProviderModelId(modelId).toLowerCase();
   return !providerModelId.includes("deepseek");
-}
-
-function providerOrderFromEnv(): string[] {
-  return (process.env.OPENROUTER_PROVIDER_ORDER ?? "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter((value) => value.length > 0);
-}
-
-function envBoolean(name: string): boolean | undefined {
-  const value = process.env[name]?.trim().toLowerCase();
-  if (!value) return undefined;
-  if (["1", "true", "yes", "on"].includes(value)) return true;
-  if (["0", "false", "no", "off"].includes(value)) return false;
-  return undefined;
 }
 
 function usageAudit(

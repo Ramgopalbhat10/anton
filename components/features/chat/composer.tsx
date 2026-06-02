@@ -198,7 +198,10 @@ export function Composer({
                 thinkingEnabled={thinkingEnabled}
                 onThinkingEnabledChange={onThinkingEnabledChange}
                 disabled={streaming}
-                triggerClassName={cn(COMPOSER_TOOLBAR_CONTROL, "w-36 justify-between")}
+                triggerClassName={cn(
+                  COMPOSER_TOOLBAR_CONTROL,
+                  "w-40 justify-between sm:w-48",
+                )}
               />
               {streaming ? (
                 <Button

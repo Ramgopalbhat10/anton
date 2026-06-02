@@ -88,7 +88,12 @@ import {
 } from "@/src/db/queries";
 import { registerActiveChatStream } from "@/src/lib/chat-stream-registry";
 import { DEFAULT_MODEL } from "@/src/lib/providers";
-import { isSupportedModelId, getProviderId, resolveModelId } from "@/src/lib/models";
+import { getProviderId, resolveModelId } from "@/src/lib/models";
+import { isSupportedAgentModelId } from "@/src/lib/openrouter-catalog";
+import {
+  resolveOpenRouterRouting,
+  type OpenRouterRoutingResolution,
+} from "@/src/lib/openrouter-routing";
 import { CHAT_MODES, DEFAULT_CHAT_MODE, type ChatMode } from "@/src/lib/chat-modes";
 import { redactText, redactValue } from "@/src/lib/redaction";
 import {
@@ -220,12 +225,16 @@ export async function POST(req: Request) {
     continuationModel && continuationModel !== requestedModel
       ? `UI selected ${requestedModel}, but this continuation reused ${continuationModel} from the originating run.`
       : undefined;
-  if (!isSupportedModelId(continuationModel ?? requestedModel)) {
+  if (!(await isSupportedAgentModelId(continuationModel ?? requestedModel))) {
     return Response.json(
       { error: "unsupported model", model },
       { status: 400 },
     );
   }
+  const openRouterRouting = resolveOpenRouterRouting(
+    model,
+    workspaceSettings.openRouterRoutingPreferences,
+  );
 
   const existing = getSession(sessionId);
   const requestedProjectId = parsed.data.projectId ?? null;
@@ -546,6 +555,7 @@ export async function POST(req: Request) {
         tokenBudgetMultiplier,
         permissionMode,
         thinkingEnabled,
+        ...(openRouterRouting ? { openRouterRouting } : {}),
         ...(profileHandoffRun
           ? {
               profileHandoffContinuationOfRunId: profileHandoffRun.id,
@@ -615,6 +625,7 @@ export async function POST(req: Request) {
         tokenBudgetMultiplier,
         permissionMode,
         thinkingEnabled,
+        openRouterRouting,
         profileHandoffContinuationOfRunId: profileHandoffRun?.id,
         tokenBudgetContext: {
           baseMaxTotalTokens: baseBudget.maxTotalTokens,
@@ -659,6 +670,7 @@ export async function POST(req: Request) {
             singleFileTargetResolution?.targetResolutionReason,
           permissionMode,
           enabledMcpServerIds: parsed.data.enabledMcpServerIds,
+          openRouterRouting,
           onStepStart: ({ stepNumber }) => trace.startStep(stepNumber),
           onStepFinish: ({ stepNumber }) => trace.finishStep(stepNumber),
           onStepUsageUpdate: (steps) => trace.updateStepUsage(steps),
@@ -1168,6 +1180,7 @@ function createTraceWriter({
   tokenBudgetMultiplier,
   permissionMode,
   thinkingEnabled,
+  openRouterRouting,
   profileHandoffContinuationOfRunId,
   tokenBudgetContext,
 }: {
@@ -1182,6 +1195,7 @@ function createTraceWriter({
   tokenBudgetMultiplier: number;
   permissionMode: PermissionMode;
   thinkingEnabled: boolean;
+  openRouterRouting?: OpenRouterRoutingResolution;
   profileHandoffContinuationOfRunId?: string;
   tokenBudgetContext: {
     baseMaxTotalTokens: number;
@@ -1467,6 +1481,7 @@ function createTraceWriter({
         tokenBudgetMultiplier,
         permissionMode,
         thinkingEnabled,
+        ...(openRouterRouting ? { openRouterRouting } : {}),
         profileHandoffContinuationOfRunId,
         loopGuardCount:
           limits.tokenAudit?.loopGuardCount ?? loopGuardCount,
@@ -2148,6 +2163,7 @@ function runCostMetadata(
     targetPath?: string;
     targetResolution?: "exact" | "unique_search" | "unresolved" | "ambiguous";
     targetResolutionReason?: string;
+    openRouterRouting?: OpenRouterRoutingResolution;
   },
 ): Record<string, unknown> | null {
   const providerCostMetadata = openRouterCostMetadata(
@@ -2172,6 +2188,9 @@ function runCostMetadata(
         tokenBudgetMultiplier: execution.tokenBudgetMultiplier,
         permissionMode: execution.permissionMode,
         thinkingEnabled: execution.thinkingEnabled,
+        ...(execution.openRouterRouting
+          ? { openRouterRouting: execution.openRouterRouting }
+          : {}),
         ...(execution.profileHandoffContinuationOfRunId
           ? {
               profileHandoffContinuationOfRunId:
@@ -2228,6 +2247,9 @@ function runCostMetadata(
       tokenBudgetMultiplier: execution.tokenBudgetMultiplier,
       permissionMode: execution.permissionMode,
       thinkingEnabled: execution.thinkingEnabled,
+      ...(execution.openRouterRouting
+        ? { openRouterRouting: execution.openRouterRouting }
+        : {}),
       ...(execution.profileHandoffContinuationOfRunId
         ? {
             profileHandoffContinuationOfRunId:

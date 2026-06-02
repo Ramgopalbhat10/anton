@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import type { UIMessage } from "ai";
 import { randomUUID } from "node:crypto";
+import type { OpenRouterRoutingPreferences } from "@/src/lib/api-types";
 
 import {
   collapseAssistantContinuationMessages,
@@ -171,6 +172,7 @@ export function getWorkspaceSettings(): WorkspaceSettings {
     defaultModel: null,
     defaultMaxSteps: null,
     defaultPermissionMode: null,
+    openRouterRoutingPreferences: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -183,6 +185,7 @@ export function updateWorkspaceSettings(input: {
   defaultModel?: string | null;
   defaultMaxSteps?: number | null;
   defaultPermissionMode?: "default" | "auto-review" | "full-access" | null;
+  openRouterRoutingPreferences?: OpenRouterRoutingPreferences | null;
 }): WorkspaceSettings {
   getWorkspaceSettings();
   const update: Partial<WorkspaceSettings> = { updatedAt: new Date() };
@@ -197,6 +200,10 @@ export function updateWorkspaceSettings(input: {
   }
   if ("defaultPermissionMode" in input) {
     update.defaultPermissionMode = input.defaultPermissionMode ?? null;
+  }
+  if ("openRouterRoutingPreferences" in input) {
+    update.openRouterRoutingPreferences =
+      input.openRouterRoutingPreferences ?? null;
   }
   db
     .update(workspaceSettings)

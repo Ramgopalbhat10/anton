@@ -7,6 +7,7 @@ import {
   text,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
+import type { OpenRouterRoutingPreferences } from "@/src/lib/api-types";
 
 export const workspaceSettings = sqliteTable("workspace_settings", {
   id: text("id").primaryKey(),
@@ -16,6 +17,9 @@ export const workspaceSettings = sqliteTable("workspace_settings", {
   defaultPermissionMode: text("default_permission_mode", {
     enum: ["default", "auto-review", "full-access"],
   }),
+  openRouterRoutingPreferences: text("openrouter_routing_preferences", {
+    mode: "json",
+  }).$type<OpenRouterRoutingPreferences | null>(),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .default(sql`(unixepoch('now') * 1000)`),
