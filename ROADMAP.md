@@ -66,6 +66,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Reduced live trace rendering pressure with lazy-mounted disclosures and bounded running Worklog rows (#139).
 - [✔️] Hardened native grep fallback search and rendered grep results as structured Worklog output (#140).
 - [✔️] Added OpenRouter model catalog, provider routing settings, and routing cache metadata (#142).
+- [✔️] Hardened chat message validation, compact model-visible tool outputs, and MCP startup warnings (#144).
 
 ## Phase 1: Trust Boundaries And Safety
 
@@ -178,9 +179,9 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 
 ## Known Implementation Risks
 
-- [] Chat message input is still validated as `z.array(z.unknown())` before casting to `AntonUIMessage[]`.
+- [✔️] Chat message input is still validated as `z.array(z.unknown())` before casting to `AntonUIMessage[]`.
 - [] Shell tool still runs through `bash -lc`; command policy is heuristic rather than a full shell parser.
-- [] MCP stdio server startup can execute configured commands before user approval.
+- [✔️] MCP stdio server startup can execute configured commands before user approval.
 - [] Full-file `write_file` remains the main write primitive.
 - [] Message persistence still deletes and reinserts the full session transcript in some recovery paths.
 - [] GitHub clone/fetch runs synchronously inside request handling and may exceed request duration for large repositories.

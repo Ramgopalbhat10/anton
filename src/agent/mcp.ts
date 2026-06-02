@@ -7,7 +7,7 @@ import {
   type MCPClientConfig,
 } from "@ai-sdk/mcp";
 import { Experimental_StdioMCPTransport } from "@ai-sdk/mcp/mcp-stdio";
-import type { ToolSet } from "ai";
+import type { JSONValue, ToolSet } from "ai";
 
 import {
   isMcpServerTrusted,
@@ -23,6 +23,7 @@ import {
   ensureWorkspaceRootAt,
   resolveInWorkspace,
 } from "./sandbox";
+import { modelVisibleToolOutput } from "./tools/model-output";
 
 const MCP_CONFIG_FILE = ".mcp.json";
 const MAX_MCP_CONFIG_BYTES = 256 * 1024;
@@ -85,7 +86,7 @@ type McpServerSpec = {
 
 type ExecutableTool = ToolSet[string] & {
   description?: string;
-  execute?: (input: unknown, options: never) => unknown;
+  execute?: (input: unknown, options: unknown) => unknown;
 };
 
 export async function loadMcpTools({
@@ -97,11 +98,11 @@ export async function loadMcpTools({
 } = {}): Promise<LoadedMcpTools> {
   const tools: ToolSet = {};
   const toolSummaries: McpToolSummary[] = [];
-  const workspaceConfig = readMcpConfig(workspaceRoot);
+  const workspaceConfig = safeReadMcpConfig(workspaceRoot);
   const warnings: string[] = [...(workspaceConfig?.warnings ?? [])];
   const clients: MCPClient[] = [];
   const specs = [
-    ...globalMcpServerSpecs(enabledMcpServerIds),
+    ...globalMcpServerSpecs(enabledMcpServerIds, warnings),
     ...(workspaceConfig ? workspaceMcpServerSpecs(workspaceConfig.servers) : []),
   ];
 
@@ -218,6 +219,19 @@ export function readMcpConfig(
   return { servers: parsed.data.mcpServers, warnings: [] };
 }
 
+function safeReadMcpConfig(
+  workspaceRoot?: string,
+): ReturnType<typeof readMcpConfig> {
+  try {
+    return readMcpConfig(workspaceRoot);
+  } catch (err) {
+    return {
+      servers: {},
+      warnings: [`failed to inspect ${MCP_CONFIG_FILE}: ${errorMessage(err)}`],
+    };
+  }
+}
+
 function emptyMcpTools(warnings: string[] = []): LoadedMcpTools {
   return {
     tools: {},
@@ -270,7 +284,19 @@ function wrapMcpTool(
     ...mcpTool,
     description: `[MCP:${serverName}] ${mcpTool.description ?? toolName}`,
     needsApproval: true,
-    execute: async (input: unknown, options: never) => {
+    toModelOutput: ({ output }: { output: unknown }) => ({
+      type: "json",
+      value: modelVisibleToolOutput(output, {
+        successCode: "MCP_TOOL_OK",
+        failureCode: "MCP_TOOL_FAILED",
+        successSummary: `MCP tool ${serverName}/${toolName} completed.`,
+        failureSummary: `MCP tool ${serverName}/${toolName} failed.`,
+        successRecommendedNext: "Continue using the returned MCP output.",
+        failureRecommendedNext:
+          "Inspect the MCP error, adjust the input, or use a native Anton tool if possible.",
+      }) as JSONValue,
+    }),
+    execute: async (input: unknown, options: unknown) => {
       try {
         const output = await mcpTool.execute?.(input, options);
         return { ok: true as const, output };
@@ -278,20 +304,39 @@ function wrapMcpTool(
         return { ok: false as const, error: errorMessage(err) };
       }
     },
-  } as ToolSet[string];
+  } as unknown as ToolSet[string];
 }
 
-function globalMcpServerSpecs(enabledMcpServerIds?: string[]): McpServerSpec[] {
+function globalMcpServerSpecs(
+  enabledMcpServerIds: string[] | undefined,
+  warnings: string[],
+): McpServerSpec[] {
   return listEnabledMcpServers(enabledMcpServerIds).flatMap((server) => {
     const parsed = mcpServerConfigSchema.safeParse(server.config);
-    if (!parsed.success) return [];
+    if (!parsed.success) {
+      warnings.push(
+        `skipping malformed MCP server ${server.displayName}: ${parsed.error.issues
+          .map((issue) => issue.message)
+          .join("; ")}`,
+      );
+      return [];
+    }
+    let trusted = false;
+    try {
+      trusted = isMcpServerTrusted(server);
+    } catch (err) {
+      warnings.push(
+        `skipping MCP server ${server.displayName}: trust check failed: ${errorMessage(err)}`,
+      );
+      return [];
+    }
     return [
       {
         id: server.id,
         displayName: server.displayName,
         namespace: server.namespace,
         config: parsed.data,
-        trusted: isMcpServerTrusted(server),
+        trusted,
         source: "global" as const,
       },
     ];

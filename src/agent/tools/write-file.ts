@@ -13,6 +13,7 @@ import {
   assertGuardAllowed,
   assertPathGuardAllowed,
 } from "./file-guardrails";
+import { modelVisibleToolOutput } from "./model-output";
 
 export function createWriteFileTool(workspaceRoot?: string) {
   return tool({
@@ -93,15 +94,29 @@ export const writeFileTool = createWriteFileTool();
 
 function compactWriteFileModelOutput(output: unknown): JSONValue {
   if (!isRecord(output)) {
-    return { ok: false, error: "unexpected write_file output" };
+    return modelVisibleToolOutput(output, {
+      successCode: "WRITE_FILE_OK",
+      failureCode: "WRITE_FILE_OUTPUT_MALFORMED",
+      successSummary: "File written.",
+      failureSummary: "write_file returned malformed output.",
+      failureRecommendedNext: "Retry with a smaller, explicit write or report the tool failure.",
+    }) as JSONValue;
   }
   if (output.ok !== true) {
-    return {
+    const error = typeof output.error === "string" ? output.error : "write_file failed";
+    return modelVisibleToolOutput({
       ok: false,
-      error: typeof output.error === "string" ? output.error : "write_file failed",
-    };
+      code: writeFileFailureCode(error),
+      error,
+    }, {
+      successCode: "WRITE_FILE_OK",
+      failureCode: "WRITE_FILE_FAILED",
+      successSummary: "File written.",
+      failureSummary: error,
+      failureRecommendedNext: recommendedNextForWriteFileFailure(error),
+    }) as JSONValue;
   }
-  return {
+  return modelVisibleToolOutput({
     ok: true,
     path: stringValue(output.path),
     bytesWritten: numberValue(output.bytesWritten),
@@ -110,7 +125,13 @@ function compactWriteFileModelOutput(output: unknown): JSONValue {
       typeof output.previousHash === "string" ? output.previousHash : null,
     previousTruncated: booleanValue(output.previousTruncated),
     nextHash: stringValue(output.nextHash),
-  };
+  }, {
+    successCode: "WRITE_FILE_OK",
+    failureCode: "WRITE_FILE_FAILED",
+    successSummary: `Wrote ${stringValue(output.path) || "file"}.`,
+    failureSummary: "write_file failed.",
+    successRecommendedNext: "Run verification if this changed project files.",
+  }) as JSONValue;
 }
 
 function errorMessage(err: unknown): string {
@@ -133,4 +154,33 @@ function numberValue(value: unknown): number {
 
 function booleanValue(value: unknown): boolean {
   return typeof value === "boolean" ? value : false;
+}
+
+function writeFileFailureCode(error: string): string {
+  if (error.includes("expectedHash is required")) return "WRITE_FILE_EXPECTED_HASH_REQUIRED";
+  if (error.includes("hash mismatch")) return "WRITE_FILE_HASH_MISMATCH";
+  if (error.includes("target already exists")) return "WRITE_FILE_TARGET_EXISTS";
+  if (error.includes("byte cap")) return "WRITE_FILE_TOO_LARGE";
+  if (error.toLowerCase().includes("guard")) return "WRITE_FILE_GUARD_REJECTED";
+  return "WRITE_FILE_FAILED";
+}
+
+function recommendedNextForWriteFileFailure(error: string): string {
+  const code = writeFileFailureCode(error);
+  if (code === "WRITE_FILE_EXPECTED_HASH_REQUIRED") {
+    return "Read the current file first, then retry with expectedHash or use edit_text.";
+  }
+  if (code === "WRITE_FILE_HASH_MISMATCH") {
+    return "Re-read the file and retry only after reconciling the current content.";
+  }
+  if (code === "WRITE_FILE_TARGET_EXISTS") {
+    return "Use expectedHash for replacement or choose a new path.";
+  }
+  if (code === "WRITE_FILE_TOO_LARGE") {
+    return "Use a smaller targeted edit or split the write.";
+  }
+  if (code === "WRITE_FILE_GUARD_REJECTED") {
+    return "Set allowGuarded only if this guarded write is intentional.";
+  }
+  return "Inspect the error, adjust the write, and retry if appropriate.";
 }

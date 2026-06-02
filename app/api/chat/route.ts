@@ -95,6 +95,7 @@ import {
   type OpenRouterRoutingResolution,
 } from "@/src/lib/openrouter-routing";
 import { CHAT_MODES, DEFAULT_CHAT_MODE, type ChatMode } from "@/src/lib/chat-modes";
+import { parseAntonUIMessages } from "@/src/lib/anton-message-validation";
 import { redactText, redactValue } from "@/src/lib/redaction";
 import {
   outputExitCode as sharedOutputExitCode,
@@ -154,7 +155,7 @@ const bodySchema = z.object({
       runId: z.string().min(1),
     })
     .optional(),
-  messages: z.array(z.unknown()).min(1),
+  messages: z.unknown(),
 });
 
 export async function POST(req: Request) {
@@ -167,8 +168,16 @@ export async function POST(req: Request) {
     );
   }
 
+  const messages = parseAntonUIMessages(parsed.data.messages);
+  if (!messages.ok) {
+    return Response.json(
+      { error: "invalid messages", issues: messages.issues },
+      { status: 400 },
+    );
+  }
+
   const { sessionId } = parsed.data;
-  const uiMessages = parsed.data.messages as AntonUIMessage[];
+  const uiMessages = messages.messages;
   const incomingHistory = uiMessages.filter(hasSubstantiveHistoryParts);
   const budgetExtension = parsed.data.extendTokenBudget;
   const profileHandoffContinuation = parsed.data.continueProfileHandoff;
@@ -683,6 +692,7 @@ export async function POST(req: Request) {
             contextCollector.addLoopGuard(event);
             trace.noteLoopGuard(event);
           },
+          onMcpWarnings: (warnings) => trace.noteMcpWarnings(warnings),
           onProfilePromotion: (event) => trace.noteProfilePromotion(event),
           onStreamPart: (part) => trace.handleStreamPart(part),
           onAbort: () => {
@@ -1720,6 +1730,17 @@ function createTraceWriter({
         status: "completed",
         label: "Model selection preserved",
         summary,
+      });
+    },
+    noteMcpWarnings(warnings: readonly string[]) {
+      if (warnings.length === 0) return;
+      startEvent({
+        id: `${runId}:mcp-warnings:${sequence + 1}`,
+        kind: "progress",
+        status: "completed",
+        label: "MCP servers skipped",
+        summary: `${warnings.length} MCP warning${warnings.length === 1 ? "" : "s"} recorded before tool loading completed.`,
+        details: { mcpWarnings: warnings.slice(0, 20) },
       });
     },
     noteTargetResolution(resolution: SingleFileTargetResolution | undefined) {
