@@ -1,0 +1,1 @@
+ALTER TABLE `workspace_settings` ADD `openrouter_routing_preferences` text;

@@ -92,6 +92,13 @@
       "when": 1779694147271,
       "tag": "0012_rich_red_ghost",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1780393492675,
+      "tag": "0013_pale_wong",
+      "breakpoints": true
     }
   ]
 }

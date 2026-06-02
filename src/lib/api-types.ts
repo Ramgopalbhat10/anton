@@ -6,6 +6,66 @@ export type WorkspaceSettingsSummary = {
   defaultModel: string | null;
   defaultMaxSteps: number | null;
   defaultPermissionMode: "default" | "auto-review" | "full-access" | null;
+  openRouterRoutingPreferences: OpenRouterRoutingPreferences;
+};
+
+export type OpenRouterRoutingPreference = {
+  order: string[];
+  allowFallbacks: boolean;
+};
+
+export type OpenRouterRoutingPreferences = Record<
+  string,
+  OpenRouterRoutingPreference
+>;
+
+export type OpenRouterProviderSummary = {
+  slug: string;
+  name: string;
+  headquarters: string | null;
+  datacenters: string[];
+  privacyPolicyUrl: string | null;
+  termsOfServiceUrl: string | null;
+  statusPageUrl: string | null;
+};
+
+export type OpenRouterModelSummary = {
+  id: string;
+  name: string;
+  contextLength: number | null;
+  promptPrice: string | null;
+  completionPrice: string | null;
+  detailsPath: string | null;
+};
+
+export type OpenRouterCatalogSummary = {
+  providers: OpenRouterProviderSummary[];
+  models: OpenRouterModelSummary[];
+  source: "api" | "fallback";
+  fetchedAt: number;
+  error: string | null;
+};
+
+export type OpenRouterModelEndpointSummary = {
+  tag: string;
+  providerName: string;
+  name: string;
+  status: number | null;
+  uptimeLast30m: number | null;
+  latencyLast30m: number | null;
+  supportsImplicitCaching: boolean;
+  promptPrice: string | null;
+  completionPrice: string | null;
+  cacheReadPrice: string | null;
+  cacheWritePrice: string | null;
+};
+
+export type OpenRouterModelEndpointsSummary = {
+  model: string;
+  endpoints: OpenRouterModelEndpointSummary[];
+  source: "api" | "fallback";
+  fetchedAt: number;
+  error: string | null;
 };
 
 export type GitHubRepositorySummary = {
@@ -110,6 +170,7 @@ export type ProjectRunDetailsStepUsage = {
 export type ProjectRunDetailsPromptCache = {
   modelId: string;
   providerId: string;
+  routingFingerprint?: string;
   systemPromptHash: string;
   toolSchemaHash: string;
   nativeToolNamesHash: string;
@@ -167,6 +228,14 @@ export type ProjectRunDetailsRun = {
   handoffReason?: string | null;
   rawTotalTokens?: number | null;
   effectiveTokens?: number | null;
+  openRouterRouting?: {
+    source: "settings" | "env" | "builtin" | "default";
+    modelId: string;
+    order: string[];
+    allowFallbacks: boolean;
+    requireParameters: boolean;
+    fingerprint: string;
+  };
 };
 
 export type ProjectRunDetailsEvent = {

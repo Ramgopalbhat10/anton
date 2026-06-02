@@ -65,6 +65,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Enriched prior-run context summaries with todos, verification, blockers, touched files, and failed tool details (#136).
 - [✔️] Reduced live trace rendering pressure with lazy-mounted disclosures and bounded running Worklog rows (#139).
 - [✔️] Hardened native grep fallback search and rendered grep results as structured Worklog output (#140).
+- [✔️] Added OpenRouter model catalog, provider routing settings, and routing cache metadata (#142).
 
 ## Phase 1: Trust Boundaries And Safety
 

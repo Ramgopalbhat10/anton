@@ -111,6 +111,7 @@ function serializeProjectRunDetailsRun(run: Run): ProjectRunDetailsRun {
   const execution = isRecord(costMetadata?.execution)
     ? costMetadata.execution
     : null;
+  const openRouterRouting = openRouterRoutingFromExecution(execution);
 
   return {
     id: run.id,
@@ -163,6 +164,7 @@ function serializeProjectRunDetailsRun(run: Run): ProjectRunDetailsRun {
     ...(contextComposition ? { contextComposition } : {}),
     ...(stepUsage.length > 0 ? { stepUsage } : {}),
     ...(promptCache ? { promptCache } : {}),
+    ...(openRouterRouting ? { openRouterRouting } : {}),
     ...(typeof execution?.profile === "string" ? { profile: execution.profile } : {}),
     ...(typeof execution?.mode === "string" ? { mode: execution.mode } : {}),
     ...(finiteNumber(execution?.tokenBudgetMultiplier) !== undefined
@@ -463,6 +465,9 @@ function promptCacheFromTokenAudit(
   return {
     modelId,
     providerId,
+    ...(typeof cache.routingFingerprint === "string"
+      ? { routingFingerprint: cache.routingFingerprint }
+      : {}),
     systemPromptHash: stringValue(cache.systemPromptHash) ?? "—",
     toolSchemaHash: stringValue(cache.toolSchemaHash) ?? "—",
     nativeToolNamesHash: stringValue(cache.nativeToolNamesHash) ?? "—",
@@ -483,6 +488,33 @@ function promptCacheFromTokenAudit(
       : {}),
     likelyCacheMissReasons,
     cacheBreakReasons: stringArray(cache.cacheBreakReasons),
+  };
+}
+
+function openRouterRoutingFromExecution(
+  execution: Record<string, unknown> | null,
+): ProjectRunDetailsRun["openRouterRouting"] | undefined {
+  if (!execution || !isRecord(execution.openRouterRouting)) return undefined;
+  const routing = execution.openRouterRouting;
+  const source = routing.source;
+  if (
+    source !== "settings" &&
+    source !== "env" &&
+    source !== "builtin" &&
+    source !== "default"
+  ) {
+    return undefined;
+  }
+  const modelId = stringValue(routing.modelId);
+  const fingerprint = stringValue(routing.fingerprint);
+  if (!modelId || !fingerprint) return undefined;
+  return {
+    source,
+    modelId,
+    order: stringArray(routing.order),
+    allowFallbacks: routing.allowFallbacks === true,
+    requireParameters: routing.requireParameters === true,
+    fingerprint,
   };
 }
 

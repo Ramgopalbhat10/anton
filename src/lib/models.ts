@@ -8,7 +8,7 @@ export type ProviderId = (typeof PROVIDERS)[number]["id"];
 export const DEFAULT_PROVIDER_ID: ProviderId = "opencode-go";
 export const DEFAULT_MODEL_ID = "opencode-go/deepseek-v4-flash";
 
-const OPENCODE_GO_MODELS = [
+export const OPENCODE_GO_MODELS = [
   { slug: "deepseek-v4-flash", label: "DeepSeek V4 Flash" },
   { slug: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
   { slug: "glm-5.1", label: "GLM 5.1" },
@@ -23,7 +23,7 @@ const OPENCODE_GO_MODELS = [
   { slug: "mimo-v2.5", label: "MiMo V2.5" },
 ] as const;
 
-const OPENROUTER_MODELS = [
+export const FALLBACK_OPENROUTER_MODELS = [
   { slug: "deepseek/deepseek-v4-flash", label: "DeepSeek V4 Flash" },
   { slug: "deepseek/deepseek-v4-pro", label: "DeepSeek V4 Pro" },
   { slug: "anthropic/claude-sonnet-4.5", label: "Claude Sonnet 4.5" },
@@ -39,7 +39,7 @@ export const MODEL_CATALOG = [
     providerModelId: model.slug,
     label: model.label,
   })),
-  ...OPENROUTER_MODELS.map((model) => ({
+  ...FALLBACK_OPENROUTER_MODELS.map((model) => ({
     id: `openrouter/${model.slug}`,
     provider: "openrouter" as const,
     providerModelId: model.slug,
@@ -48,16 +48,24 @@ export const MODEL_CATALOG = [
 ] as const;
 
 export type ModelCatalogEntry = (typeof MODEL_CATALOG)[number];
-export type ModelId = ModelCatalogEntry["id"];
+export type ModelId = string;
 
 function normalizeModelId(modelId: string): ModelId | null {
-  if (MODEL_CATALOG.some((model) => model.id === modelId)) {
-    return modelId as ModelId;
+  const catalogEntry = MODEL_CATALOG.find((model) => model.id === modelId);
+  if (catalogEntry) {
+    return catalogEntry.id;
   }
 
   const opencodeId = `opencode-go/${modelId}`;
   if (MODEL_CATALOG.some((model) => model.id === opencodeId)) {
-    return opencodeId as ModelId;
+    return opencodeId;
+  }
+
+  if (modelId.startsWith("openrouter/")) {
+    const providerModelId = modelId.slice("openrouter/".length);
+    if (isOpenRouterModelSlug(providerModelId)) {
+      return modelId;
+    }
   }
 
   if (
@@ -66,8 +74,8 @@ function normalizeModelId(modelId: string): ModelId | null {
     !modelId.startsWith("openrouter/")
   ) {
     const openrouterId = `openrouter/${modelId}`;
-    if (MODEL_CATALOG.some((model) => model.id === openrouterId)) {
-      return openrouterId as ModelId;
+    if (isOpenRouterModelSlug(modelId)) {
+      return openrouterId;
     }
   }
 
@@ -85,13 +93,19 @@ export function resolveModelId(modelId: string): ModelId {
 export function getProviderId(modelId: string): ProviderId {
   const resolved = resolveModelId(modelId);
   const entry = MODEL_CATALOG.find((model) => model.id === resolved);
-  return entry?.provider ?? DEFAULT_PROVIDER_ID;
+  if (entry) return entry.provider;
+  if (resolved.startsWith("openrouter/")) return "openrouter";
+  return DEFAULT_PROVIDER_ID;
 }
 
 export function getProviderModelId(modelId: string): string {
   const resolved = resolveModelId(modelId);
   const entry = MODEL_CATALOG.find((model) => model.id === resolved);
-  return entry?.providerModelId ?? resolved;
+  if (entry) return entry.providerModelId;
+  if (resolved.startsWith("openrouter/")) {
+    return resolved.slice("openrouter/".length);
+  }
+  return resolved;
 }
 
 export function getModelsForProvider(provider: ProviderId): ModelCatalogEntry[] {
@@ -108,4 +122,25 @@ export function getModelLabel(modelId: string): string {
 export function getDefaultModelForProvider(provider: ProviderId): ModelId {
   const models = getModelsForProvider(provider);
   return models[0]?.id ?? DEFAULT_MODEL_ID;
+}
+
+export function isStaticOpenCodeGoModelId(modelId: string): boolean {
+  const resolved = normalizeModelId(modelId);
+  return (
+    resolved !== null &&
+    MODEL_CATALOG.some(
+      (model) => model.id === resolved && model.provider === "opencode-go",
+    )
+  );
+}
+
+function isOpenRouterModelSlug(value: string): boolean {
+  return (
+    value.length > 0 &&
+    value.includes("/") &&
+    !value.startsWith("/") &&
+    !value.endsWith("/") &&
+    !value.includes("..") &&
+    !/\s/.test(value)
+  );
 }

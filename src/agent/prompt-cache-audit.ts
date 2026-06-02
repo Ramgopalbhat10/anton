@@ -3,10 +3,12 @@ import type { ModelMessage, ToolSet } from "ai";
 
 import type { TokenUsageMetrics } from "@/src/lib/token-usage";
 import { getProviderId } from "@/src/lib/models";
+import type { OpenRouterRoutingResolution } from "@/src/lib/openrouter-routing";
 
 export type PromptCacheAudit = {
   modelId: string;
   providerId: string;
+  routingFingerprint?: string;
   systemPromptHash: string;
   toolSchemaHash: string;
   nativeToolNamesHash: string;
@@ -33,6 +35,7 @@ export function buildPromptCacheAudit({
   tokenUsage,
   previousAudit,
   intentionalSegmentTransition,
+  openRouterRouting,
 }: {
   modelId: string;
   system: string;
@@ -45,6 +48,7 @@ export function buildPromptCacheAudit({
   tokenUsage?: TokenUsageMetrics;
   previousAudit?: PromptCacheAudit | null;
   intentionalSegmentTransition?: string;
+  openRouterRouting?: OpenRouterRoutingResolution;
 }): PromptCacheAudit {
   const cachedInputTokens = tokenUsage?.cachedInputTokens;
   const cacheWriteTokens = tokenUsage?.cacheWriteTokens;
@@ -66,6 +70,9 @@ export function buildPromptCacheAudit({
   const auditBase = {
     modelId,
     providerId: getProviderId(modelId),
+    ...(openRouterRouting
+      ? { routingFingerprint: openRouterRouting.fingerprint }
+      : {}),
     systemPromptHash: hashText(system),
     toolSchemaHash: hashText(stableJson(toolSchemas(tools, activeToolNames))),
     nativeToolNamesHash: hashText((activeToolNames ?? nativeToolNames).join("\n")),
@@ -92,6 +99,7 @@ export function comparePromptCacheAudit(
     PromptCacheAudit,
     | "modelId"
     | "providerId"
+    | "routingFingerprint"
     | "systemPromptHash"
     | "toolSchemaHash"
     | "nativeToolNamesHash"
@@ -103,6 +111,7 @@ export function comparePromptCacheAudit(
     PromptCacheAudit,
     | "modelId"
     | "providerId"
+    | "routingFingerprint"
     | "systemPromptHash"
     | "toolSchemaHash"
     | "nativeToolNamesHash"
@@ -118,6 +127,9 @@ export function comparePromptCacheAudit(
   }
   if (previous.providerId !== current.providerId) {
     reasons.push("provider id changed from the previous run in this session");
+  }
+  if (previous.routingFingerprint !== current.routingFingerprint) {
+    reasons.push("OpenRouter routing fingerprint changed");
   }
   if (previous.systemPromptHash !== current.systemPromptHash) {
     reasons.push("system prompt hash changed");
@@ -157,6 +169,9 @@ export function promptCacheAuditFromCostMetadata(
   return {
     modelId,
     providerId,
+    ...(typeof promptCache.routingFingerprint === "string"
+      ? { routingFingerprint: promptCache.routingFingerprint }
+      : {}),
     systemPromptHash: stringValue(promptCache.systemPromptHash) ?? "—",
     toolSchemaHash: stringValue(promptCache.toolSchemaHash) ?? "—",
     nativeToolNamesHash: stringValue(promptCache.nativeToolNamesHash) ?? "—",

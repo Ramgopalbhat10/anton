@@ -9,6 +9,10 @@ import {
   DEFAULT_MODEL,
   getLanguageModel,
 } from "@/src/lib/providers";
+import {
+  openRouterProviderOptions,
+  resolveOpenRouterRouting,
+} from "@/src/lib/openrouter-routing";
 import { listMemories } from "@/src/db/queries";
 import { listSkills } from "../skills";
 import {
@@ -72,6 +76,9 @@ export function createDelegateTaskTool({
             ? {
                 openrouter: {
                   usage: { include: true },
+                  ...openRouterProviderOptions(
+                    resolveOpenRouterRouting(selectedModel),
+                  ),
                 },
               }
             : undefined;
