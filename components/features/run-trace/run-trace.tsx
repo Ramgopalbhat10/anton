@@ -25,7 +25,6 @@ import { Disclosure } from "@/components/shared/disclosure";
 import {
   formatDuration,
   getModelTurnSummary,
-  getTraceDurationMs,
   getTraceRows,
   groupTraceRowsByStep,
   type TodoTraceDisplay,
@@ -86,21 +85,16 @@ export function RunTraceAccordion({
   );
 
   const forceOpen = pendingApproval;
+  const inlineTraceDefaultOpen = !isRunning && !hasFinalResponseText;
 
   const now = useTick(isRunning);
-  const rows = useMemo(
-    () => getTraceRows(message, todoDisplay),
-    [message, todoDisplay],
-  );
-  const stepGroups = useMemo(() => groupTraceRowsByStep(message, rows), [message, rows]);
   const modelTurnSummary = useMemo(() => getModelTurnSummary(message), [message]);
 
-  if (!run && rows.length === 0) return null;
+  if (!run && !messageHasTracePayload(message)) return null;
 
   const startedAt = run?.startedAt ?? metadata?.startedAt;
   const durationMs =
     getMessageRunDurationMs(message, now) ??
-    getTraceDurationMs(rows) ??
     (startedAt === undefined ? 0 : Math.max(0, now - startedAt));
   const header =
     pendingApproval
@@ -114,8 +108,9 @@ export function RunTraceAccordion({
   return (
     <Disclosure
       className="mb-2 w-full text-xs text-muted-foreground"
-      defaultOpen={!hasFinalResponseText}
+      defaultOpen={inlineTraceDefaultOpen}
       forceOpen={forceOpen}
+      lazyMount
       trigger={({ open }) => (
         <span className="inline-flex max-w-full items-center gap-1.5 rounded px-1 py-0.5 text-[11px]">
           {pendingApproval ? (
@@ -138,39 +133,99 @@ export function RunTraceAccordion({
         </span>
       )}
     >
-      <div className="min-h-0 overflow-hidden">
-        <div className="ml-2 mt-1 space-y-0 border-l border-border/70 pl-3">
-          {buildInterleaved(rows, stepGroups).map((item) =>
-            item.kind === "group" ? (
-              <StepGroupView
-                key={`step-${item.group.stepNumber}`}
-                group={item.group}
-                runStatus={runStatus}
-                budgetLimited={budgetLimited}
-                onApproval={onApproval}
-              />
-            ) : (
-              <div key={item.row.id}>
-                <TraceRowView
-                  row={item.row}
-                  runStatus={runStatus}
-                  budgetLimited={budgetLimited}
-                  budgetGateDisabled={
-                    isRunning ||
-                    pendingApproval ||
-                    (item.row.kind === "budget-gate" &&
-                      item.row.gate.status !== "open")
-                  }
-                  onExtendTokenBudget={onExtendTokenBudget}
-                  onApproval={onApproval}
-                />
-              </div>
-            ),
-          )}
-        </div>
-      </div>
+      {() => (
+        <RunTraceAccordionBody
+          message={message}
+          todoDisplay={todoDisplay}
+          runStatus={runStatus}
+          budgetLimited={budgetLimited}
+          budgetGateDisabled={isRunning || pendingApproval}
+          onApproval={onApproval}
+          onExtendTokenBudget={onExtendTokenBudget}
+        />
+      )}
     </Disclosure>
   );
+}
+
+function RunTraceAccordionBody({
+  message,
+  todoDisplay,
+  runStatus,
+  budgetLimited,
+  budgetGateDisabled,
+  onApproval,
+  onExtendTokenBudget,
+}: {
+  message: AntonUIMessage;
+  todoDisplay?: TodoTraceDisplay;
+  runStatus: AntonRunStatus;
+  budgetLimited: boolean;
+  budgetGateDisabled: boolean;
+  onApproval: ChatAddToolApproveResponseFunction;
+  onExtendTokenBudget?: (
+    runId: string,
+    multiplier: TokenBudgetMultiplierOption,
+  ) => void;
+}) {
+  const rows = useMemo(
+    () => getTraceRows(message, todoDisplay),
+    [message, todoDisplay],
+  );
+  const stepGroups = useMemo(
+    () => groupTraceRowsByStep(message, rows),
+    [message, rows],
+  );
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="min-h-0 overflow-hidden">
+      <div className="ml-2 mt-1 space-y-0 border-l border-border/70 pl-3">
+        {buildInterleaved(rows, stepGroups).map((item) =>
+          item.kind === "group" ? (
+            <StepGroupView
+              key={`step-${item.group.stepNumber}`}
+              group={item.group}
+              runStatus={runStatus}
+              budgetLimited={budgetLimited}
+              onApproval={onApproval}
+            />
+          ) : (
+            <div key={item.row.id}>
+              <TraceRowView
+                row={item.row}
+                runStatus={runStatus}
+                budgetLimited={budgetLimited}
+                budgetGateDisabled={
+                  budgetGateDisabled ||
+                  (item.row.kind === "budget-gate" &&
+                    item.row.gate.status !== "open")
+                }
+                onExtendTokenBudget={onExtendTokenBudget}
+                onApproval={onApproval}
+              />
+            </div>
+          ),
+        )}
+      </div>
+    </div>
+  );
+}
+
+function messageHasTracePayload(message: AntonUIMessage): boolean {
+  return message.parts.some((part) => {
+    if (
+      part.type === "reasoning" ||
+      part.type === "data-run" ||
+      part.type === "data-activity" ||
+      part.type === "data-todos" ||
+      part.type === "data-budget-gate"
+    ) {
+      return true;
+    }
+    return "toolCallId" in part && typeof part.toolCallId === "string";
+  });
 }
 
 function effectiveRunStatus(

@@ -154,6 +154,7 @@ function ReasoningRow({
   return (
     <Disclosure
       className="py-0.5"
+      lazyMount
       trigger={({ open }) => (
         <span className="inline-grid max-w-full grid-cols-[0.875rem_auto_0.75rem] items-start gap-2 rounded px-0 py-0">
           {running ? (
@@ -216,6 +217,7 @@ export function StepGroupView({
     <Disclosure
       className="py-0.5"
       forceOpen={hasPendingApproval}
+      lazyMount
       trigger={({ open }) => (
         <span className="inline-flex max-w-full items-center gap-1.5 rounded px-0 py-0 text-[11px] text-muted-foreground/80 hover:text-foreground/80">
           <span className="truncate">{group.summary}</span>

@@ -64,14 +64,32 @@ export function MessageList({
   onExtendTokenBudget,
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollFrameRef = useRef<number | null>(null);
   const todoDisplay = useMemo(() => getTodoTraceDisplay(messages), [messages]);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({
-      top: scrollRef.current.scrollHeight,
-      behavior: "smooth",
+    const scrollElement = scrollRef.current;
+    if (!scrollElement) return;
+
+    if (scrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(scrollFrameRef.current);
+    }
+    scrollFrameRef.current = window.requestAnimationFrame(() => {
+      scrollFrameRef.current = null;
+      scrollElement.scrollTo({
+        top: scrollElement.scrollHeight,
+        behavior:
+          status === "submitted" || status === "streaming" ? "auto" : "smooth",
+      });
     });
-  }, [messages, status]);
+
+    return () => {
+      if (scrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollFrameRef.current);
+        scrollFrameRef.current = null;
+      }
+    };
+  }, [messages.length, status]);
 
   if (messages.length === 0) {
     return (

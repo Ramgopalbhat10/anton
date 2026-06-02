@@ -61,16 +61,39 @@ import {
   stepUsageFromCostMetadata,
 } from "@/components/features/run-trace/trace-usage-ui";
 
+const LIVE_WORKLOG_STEP_LIMIT = 4;
+const LIVE_WORKLOG_ITEM_LIMIT = 8;
+
 export function WorklogTimeline({
   messages,
+  streaming = false,
   onApproval,
 }: {
   messages: AntonUIMessage[];
+  streaming?: boolean;
   onApproval: ChatAddToolApproveResponseFunction;
 }) {
+  const latestMessage = messages.at(-1);
+  const liveMessage =
+    streaming && latestMessage?.role === "assistant" ? latestMessage : undefined;
+  const stableTimelineMessages =
+    liveMessage === undefined ? messages : messages.slice(0, -1);
+  const stableTimelineKey = stableTimelineMessages
+    .map((message) => message.id)
+    .join("|");
+  const stableGroups = useMemo(
+    () => getSessionTimelineRunGroups(stableTimelineMessages),
+    // Stable persisted messages do not change while the active assistant streams.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [stableTimelineKey],
+  );
+  const liveGroups = useMemo(
+    () => (liveMessage ? getSessionTimelineRunGroups([liveMessage]) : []),
+    [liveMessage],
+  );
   const groups = useMemo(
-    () => getSessionTimelineRunGroups(messages),
-    [messages],
+    () => (liveMessage ? [...stableGroups, ...liveGroups] : stableGroups),
+    [liveGroups, liveMessage, stableGroups],
   );
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
 
@@ -102,6 +125,7 @@ export function WorklogTimeline({
           const stepUsageMap = stepUsageByNumber(
             stepUsageFromCostMetadata(group.run.costMetadata),
           );
+          const visibleSteps = visibleStepsForGroup(group);
 
           return (
             <TraceThreadNode key={group.runId}>
@@ -114,7 +138,7 @@ export function WorklogTimeline({
                 status={group.run.status}
               />
               <TraceThreadChildren>
-                {group.steps.map((step) => {
+                {visibleSteps.map((step) => {
                   const stepMeta = timelineEventMeta("step", "completed");
                   const harnessStepNumber = parseHarnessStepNumber(step.id);
                   const stepMetrics =
@@ -167,6 +191,19 @@ export function WorklogTimeline({
       </TraceThreadRoot>
     </div>
   );
+}
+
+function visibleStepsForGroup(
+  group: SessionTimelineRunGroup,
+): SessionTimelineRunGroup["steps"] {
+  if (group.run.status !== "running") {
+    return group.steps;
+  }
+
+  return group.steps.slice(-LIVE_WORKLOG_STEP_LIMIT).map((step) => ({
+    ...step,
+    items: step.items.slice(-LIVE_WORKLOG_ITEM_LIMIT),
+  }));
 }
 
 function renderTimelineItem({
@@ -452,6 +489,10 @@ function ToolEntryExpandPanel({
 }
 
 function ToolIoBlocks({ entry }: { entry: ToolTraceEntry }) {
+  if (entry.name === "grep" && isGrepOutput(entry.output)) {
+    return <GrepOutputPanel output={entry.output} />;
+  }
+
   const inputText = safeStringify(entry.input);
   const durableOutput =
     entry.name === "read_file" &&
@@ -493,6 +534,65 @@ function ToolIoBlocks({ entry }: { entry: ToolTraceEntry }) {
           {entry.errorText}
         </TraceLogBlock>
       ) : null}
+    </div>
+  );
+}
+
+type GrepOutput = {
+  ok: true;
+  pattern: string;
+  target?: string;
+  matchCount: number;
+  truncated?: boolean;
+  matches: { file: string; line: number; text: string }[];
+};
+
+function isGrepOutput(value: unknown): value is GrepOutput {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    record.ok === true &&
+    typeof record.pattern === "string" &&
+    typeof record.matchCount === "number" &&
+    Array.isArray(record.matches)
+  );
+}
+
+function GrepOutputPanel({ output }: { output: GrepOutput }) {
+  return (
+    <div className="space-y-1.5">
+      <div className="rounded border border-border/50 bg-background/40 px-2 py-1.5 font-mono text-[10px] text-muted-foreground">
+        <span className="text-foreground/80">{output.matchCount}</span>{" "}
+        match{output.matchCount === 1 ? "" : "es"} for{" "}
+        <span className="text-foreground/80">{output.pattern}</span>
+        {output.target ? (
+          <>
+            {" "}in <span className="text-foreground/80">{output.target}</span>
+          </>
+        ) : null}
+        {output.truncated ? " (truncated)" : null}
+      </div>
+      {output.matches.length > 0 ? (
+        <div className="max-h-56 overflow-y-auto rounded border border-border/50 bg-card/30">
+          {output.matches.map((match) => (
+            <div
+              key={`${match.file}:${match.line}:${match.text}`}
+              className="border-b border-border/30 px-2 py-1 last:border-b-0"
+            >
+              <div className="font-mono text-[10px] text-muted-foreground">
+                {match.file}:{match.line}
+              </div>
+              <pre className="whitespace-pre-wrap break-words font-mono text-[10px] leading-snug text-foreground/85">
+                {match.text}
+              </pre>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded border border-border/50 bg-card/30 px-2 py-1.5 font-mono text-[10px] text-muted-foreground">
+          No matching lines.
+        </div>
+      )}
     </div>
   );
 }

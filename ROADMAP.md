@@ -62,6 +62,9 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Kept chat, Worklog, and Status reasoning traces aligned across live and persisted run views.
 - [✔️] Made verification run independent targets in parallel with build-safe timeout reporting (#134).
 - [✔️] Hardened verification classification and post-edit rollback for cache-safe agent recovery.
+- [✔️] Enriched prior-run context summaries with todos, verification, blockers, touched files, and failed tool details (#136).
+- [✔️] Reduced live trace rendering pressure with lazy-mounted disclosures and bounded running Worklog rows (#139).
+- [✔️] Hardened native grep fallback search and rendered grep results as structured Worklog output (#140).
 
 ## Phase 1: Trust Boundaries And Safety
 
