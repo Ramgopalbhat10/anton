@@ -432,11 +432,6 @@ function mcpToolPromptLines(mcpTools: LoadedMcpTools): string[] {
       ),
     );
   }
-  if (mcpTools.warnings.length > 0) {
-    lines.push(
-      ...mcpTools.warnings.map((warning) => `- MCP warning: ${warning}`),
-    );
-  }
   return lines;
 }
 
@@ -497,6 +492,7 @@ export async function runAgent({
   onToolCallFinish,
   onStreamPart,
   onLoopGuard,
+  onMcpWarnings,
   onProfilePromotion,
   onError,
   onAbort,
@@ -553,6 +549,7 @@ export async function runAgent({
     recommendedNext?: string;
     forceFinal: boolean;
   }) => void;
+  onMcpWarnings?: (warnings: readonly string[]) => void;
   onProfilePromotion?: (event: ProfilePromotionEvent) => void;
   onError?: (error: unknown) => void;
   onAbort?: () => void;
@@ -611,6 +608,9 @@ export async function runAgent({
   const mcpTools = allowMcpTools
     ? await loadMcpTools({ workspaceRoot, enabledMcpServerIds })
     : emptyLoadedMcpTools();
+  if (mcpTools.warnings.length > 0) {
+    onMcpWarnings?.(mcpTools.warnings);
+  }
   let closed = false;
   const closeMcpTools = async () => {
     if (closed) return;

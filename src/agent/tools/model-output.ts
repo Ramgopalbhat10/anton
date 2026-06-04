@@ -11,6 +11,61 @@ export const GREP_MODEL_MAX_MATCH_CHARS = 220;
 export const GLOB_MODEL_MAX_PATHS = 80;
 export const VERIFY_MODEL_OUTPUT_TAIL_CHARS = 1_200;
 
+export type ModelVisibleToolOutput = {
+  ok: boolean;
+  code: string;
+  summary: string;
+  recommendedNext?: string;
+  pathHints?: unknown;
+  details?: unknown;
+} & Record<string, unknown>;
+
+export function modelVisibleToolOutput(
+  output: unknown,
+  defaults: {
+    successCode: string;
+    failureCode: string;
+    successSummary: string;
+    failureSummary: string;
+    successRecommendedNext?: string;
+    failureRecommendedNext?: string;
+    pathHints?: unknown;
+    details?: unknown;
+  },
+): ModelVisibleToolOutput {
+  const record = isRecord(output) ? output : {};
+  const ok = record.ok === true;
+  const code =
+    typeof record.code === "string" && record.code.length > 0
+      ? record.code
+      : ok
+        ? defaults.successCode
+        : defaults.failureCode;
+  const summary =
+    firstString(record.summary, record.message, record.error) ??
+    (ok ? defaults.successSummary : defaults.failureSummary);
+  const recommendedNext =
+    firstString(record.recommendedNext) ??
+    (ok
+      ? defaults.successRecommendedNext
+      : defaults.failureRecommendedNext);
+  const pathHints =
+    record.pathHints ?? pathHintFromRecord(record) ?? defaults.pathHints;
+  return {
+    ...record,
+    ok,
+    code,
+    summary,
+    ...(recommendedNext ? { recommendedNext } : {}),
+    ...(pathHints !== undefined ? { pathHints } : {}),
+    ...(record.details !== undefined
+      ? { details: record.details }
+      : defaults.details !== undefined
+        ? { details: defaults.details }
+        : {}),
+  };
+}
+
 export function readFileOutputIsFullCoverage(output: Record<string, unknown>): boolean {
   if (output.truncated === true) return false;
   const startLine = finiteNumber(output.startLine) ?? 1;
@@ -40,11 +95,19 @@ export function compactReadFileForModel(
   output: unknown,
   profile: AgentRunProfile = "general-chat",
 ): unknown {
-  if (!isRecord(output) || output.ok !== true) return output;
+  if (!isRecord(output) || output.ok !== true) {
+    return modelVisibleToolOutput(output, {
+      successCode: "READ_FILE_OK",
+      failureCode: "READ_FILE_FAILED",
+      successSummary: "File read successfully.",
+      failureSummary: "File could not be read.",
+      failureRecommendedNext: "Check the path and read a nearby directory if needed.",
+    });
+  }
   const content = typeof output.content === "string" ? output.content : "";
 
   if (readFileOutputIsModestFullFile(output)) {
-    return {
+    return modelVisibleToolOutput({
       ok: true,
       path: output.path,
       startLine: output.startLine,
@@ -53,7 +116,13 @@ export function compactReadFileForModel(
       sizeBytes: output.sizeBytes,
       sha256: output.sha256,
       content,
-    };
+    }, {
+      successCode: "READ_FILE_OK",
+      failureCode: "READ_FILE_FAILED",
+      successSummary: `Read ${stringValue(output.path) || "file"}.`,
+      failureSummary: "File could not be read.",
+      successRecommendedNext: "Continue with the visible file content.",
+    });
   }
 
   const lines = content.split("\n");
@@ -81,7 +150,7 @@ export function compactReadFileForModel(
       finiteNumber(output.totalLines) !== undefined &&
       (finiteNumber(output.endLine) as number) <
         (finiteNumber(output.totalLines) as number));
-  return {
+  return modelVisibleToolOutput({
     ok: true,
     path: output.path,
     startLine: output.startLine,
@@ -104,12 +173,26 @@ export function compactReadFileForModel(
         }
       : {}),
     content: compactContent,
-  };
+  }, {
+    successCode: "READ_FILE_OK",
+    failureCode: "READ_FILE_FAILED",
+    successSummary: `Read ${stringValue(output.path) || "file"}${truncated ? " with truncation" : ""}.`,
+    failureSummary: "File could not be read.",
+    successRecommendedNext: truncated
+      ? "Request a narrower line range before editing unseen content."
+      : "Continue with the visible file content.",
+  });
 }
 
 export function compactGrepForModel(output: unknown): unknown {
   if (!isRecord(output) || output.ok !== true || !Array.isArray(output.matches)) {
-    return output;
+    return modelVisibleToolOutput(output, {
+      successCode: "GREP_OK",
+      failureCode: "GREP_FAILED",
+      successSummary: "Search completed.",
+      failureSummary: "Search could not be completed.",
+      failureRecommendedNext: "Fix the pattern or path, then search again.",
+    });
   }
   const matches = output.matches.slice(0, GREP_MODEL_MAX_MATCHES).map((match) => {
     if (!isRecord(match)) return match;
@@ -122,7 +205,7 @@ export function compactGrepForModel(output: unknown): unknown {
           : text,
     };
   });
-  return {
+  return modelVisibleToolOutput({
     ...output,
     matches,
     matchCount: matches.length,
@@ -130,26 +213,56 @@ export function compactGrepForModel(output: unknown): unknown {
       output.truncated === true ||
       (Array.isArray(output.matches) &&
         output.matches.length > GREP_MODEL_MAX_MATCHES),
-  };
+  }, {
+    successCode: "GREP_OK",
+    failureCode: "GREP_FAILED",
+    successSummary: `Found ${matches.length} matching line${matches.length === 1 ? "" : "s"}.`,
+    failureSummary: "Search could not be completed.",
+    successRecommendedNext: matches.length > 0
+      ? "Inspect the most relevant match with read_file."
+      : "Try a broader pattern if needed.",
+  });
 }
 
 export function compactGlobForModel(output: unknown): unknown {
   if (!isRecord(output) || output.ok !== true || !Array.isArray(output.matches)) {
-    return output;
+    return modelVisibleToolOutput(output, {
+      successCode: "GLOB_OK",
+      failureCode: "GLOB_FAILED",
+      successSummary: "Glob completed.",
+      failureSummary: "Glob could not be completed.",
+      failureRecommendedNext: "Check the base path or simplify the glob pattern.",
+    });
   }
   const matches = output.matches.slice(0, GLOB_MODEL_MAX_PATHS);
-  return {
+  return modelVisibleToolOutput({
     ...output,
     matches,
     matchCount: matches.length,
     truncated:
       output.truncated === true ||
       output.matches.length > GLOB_MODEL_MAX_PATHS,
-  };
+  }, {
+    successCode: "GLOB_OK",
+    failureCode: "GLOB_FAILED",
+    successSummary: `Found ${matches.length} path${matches.length === 1 ? "" : "s"}.`,
+    failureSummary: "Glob could not be completed.",
+    successRecommendedNext: matches.length > 0
+      ? "Read or inspect the relevant paths."
+      : "Try a broader pattern if needed.",
+  });
 }
 
 export function compactVerifyForModel(output: unknown): unknown {
-  if (!isRecord(output)) return output;
+  if (!isRecord(output)) {
+    return modelVisibleToolOutput(output, {
+      successCode: "VERIFY_OK",
+      failureCode: "VERIFY_FAILED",
+      successSummary: "Verification completed.",
+      failureSummary: "Verification failed.",
+      failureRecommendedNext: "Inspect verification output and decide whether to fix or report.",
+    });
+  }
   const results = Array.isArray(output.results)
     ? output.results.map(compactVerifyResultForModel)
     : output.results;
@@ -185,7 +298,7 @@ export function compactVerifyForModel(output: unknown): unknown {
       : [];
 
   if (output.ok === false) {
-    return {
+    return modelVisibleToolOutput({
       ...base,
       ok: false,
       ...(parseIssues.length > 0 ? { parseIssues: parseIssues.slice(0, 5) } : {}),
@@ -198,13 +311,28 @@ export function compactVerifyForModel(output: unknown): unknown {
             exitCode: failed.exitCode,
           }
         : {}),
-    };
+    }, {
+      successCode: "VERIFY_OK",
+      failureCode: "VERIFY_FAILED",
+      successSummary: "Verification completed.",
+      failureSummary: failureSummary ?? "Verification failed.",
+      failureRecommendedNext: "Fix edited-file failures; report unrelated or broken verification.",
+    });
   }
 
-  return {
+  return modelVisibleToolOutput({
     ...base,
     results,
-  };
+  }, {
+    successCode: "VERIFY_OK",
+    failureCode: "VERIFY_FAILED",
+    successSummary: typeof output.summary === "string"
+      ? output.summary
+      : "Verification completed.",
+    failureSummary: "Verification failed.",
+    successRecommendedNext:
+      output.recommendedNext === "final" ? "final" : undefined,
+  });
 }
 
 export function extractVerifyFailureSummary(output: unknown): string | undefined {
@@ -306,6 +434,29 @@ function tailText(value: unknown): string | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return undefined;
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function pathHintFromRecord(record: Record<string, unknown>): unknown {
+  if (typeof record.path === "string" && record.path.length > 0) {
+    return [record.path];
+  }
+  if (typeof record.file === "string" && record.file.length > 0) {
+    return [record.file];
+  }
+  return undefined;
 }
 
 function finiteNumber(value: unknown): number | undefined {

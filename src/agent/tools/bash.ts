@@ -12,6 +12,7 @@ import {
   type BashFailedReason,
 } from "@/src/lib/bash-stream";
 import { redactText } from "@/src/lib/redaction";
+import { modelVisibleToolOutput } from "./model-output";
 
 const MAX_OUTPUT_BYTES = 64 * 1024;
 const DEFAULT_TIMEOUT_MS = 180_000;
@@ -68,14 +69,22 @@ export const bashTool = createBashTool();
 
 function compactBashModelOutput(output: unknown): JSONValue {
   if (!isRecord(output)) {
-    return { ok: false, error: "unexpected bash output" };
+    return modelVisibleToolOutput(output, {
+      successCode: "BASH_OK",
+      failureCode: "BASH_OUTPUT_MALFORMED",
+      successSummary: "Command completed.",
+      failureSummary: "Bash returned malformed output.",
+      failureRecommendedNext: "Retry with a simpler command or report the tool failure.",
+    }) as JSONValue;
   }
   const exitCode = numberOrNull(output.exitCode);
   const failedReason =
     typeof output.failedReason === "string" ? output.failedReason : undefined;
   const stderr = stringValue(output.stderr);
-  return {
-    ok: output.ok === true && exitCode === 0 && failedReason === undefined,
+  const ok = output.ok === true && exitCode === 0 && failedReason === undefined;
+  const failureCode = bashFailureCode(output, exitCode, failedReason);
+  return modelVisibleToolOutput({
+    ok,
     exitCode,
     timedOut: booleanValue(output.timedOut),
     killed: booleanValue(output.killed),
@@ -88,7 +97,19 @@ function compactBashModelOutput(output: unknown): JSONValue {
         : exitCode !== null && exitCode !== 0
           ? `Command exited with code ${exitCode}.`
           : failedReason ?? null,
-  };
+  }, {
+    successCode: "BASH_OK",
+    failureCode,
+    successSummary: "Command completed successfully.",
+    failureSummary:
+      typeof output.error === "string"
+        ? output.error
+        : exitCode !== null && exitCode !== 0
+          ? `Command exited with code ${exitCode}.`
+          : failedReason ?? "Command failed.",
+    successRecommendedNext: "Continue with the command output.",
+    failureRecommendedNext: recommendedNextForBashFailure(failureCode, ok),
+  }) as JSONValue;
 }
 
 function truncate(output: string): string {
@@ -288,4 +309,41 @@ function numberOrNull(value: unknown): number | null {
 function tail(value: string, maxLength: number): string {
   if (value.length <= maxLength) return value;
   return value.slice(value.length - maxLength);
+}
+
+function bashFailureCode(
+  output: Record<string, unknown>,
+  exitCode: number | null,
+  failedReason: string | undefined,
+): string {
+  if (output.ok === true && exitCode === 0 && failedReason === undefined) {
+    return "BASH_OK";
+  }
+  if (output.ok === false && typeof output.error === "string" && exitCode === null) {
+    return "BASH_POLICY_REJECTED";
+  }
+  if (failedReason === "timeout") return "BASH_TIMEOUT";
+  if (failedReason === "max_buffer") return "BASH_OUTPUT_TRUNCATED";
+  if (exitCode !== null && exitCode !== 0) return "BASH_NONZERO_EXIT";
+  return "BASH_FAILED";
+}
+
+function recommendedNextForBashFailure(
+  code: string,
+  ok: boolean,
+): string | undefined {
+  if (ok) return undefined;
+  if (code === "BASH_POLICY_REJECTED") {
+    return "Revise the command to satisfy the workspace command policy.";
+  }
+  if (code === "BASH_TIMEOUT") {
+    return "Run a narrower command or request a longer timeout within the tool cap.";
+  }
+  if (code === "BASH_NONZERO_EXIT") {
+    return "Inspect stderr/stdout, fix the underlying issue, then retry if needed.";
+  }
+  if (code === "BASH_OUTPUT_TRUNCATED") {
+    return "Rerun with narrower output or use a purpose-built read/search tool.";
+  }
+  return "Retry with a simpler command or report the failure.";
 }

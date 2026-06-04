@@ -12,6 +12,7 @@ import { assertGuardAllowed } from "./file-guardrails";
 import { findPreview, nearMatchesForFind } from "./edit-diagnostics";
 import { applyTextEditsToContent, buildDisplayDiff } from "./text-edits";
 import { lintEditedFile } from "./post-edit-lint";
+import { modelVisibleToolOutput } from "./model-output";
 
 const editSchema = z.object({
   oldText: z.string().describe("Text to find in the current file on disk (LF or CRLF both work)."),
@@ -197,12 +198,19 @@ function structuredError(input: {
 
 function compactEditTextModelOutput(output: unknown): JSONValue {
   if (!isRecord(output)) {
-    return { ok: false, error: "unexpected edit_text output" };
+    return modelVisibleToolOutput(output, {
+      successCode: "EDIT_TEXT_OK",
+      failureCode: "EDIT_TEXT_OUTPUT_MALFORMED",
+      successSummary: "Edit applied.",
+      failureSummary: "edit_text returned malformed output.",
+      failureRecommendedNext: "Retry with a simpler edit or report the tool failure.",
+    }) as JSONValue;
   }
   if (output.ok !== true) {
-    return {
+    const code = stringValue(output.code) || "EDIT_TEXT_FAILED";
+    return modelVisibleToolOutput({
       ok: false,
-      code: stringValue(output.code),
+      code,
       path: stringValue(output.path),
       message: stringValue(output.message) || stringValue(output.error),
       noChangesApplied: true,
@@ -225,9 +233,16 @@ function compactEditTextModelOutput(output: unknown): JSONValue {
       ...(Array.isArray(output.lintIssues)
         ? { lintIssues: output.lintIssues.slice(0, 5) }
         : {}),
-    };
+    }, {
+      successCode: "EDIT_TEXT_OK",
+      failureCode: "EDIT_TEXT_FAILED",
+      successSummary: "Edit applied.",
+      failureSummary:
+        stringValue(output.message) || stringValue(output.error) || "edit_text failed.",
+      failureRecommendedNext: recommendedNextForEditTextFailure(code),
+    }) as JSONValue;
   }
-  return {
+  return modelVisibleToolOutput({
     ok: true,
     path: stringValue(output.path),
     editCount: numberValue(output.editCount),
@@ -244,7 +259,13 @@ function compactEditTextModelOutput(output: unknown): JSONValue {
     ...(Array.isArray(output.postEditLintIssues)
       ? { postEditLintIssues: output.postEditLintIssues.slice(0, 5) }
       : {}),
-  };
+  }, {
+    successCode: "EDIT_TEXT_OK",
+    failureCode: "EDIT_TEXT_FAILED",
+    successSummary: `Edited ${stringValue(output.path) || "file"}.`,
+    failureSummary: "edit_text failed.",
+    successRecommendedNext: "Run verification if this changed project files.",
+  }) as JSONValue;
 }
 
 function errorMessage(err: unknown): string {
@@ -263,4 +284,20 @@ function stringValue(value: unknown): string {
 
 function numberValue(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function recommendedNextForEditTextFailure(code: string): string {
+  if (code === "FIND_NOT_FOUND") {
+    return "Use nearMatches or re-read the relevant range, then retry with current text.";
+  }
+  if (code === "FIND_NOT_UNIQUE") {
+    return "Narrow the oldText snippet or set replaceAll only when every match is intended.";
+  }
+  if (code === "GUARD_REJECTED") {
+    return "Set allowGuarded only if this guarded edit is intentional.";
+  }
+  if (code === "SYNTAX_OR_LINT_FAILED") {
+    return "Use the lint issues and failed patch preview to make a smaller valid edit.";
+  }
+  return "Inspect the error, adjust the edit, and retry if appropriate.";
 }
