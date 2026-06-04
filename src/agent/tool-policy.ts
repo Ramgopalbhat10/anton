@@ -98,10 +98,13 @@ const PROFILES_REQUIRING_VERIFY: ReadonlySet<AgentRunProfile> = new Set([
 const PROFILES_PREFER_EDIT_TEXT: ReadonlySet<AgentRunProfile> = new Set([
   "localized-edit",
   "single-file-edit",
-  "general-chat",
   "accepted-plan-simple",
-  "accepted-plan-general",
-  "approval-continuation",
+]);
+
+const PROFILES_BLOCK_WRITE_FILE_REPLACEMENT: ReadonlySet<AgentRunProfile> = new Set([
+  "localized-edit",
+  "single-file-edit",
+  "accepted-plan-simple",
 ]);
 
 export class ToolPolicyEngine {
@@ -392,7 +395,7 @@ export class ToolPolicyEngine {
     ) {
       this.recordBlockedAttempt();
       return blockedOutput(
-        `Tool \`${toolName}\` is unavailable in fast-edit mode. Continue with edit, read, verify, or search tools until the harness promotes to full Agent.`,
+        `Tool \`${toolName}\` is unavailable in fast-edit mode. Continue with read/search, edit_text, verify, or wait for profile handoff to full Agent.`,
         "edit_text",
         { phase: this.phase },
       );
@@ -536,7 +539,7 @@ export class ToolPolicyEngine {
       ) {
         this.recordBlockedAttempt();
         return blockedOutput(
-          `Use edit_text for surgical changes on \`${path}\`. edit_file is reserved for large structural unified-diff rewrites after edit_text fails.`,
+          `Use edit_text for changes on \`${path}\`. If edit_text cannot express the change in this profile, continue through profile handoff to full Agent.`,
           "edit_text",
           {
             phase: this.phase,
@@ -547,7 +550,26 @@ export class ToolPolicyEngine {
       if (path && this.editFileBlockedPaths.has(path)) {
         this.recordBlockedAttempt();
         return blockedOutput(
-          `edit_file already failed on \`${path}\`. Switch to edit_text, replace_lines, or replace_text.`,
+          `edit_file already failed on \`${path}\`. Retry with edit_text or continue through profile handoff to full Agent.`,
+          "edit_text",
+          {
+            phase: this.phase,
+            affectedPath: path,
+          },
+        );
+      }
+    }
+
+    if (toolName === "write_file") {
+      const path = pathFromInput(input);
+      if (
+        path &&
+        PROFILES_BLOCK_WRITE_FILE_REPLACEMENT.has(this.profile) &&
+        writeFileLooksLikeReplacement(input, this.lastHashByPath.has(path))
+      ) {
+        this.recordBlockedAttempt();
+        return blockedOutput(
+          `write_file replacement for existing path \`${path}\` is blocked in this edit-preferred profile. Use edit_text for targeted changes or continue through profile handoff to full Agent.`,
           "edit_text",
           {
             phase: this.phase,
@@ -564,8 +586,8 @@ export class ToolPolicyEngine {
       if (blockKey && this.multiReplaceBlockedKeys.has(blockKey)) {
         this.recordBlockedAttempt();
         return blockedOutput(
-          `multi_replace_text already failed on \`${path}\` with the current hash. Re-read a targeted range or switch to replace_text/replace_lines.`,
-          "replace_lines",
+          `multi_replace_text already failed on \`${path}\` with the current hash. Re-read a targeted range, retry with edit_text, or continue through profile handoff.`,
+          "edit_text",
           {
             phase: this.phase,
             affectedPath: path,
@@ -586,7 +608,7 @@ export class ToolPolicyEngine {
       this.forceFinalReason =
         "Fast-edit exploration exceeded its step budget without a successful edit. Explain what is blocking progress or wait for profile promotion.";
       this.recordGuard();
-      return blockedOutput(this.forceFinalReason, "replace_lines", {
+      return blockedOutput(this.forceFinalReason, "edit_text", {
         phase: this.phase,
       });
     }
@@ -1182,6 +1204,14 @@ function recommendedForTool(
     return "edit_text";
   }
   return "verify";
+}
+
+function writeFileLooksLikeReplacement(
+  input: unknown,
+  pathWasRead: boolean,
+): boolean {
+  if (!isRecord(input)) return false;
+  return typeof input.expectedHash === "string" || pathWasRead;
 }
 
 function incrementBounded(map: Map<string, number>, key: string): void {

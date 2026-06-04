@@ -56,10 +56,6 @@ const LOCALIZED_EDIT_TOOLS = [
   "glob",
   "stat",
   "edit_text",
-  "replace_text",
-  "replace_lines",
-  "multi_replace_text",
-  "edit_file",
   "verify",
   "git_status",
 ] as const;

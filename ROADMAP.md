@@ -182,7 +182,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Chat message input is still validated as `z.array(z.unknown())` before casting to `AntonUIMessage[]`.
 - [] Shell tool still runs through `bash -lc`; command policy is heuristic rather than a full shell parser.
 - [✔️] MCP stdio server startup can execute configured commands before user approval.
-- [] Full-file `write_file` remains the main write primitive.
+- [✔️] Full-file `write_file` risk addressed for normal edit profiles (#146).
 - [] Message persistence still deletes and reinserts the full session transcript in some recovery paths.
 - [] GitHub clone/fetch runs synchronously inside request handling and may exceed request duration for large repositories.
 - [] Installation tokens are injected into git through extra headers; keep redaction behavior current as clone/fetch behavior evolves.

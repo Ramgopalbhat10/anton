@@ -1034,7 +1034,7 @@ function budgetContinuationHandoffNote(): string {
     "Reuse the originating effective profile, tool history, and edit state from the prior segment.",
     "If verify failed in the prior segment, fix the reported syntax/lint error with edit_text on the edited file, then run verify again — do not re-explore with bash, grep, or glob.",
     "If a file edit succeeded and verify has not run yet, run verify once before answering.",
-    "Prefer edit_text for remaining surgical edits; use replace_lines or replace_text only when text anchors fail.",
+    "Prefer edit_text for remaining edits; if text anchors fail in a compact profile, continue through profile handoff instead of trying fallback edit tools.",
   ].join(" ");
 }
 
