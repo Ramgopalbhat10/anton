@@ -180,7 +180,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 ## Known Implementation Risks
 
 - [✔️] Chat message input is still validated as `z.array(z.unknown())` before casting to `AntonUIMessage[]`.
-- [] Shell tool still runs through `bash -lc`; command policy is heuristic rather than a full shell parser.
+- [] Normal permission modes still use heuristic shell command classification; `full-access` intentionally treats command policy as advisory only.
 - [✔️] MCP stdio server startup can execute configured commands before user approval.
 - [] Full-file `write_file` remains the main write primitive.
 - [] Message persistence still deletes and reinserts the full session transcript in some recovery paths.

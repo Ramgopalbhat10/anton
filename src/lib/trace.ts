@@ -219,6 +219,7 @@ export type ApprovalMetadata = {
   };
   command?: {
     command: string;
+    commandPolicyMode?: "enforced" | "advisory";
     shell: string;
     cwd: string;
     timeoutMs: number;
@@ -238,6 +239,7 @@ export type ApprovalMetadata = {
     categories: string[];
     forbidden: boolean;
     reason: string;
+    commandPolicyMode?: "enforced" | "advisory";
   };
 };
 
@@ -271,6 +273,9 @@ export function getApprovalMetadata(
       categories,
       forbidden: Boolean((bashDetails as Record<string, unknown>).forbidden),
       reason: (bashDetails as Record<string, unknown>).reason as string,
+      commandPolicyMode: commandPolicyModeValue(
+        (bashDetails as Record<string, unknown>).commandPolicyMode,
+      ),
     };
   }
   return {
@@ -488,7 +493,12 @@ function structuredApprovalMetadata(value: unknown): ApprovalMetadata | undefine
     diffPreview: structuredDiffPreview(record.diffPreview),
     command,
     external: structuredExternalMetadata(record.external),
-    bashClassification: command?.classification,
+    bashClassification: command
+      ? {
+          ...command.classification,
+          commandPolicyMode: command.commandPolicyMode,
+        }
+      : undefined,
   };
 }
 
@@ -600,6 +610,7 @@ function structuredCommandMetadata(
   }
   return {
     command: record.command,
+    commandPolicyMode: commandPolicyModeValue(record.commandPolicyMode),
     shell: record.shell,
     cwd: record.cwd,
     timeoutMs: record.timeoutMs,
@@ -619,6 +630,12 @@ function structuredClassification(
     forbidden: Boolean(record.forbidden),
     reason: record.reason,
   };
+}
+
+function commandPolicyModeValue(
+  value: unknown,
+): "enforced" | "advisory" | undefined {
+  return value === "enforced" || value === "advisory" ? value : undefined;
 }
 
 function structuredExternalMetadata(

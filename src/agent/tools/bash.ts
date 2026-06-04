@@ -13,13 +13,21 @@ import {
 } from "@/src/lib/bash-stream";
 import { redactText } from "@/src/lib/redaction";
 import { modelVisibleToolOutput } from "./model-output";
+import {
+  commandPolicyModeForPermission,
+  type CommandPolicyMode,
+  type PermissionMode,
+} from "../permissions";
 
 const MAX_OUTPUT_BYTES = 64 * 1024;
 const DEFAULT_TIMEOUT_MS = 180_000;
 const MAX_TIMEOUT_MS = 300_000;
 const SEARCH_COMMAND_TIMEOUT_MS = 240_000;
 
-export function createBashTool(workspaceRoot?: string) {
+export function createBashTool(
+  workspaceRoot?: string,
+  permissionMode: PermissionMode = "auto-review",
+) {
   return tool({
     description:
       "Run a shell command inside the workspace directory. The command is classified by risk category before execution, runs with a timeout, and has its output truncated. Prefer the `grep` tool for workspace text search instead of shell `grep`. `sudo` is forbidden. Requires user approval.",
@@ -44,9 +52,11 @@ export function createBashTool(workspaceRoot?: string) {
         ? ensureWorkspaceRootAt(workspaceRoot)
         : ensureWorkspaceRoot();
       const policy = evaluateBashCommandPolicy(command, { workspaceRoot: root });
-      if (!policy.allowed) {
+      const commandPolicyMode = commandPolicyModeForPermission(permissionMode);
+      if (commandPolicyMode === "enforced" && !policy.allowed) {
         return {
           ok: false as const,
+          commandPolicyMode,
           classification: policy.classification,
           riskCategories: policy.classification.categories as string[],
           error: policy.reason,
@@ -60,7 +70,14 @@ export function createBashTool(workspaceRoot?: string) {
           : DEFAULT_TIMEOUT_MS);
       const classification = policy.classification;
 
-      return executeWithStreaming(command, root, timeout, toolCallId, classification);
+      return executeWithStreaming(
+        command,
+        root,
+        timeout,
+        toolCallId,
+        classification,
+        commandPolicyMode,
+      );
     },
   });
 }
@@ -88,6 +105,7 @@ function compactBashModelOutput(output: unknown): JSONValue {
     exitCode,
     timedOut: booleanValue(output.timedOut),
     killed: booleanValue(output.killed),
+    commandPolicyMode: commandPolicyModeValue(output.commandPolicyMode),
     failedReason: failedReason ?? null,
     stdoutTail: tail(stringValue(output.stdout), 4_000),
     stderrTail: tail(stderr, 4_000),
@@ -126,6 +144,7 @@ async function executeWithStreaming(
   timeout: number,
   streamId: string,
   classification: ReturnType<typeof classifyBashCommand>,
+  commandPolicyMode: CommandPolicyMode,
 ): Promise<BashToolOutput | BashToolErrorOutput> {
   bashProgress.startStream(streamId);
 
@@ -180,6 +199,7 @@ async function executeWithStreaming(
       (exitCode !== null && exitCode !== 0);
     return {
       ok: !commandFailed,
+      commandPolicyMode,
       classification,
       riskCategories: classification.categories as string[],
       exitCode,
@@ -212,6 +232,7 @@ async function executeWithStreaming(
 
     return {
       ok: false as const,
+      commandPolicyMode,
       classification,
       riskCategories: classification.categories as string[],
       error,
@@ -239,6 +260,7 @@ async function executeWithStreaming(
 
 type BashToolOutput = {
   ok: boolean;
+  commandPolicyMode: CommandPolicyMode;
   classification: ReturnType<typeof classifyBashCommand>;
   riskCategories: string[];
   exitCode: number | null;
@@ -253,6 +275,7 @@ type BashToolOutput = {
 
 type BashToolErrorOutput = {
   ok: false;
+  commandPolicyMode: CommandPolicyMode;
   classification: ReturnType<typeof classifyBashCommand>;
   riskCategories: string[];
   error: string;
@@ -306,6 +329,10 @@ function numberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isInteger(value) ? value : null;
 }
 
+function commandPolicyModeValue(value: unknown): CommandPolicyMode {
+  return value === "advisory" ? "advisory" : "enforced";
+}
+
 function tail(value: string, maxLength: number): string {
   if (value.length <= maxLength) return value;
   return value.slice(value.length - maxLength);
@@ -319,7 +346,12 @@ function bashFailureCode(
   if (output.ok === true && exitCode === 0 && failedReason === undefined) {
     return "BASH_OK";
   }
-  if (output.ok === false && typeof output.error === "string" && exitCode === null) {
+  if (
+    output.ok === false &&
+    typeof output.error === "string" &&
+    exitCode === null &&
+    failedReason === undefined
+  ) {
     return "BASH_POLICY_REJECTED";
   }
   if (failedReason === "timeout") return "BASH_TIMEOUT";

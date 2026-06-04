@@ -30,6 +30,7 @@ import { planVerification } from "./tools/verify";
 // and the harness resumes the loop.
 
 export type PermissionMode = "default" | "auto-review" | "full-access";
+export type CommandPolicyMode = "enforced" | "advisory";
 
 export const TOOL_RISK_CATEGORIES = [
   "read-only",
@@ -64,6 +65,7 @@ export type ToolApprovalMetadata = {
   };
   command?: {
     command: string;
+    commandPolicyMode: CommandPolicyMode;
     shell: "bash -lc";
     cwd: string;
     timeoutMs: number;
@@ -237,14 +239,21 @@ export function buildToolApprovalMetadata({
   toolName,
   input,
   workspaceRoot,
+  permissionMode = "auto-review",
 }: {
   toolName: string;
   input: unknown;
   workspaceRoot?: string;
+  permissionMode?: PermissionMode;
 }): ToolApprovalMetadata | undefined {
   const nativeMetadata = getNativeToolPermissionMetadata(toolName);
   if (nativeMetadata) {
-    return buildNativeToolApprovalMetadata(toolName, input, workspaceRoot);
+    return buildNativeToolApprovalMetadata(
+      toolName,
+      input,
+      workspaceRoot,
+      permissionMode,
+    );
   }
 
   if (isMcpTool(toolName)) {
@@ -320,6 +329,7 @@ function buildNativeToolApprovalMetadata(
   toolName: string,
   input: unknown,
   workspaceRoot: string | undefined,
+  permissionMode: PermissionMode,
 ): ToolApprovalMetadata | undefined {
   const metadata = getNativeToolPermissionMetadata(toolName);
   if (!metadata) return undefined;
@@ -327,7 +337,7 @@ function buildNativeToolApprovalMetadata(
 
   switch (toolName) {
     case "bash":
-      return buildBashApproval(record, metadata, workspaceRoot);
+      return buildBashApproval(record, metadata, workspaceRoot, permissionMode);
     case "edit_file":
       return buildEditFileApproval(record, metadata, workspaceRoot);
     case "edit_text":
@@ -673,11 +683,13 @@ function buildBashApproval(
   input: Record<string, unknown>,
   metadata: ToolPermissionMetadata,
   workspaceRoot: string | undefined,
+  permissionMode: PermissionMode,
 ): ToolApprovalMetadata {
   const command = stringValue(input.command) ?? "";
   const timeoutMs = numberValue(input.timeoutMs) ?? BASH_DEFAULT_TIMEOUT_MS;
   const cwd = workspaceRootLabel(workspaceRoot);
   const classification = classifyBashCommand(command);
+  const commandPolicyMode = commandPolicyModeForPermission(permissionMode);
 
   return {
     title: "Run shell command",
@@ -686,6 +698,7 @@ function buildBashApproval(
     target: command,
     command: {
       command,
+      commandPolicyMode,
       shell: "bash -lc",
       cwd,
       timeoutMs,
@@ -698,8 +711,11 @@ function buildBashApproval(
       `Working directory: ${cwd}`,
       `Timeout: ${timeoutMs}ms`,
       `Output cap: ${BASH_OUTPUT_CAP_BYTES} bytes per stream.`,
+      `Command policy mode: ${commandPolicyMode}.`,
       `Classification: ${classification.reason}.`,
-      classification.forbidden
+      commandPolicyMode === "advisory"
+        ? "Full-access mode treats command policy classification as advisory; sandbox cwd, timeout, output limits, and redaction still apply."
+        : classification.forbidden
         ? "This command matches a forbidden pattern and will be refused even if approved."
         : "Approval lets the command start; it does not bypass sandbox cwd, timeout, or output limits.",
     ],
@@ -982,6 +998,12 @@ function buildMcpToolApprovalMetadata(toolName: string): ToolApprovalMetadata {
 
 export function classifyBashCommand(command: string): BashCommandClassification {
   return classifyBashCommandByPolicy(command);
+}
+
+export function commandPolicyModeForPermission(
+  permissionMode: PermissionMode,
+): CommandPolicyMode {
+  return permissionMode === "full-access" ? "advisory" : "enforced";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

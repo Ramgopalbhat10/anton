@@ -55,6 +55,7 @@ import { compactReadFileForModel } from "@/src/agent/tools/model-output";
 import type { ProfilePromotionEvent } from "@/src/agent/profile-promotion";
 import {
   buildToolApprovalMetadata,
+  commandPolicyModeForPermission,
   getNativeToolPermissionMetadata,
   isMcpTool,
   preClassifyBashInput,
@@ -1864,6 +1865,7 @@ function createTraceWriter({
             toolName: event.toolName,
             input: event.input,
             workspaceRoot,
+            permissionMode,
           })
         : undefined;
       if (approval) {
@@ -1874,11 +1876,14 @@ function createTraceWriter({
 
       if (event.toolName === "bash") {
         const classification = preClassifyBashInput(event.input);
+        const commandPolicyMode = commandPolicyModeForPermission(permissionMode);
+        details.commandPolicyMode = commandPolicyMode;
         if (classification) {
           details.bashClassification = {
             categories: [...classification.categories],
             forbidden: classification.forbidden,
             reason: classification.reason,
+            commandPolicyMode,
           };
         }
       }
