@@ -8,7 +8,12 @@ import {
   buildBashEnvironment,
   evaluateBashCommandPolicy,
 } from "@/src/agent/command-policy";
-import type { ToolRiskCategory } from "@/src/agent/permissions";
+import {
+  commandPolicyModeForPermission,
+  type CommandPolicyMode,
+  type PermissionMode,
+  type ToolRiskCategory,
+} from "@/src/agent/permissions";
 import { ensureWorkspaceRootAt } from "@/src/agent/sandbox";
 import {
   detectPackageManager,
@@ -71,6 +76,7 @@ export type PreflightBackgroundCommandResult =
       allowed: boolean;
       risky: boolean;
       categories: ToolRiskCategory[];
+      commandPolicyMode: CommandPolicyMode;
       reason: string;
     }
   | { ok: false; error: string; status?: number };
@@ -78,6 +84,7 @@ export type PreflightBackgroundCommandResult =
 export function preflightProjectBackgroundCommand(
   projectRoot: string,
   command: string,
+  permissionMode: PermissionMode = "auto-review",
 ): PreflightBackgroundCommandResult {
   ensureBootstrapped();
   const trimmed = command.trim();
@@ -87,23 +94,28 @@ export function preflightProjectBackgroundCommand(
 
   const root = ensureWorkspaceRootAt(projectRoot);
   const policy = evaluateBashCommandPolicy(trimmed, { workspaceRoot: root });
+  const commandPolicyMode = commandPolicyModeForPermission(permissionMode);
   const categories = [...policy.classification.categories];
-  if (!policy.allowed) {
+  if (commandPolicyMode === "enforced" && !policy.allowed) {
     return {
       ok: true,
       allowed: false,
       risky: false,
       categories,
+      commandPolicyMode,
       reason: policy.reason,
     };
   }
 
-  const risky = categories.some((category) => category !== "read-only");
+  const risky =
+    commandPolicyMode === "enforced" &&
+    categories.some((category) => category !== "read-only");
   return {
     ok: true,
     allowed: true,
     risky,
     categories,
+    commandPolicyMode,
     reason: policy.classification.reason,
   };
 }
@@ -145,6 +157,7 @@ export async function startProjectBackgroundCommand(
   projectId: string,
   projectRoot: string,
   input: StartBackgroundCommandInput,
+  permissionMode: PermissionMode = "auto-review",
 ): Promise<StartBackgroundCommandResult> {
   ensureBootstrapped();
   const root = ensureWorkspaceRootAt(projectRoot);
@@ -176,7 +189,8 @@ export async function startProjectBackgroundCommand(
       return { ok: false, error: "Command is required.", status: 400 };
     }
     const policy = evaluateBashCommandPolicy(command, { workspaceRoot: root });
-    if (!policy.allowed) {
+    const commandPolicyMode = commandPolicyModeForPermission(permissionMode);
+    if (commandPolicyMode === "enforced" && !policy.allowed) {
       return { ok: false, error: policy.reason, status: 403 };
     }
     spawnArgs = { file: "bash", args: ["-lc", command], shell: false };
@@ -265,6 +279,7 @@ export async function restartProjectBackgroundCommand(
   projectId: string,
   commandId: string,
   projectRoot: string,
+  permissionMode: PermissionMode = "auto-review",
 ): Promise<StartBackgroundCommandResult> {
   ensureBootstrapped();
   const session = getProjectBackgroundCommand(projectId, commandId);
@@ -292,7 +307,7 @@ export async function restartProjectBackgroundCommand(
   userStopRequestedSessions.delete(commandId);
 
   const root = ensureWorkspaceRootAt(projectRoot);
-  const spawnArgs = spawnArgsForSession(session, root);
+  const spawnArgs = spawnArgsForSession(session, root, permissionMode);
   if (!spawnArgs.ok) {
     return { ok: false, error: spawnArgs.error, status: 400 };
   }
@@ -691,12 +706,14 @@ function finalizeProcess(
 function spawnArgsForSession(
   session: BackgroundCommandSession,
   root: string,
+  permissionMode: PermissionMode,
 ):
   | { ok: true; value: { file: string; args: string[]; shell?: false } }
   | { ok: false; error: string } {
   if (session.commandKind === "custom") {
     const policy = evaluateBashCommandPolicy(session.command, { workspaceRoot: root });
-    if (!policy.allowed) {
+    const commandPolicyMode = commandPolicyModeForPermission(permissionMode);
+    if (commandPolicyMode === "enforced" && !policy.allowed) {
       return { ok: false, error: policy.reason };
     }
     return {

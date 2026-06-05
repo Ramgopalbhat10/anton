@@ -163,7 +163,7 @@ export function createAntonTools({
     git_commit: createGitCommitTool(workspaceRoot),
     git_restore: createGitRestoreTool(workspaceRoot),
     revert_changes: createRevertChangesTool(workspaceRoot),
-    bash: createBashTool(workspaceRoot),
+    bash: createBashTool(workspaceRoot, permissionMode),
     inspect_project: createInspectProjectTool(workspaceRoot),
     verify: createVerifyTool(workspaceRoot, profile, {
       getEditedPaths: () => toolPolicy?.getEditedPathsSnapshot() ?? [],

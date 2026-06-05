@@ -517,6 +517,7 @@ export type BackgroundCommandPreflightResult = {
   allowed: boolean;
   risky: boolean;
   categories: string[];
+  commandPolicyMode: "enforced" | "advisory";
   reason: string;
 };
 

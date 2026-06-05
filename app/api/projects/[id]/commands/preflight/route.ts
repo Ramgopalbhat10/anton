@@ -1,4 +1,4 @@
-import { getProject } from "@/src/db/queries";
+import { getProject, getWorkspaceSettings } from "@/src/db/queries";
 import { redactText } from "@/src/lib/redaction";
 import { preflightProjectBackgroundCommand } from "@/src/workspace/background-commands";
 import { z } from "zod";
@@ -34,9 +34,12 @@ export async function POST(req: Request, { params }: Ctx) {
   }
 
   try {
+    const permissionMode =
+      getWorkspaceSettings().defaultPermissionMode ?? "auto-review";
     const result = preflightProjectBackgroundCommand(
       project.localPath,
       parsed.data.command,
+      permissionMode,
     );
     if (!result.ok) {
       return Response.json(
@@ -49,6 +52,7 @@ export async function POST(req: Request, { params }: Ctx) {
       allowed: result.allowed,
       risky: result.risky,
       categories: result.categories,
+      commandPolicyMode: result.commandPolicyMode,
       reason: result.reason,
     });
   } catch (err) {

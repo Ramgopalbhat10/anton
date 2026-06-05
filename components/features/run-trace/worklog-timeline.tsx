@@ -619,6 +619,9 @@ function bashOutputFromEntry(entry: ToolTraceEntry): BashOutput {
   return {
     ...(stdout ? { stdout } : {}),
     ...(stderr ? { stderr } : {}),
+    ...(pickCommandPolicyMode(entry.output)
+      ? { commandPolicyMode: pickCommandPolicyMode(entry.output) }
+      : {}),
     exitCode:
       typeof entry.output === "object" &&
       entry.output !== null &&
@@ -630,6 +633,14 @@ function bashOutputFromEntry(entry: ToolTraceEntry): BashOutput {
     ...(failedReason === "timeout" ? { timedOut: true, failedReason } : {}),
     ...(failedReason && failedReason !== "timeout" ? { failedReason } : {}),
   };
+}
+
+function pickCommandPolicyMode(
+  output: unknown,
+): BashOutput["commandPolicyMode"] {
+  if (typeof output !== "object" || output === null) return undefined;
+  const value = (output as Record<string, unknown>).commandPolicyMode;
+  return value === "enforced" || value === "advisory" ? value : undefined;
 }
 
 function parseFailedReason(

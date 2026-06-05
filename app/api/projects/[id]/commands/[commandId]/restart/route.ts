@@ -1,4 +1,4 @@
-import { getProject } from "@/src/db/queries";
+import { getProject, getWorkspaceSettings } from "@/src/db/queries";
 import { serializeBackgroundCommandSession } from "@/src/lib/api-serializers";
 import { redactText } from "@/src/lib/redaction";
 import { restartProjectBackgroundCommand } from "@/src/workspace/background-commands";
@@ -18,10 +18,13 @@ export async function POST(_req: Request, { params }: Ctx) {
   }
 
   try {
+    const permissionMode =
+      getWorkspaceSettings().defaultPermissionMode ?? "auto-review";
     const result = await restartProjectBackgroundCommand(
       project.id,
       commandId,
       project.localPath,
+      permissionMode,
     );
     if (!result.ok) {
       return Response.json(

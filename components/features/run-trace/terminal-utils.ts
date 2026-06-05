@@ -8,6 +8,7 @@ export interface BashOutput {
   stdout?: string;
   stderr?: string;
   exitCode?: number | null;
+  commandPolicyMode?: "enforced" | "advisory";
   timedOut?: boolean;
   killed?: boolean;
   failedReason?: BashFailedReason;
@@ -32,6 +33,11 @@ export function parseBashOutput(output: unknown): BashOutput {
     exitCode:
       typeof record.exitCode === "number" || record.exitCode === null
         ? record.exitCode
+        : undefined,
+    commandPolicyMode:
+      record.commandPolicyMode === "enforced" ||
+      record.commandPolicyMode === "advisory"
+        ? record.commandPolicyMode
         : undefined,
     timedOut:
       typeof record.timedOut === "boolean" ? record.timedOut : undefined,

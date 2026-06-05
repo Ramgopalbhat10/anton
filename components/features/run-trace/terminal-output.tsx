@@ -60,18 +60,25 @@ export function TerminalOutput({ command, output, className }: TerminalOutputPro
           (no output)
         </div>
       )}
-      {status && (
-        <div className="border-t border-white/8 px-2 py-1">
-          <span
-            className={cn(
-              "text-[10px] font-medium",
-              status.tone === "error"
-                ? "text-red-400"
-                : "text-muted-foreground/60",
-            )}
-          >
-            {status.label}
-          </span>
+      {(status || parsed.commandPolicyMode) && (
+        <div className="flex items-center gap-2 border-t border-white/8 px-2 py-1">
+          {status ? (
+            <span
+              className={cn(
+                "text-[10px] font-medium",
+                status.tone === "error"
+                  ? "text-red-400"
+                  : "text-muted-foreground/60",
+              )}
+            >
+              {status.label}
+            </span>
+          ) : null}
+          {parsed.commandPolicyMode ? (
+            <span className="text-[10px] text-muted-foreground/60">
+              Policy: {parsed.commandPolicyMode}
+            </span>
+          ) : null}
         </div>
       )}
     </div>
