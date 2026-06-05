@@ -85,7 +85,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 ## Phase 2: Real Coding-Agent Editing
 
 - [✔️] Add a patch-based edit tool and make it the default editing primitive.
-- [✔️] Keep `write_file` only for new small files or explicit full-file replacement.
+- [✔️] Keep `write_file` only for new small files; route existing-file edits through patch-first tools.
 - [✔️] Add atomic writes with conflict detection based on previous file hash or version.
 - [✔️] Show proposed diffs before approval, not only after `write_file` completes.
 - [✔️] Add file operation tools: `read_dir`, `stat`, `mkdir`, `delete`, `rename`, and `copy`.
@@ -182,7 +182,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Chat message input is still validated as `z.array(z.unknown())` before casting to `AntonUIMessage[]`.
 - [] Normal permission modes still use heuristic shell command classification; `full-access` intentionally treats command policy as advisory only.
 - [✔️] MCP stdio server startup can execute configured commands before user approval.
-- [] Full-file `write_file` remains the main write primitive.
+- [✔️] Full-file `write_file` replacement risk is resolved by patch-first editing.
 - [] Message persistence still deletes and reinserts the full session transcript in some recovery paths.
 - [] GitHub clone/fetch runs synchronously inside request handling and may exceed request duration for large repositories.
 - [] Installation tokens are injected into git through extra headers; keep redaction behavior current as clone/fetch behavior evolves.

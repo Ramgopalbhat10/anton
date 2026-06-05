@@ -97,7 +97,7 @@ export const NATIVE_TOOL_PERMISSION_METADATA = {
   write_file: toolMetadata(
     ["write"],
     true,
-    "Creates or explicitly replaces a workspace file.",
+    "Creates a new workspace file.",
   ),
   edit_file: toolMetadata(
     ["write"],
@@ -734,13 +734,12 @@ function buildWriteFileApproval(
   const diff = buildWriteFileDiffPreview(
     relPath,
     content,
-    stringValue(input.expectedHash),
     workspaceRoot,
   );
   const previewDetails = diff.message ? [diff.message] : [];
 
   return {
-    title: status === "exists" ? "Overwrite workspace file" : "Write workspace file",
+    title: "Create workspace file",
     summary: metadata.summary,
     riskCategories: metadata.categories,
     target: relPath,
@@ -748,14 +747,14 @@ function buildWriteFileApproval(
     details: [
       target,
       status === "exists"
-        ? "Existing regular file will be fully replaced only if expectedHash matches."
+        ? "Existing files are rejected; use edit_text or edit_file instead."
         : status === "missing"
           ? "A new UTF-8 file will be created."
           : "The target could not be confirmed before execution; the tool will validate it again.",
       "Parent directories are created if needed.",
       `Writes ${byteLength} UTF-8 bytes, capped at ${WRITE_FILE_MAX_BYTES} bytes.`,
       `Expected hash: ${stringValue(input.expectedHash) ?? "not provided"}.`,
-      "Approval is for full-file replacement, not a patch.",
+      "Approval is for new-file creation, not replacement.",
       ...previewDetails,
     ],
   };
@@ -1294,7 +1293,6 @@ function buildReplaceLinesDiffPreview({
 function buildWriteFileDiffPreview(
   relPath: string | undefined,
   content: string,
-  expectedHash: string | undefined,
   workspaceRoot: string | undefined,
 ): {
   preview?: ToolApprovalMetadata["diffPreview"];
@@ -1321,18 +1319,9 @@ function buildWriteFileDiffPreview(
       }
       return { message: current.message };
     }
-    if (expectedHash && current.sha256 !== expectedHash) {
-      return {
-        message: `Diff preview unavailable because expectedHash does not match current file hash ${current.sha256}.`,
-      };
-    }
     return {
-      preview: {
-        path: relPath,
-        previous: current.content,
-        next: content,
-        truncated: false,
-      },
+      message:
+        "Diff preview omitted because write_file only creates new files; use edit_text or edit_file for existing files.",
     };
   } catch (err) {
     return { message: `Diff preview unavailable: ${errorMessage(err)}.` };

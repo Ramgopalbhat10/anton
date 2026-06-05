@@ -1223,7 +1223,7 @@ export function toolTitle(entry: ToolTraceEntry, runStatus?: AntonRunStatus): {
     case "grep":
       return { verb: "Searched", target };
     case "write_file":
-      return { verb: "Edited", target };
+      return { verb: "Created", target };
     case "edit_file":
       return { verb: "Patched", target };
     case "mkdir":
