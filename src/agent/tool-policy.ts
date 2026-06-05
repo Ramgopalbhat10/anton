@@ -804,7 +804,8 @@ export class ToolPolicyEngine {
         toolName === "replace_text" ||
         toolName === "replace_lines" ||
         toolName === "multi_replace_text" ||
-        toolName === "edit_file") &&
+        toolName === "edit_file" ||
+        toolName === "write_file") &&
       isRecord(output) &&
       output.ok === true
     ) {
@@ -833,10 +834,14 @@ export class ToolPolicyEngine {
         this.pendingStaleReadNote = [
           "File changed on disk:",
           `\`${path}\` hash is now ${nextHash.slice(0, 12)}….`,
-          "Prior read_file content for this path is stale.",
+          toolName === "write_file"
+            ? "The file was created. Use edit_text for later changes to this path."
+            : "Prior read_file content for this path is stale.",
           toolName === "edit_text"
             ? "Use the edit_text diff in the latest tool result for the next edit."
-            : "Use edit_text for the next change, or read_file a targeted range if you must confirm JSX/imports.",
+            : toolName === "write_file"
+              ? "Run verify if this changed project files."
+              : "Use edit_text for the next change, or read_file a targeted range if you must confirm JSX/imports.",
         ].join(" ");
       }
     }
@@ -1038,7 +1043,8 @@ export function seedFromPriorToolRecords(
         record.toolName === "replace_text" ||
         record.toolName === "replace_lines" ||
         record.toolName === "multi_replace_text" ||
-        record.toolName === "edit_file") &&
+        record.toolName === "edit_file" ||
+        record.toolName === "write_file") &&
       isRecord(record.output) &&
       record.output.ok === true
     ) {
@@ -1141,10 +1147,10 @@ export function seedFromPriorToolRecords(
           ...(lastVerifyFailureSummary
             ? { lastVerifyFailureSummary }
             : {}),
-          editedPaths: [...editedPaths],
           ...(verifyRecoveryUsed ? { verifyRecoveryUsed: true } : {}),
         }
       : {}),
+    ...(editedPaths.size > 0 ? { editedPaths: [...editedPaths] } : {}),
     ...(lastSuccessfulEdit ? { lastSuccessfulEdit } : {}),
   };
 }

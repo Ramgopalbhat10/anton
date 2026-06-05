@@ -541,7 +541,7 @@ function touchedFileAction(toolName: string): string | undefined {
     case "multi_replace_text":
       return "edited";
     case "write_file":
-      return "wrote";
+      return "created";
     case "format":
       return "formatted";
     case "mkdir":
@@ -670,7 +670,7 @@ function digestFileAction(action: string): string | undefined {
     case "multi_replace_text":
       return "edited";
     case "write_file":
-      return "wrote";
+      return "created";
     case "format":
       return "formatted";
     case "mkdir":

@@ -228,6 +228,20 @@ export async function atomicWriteTextFile(
   }
 }
 
+export async function createTextFileExclusive(
+  abs: string,
+  content: string,
+): Promise<void> {
+  await fs.mkdir(path.dirname(abs), { recursive: true });
+  const tmp = path.join(path.dirname(abs), `.${path.basename(abs)}.${randomUUID()}.tmp`);
+  try {
+    await fs.writeFile(tmp, content, "utf8");
+    await fs.link(tmp, abs);
+  } finally {
+    await fs.rm(tmp, { force: true }).catch(() => undefined);
+  }
+}
+
 export async function readExistingTextPreview(abs: string): Promise<
   | {
       existed: true;

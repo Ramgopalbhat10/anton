@@ -1415,7 +1415,7 @@ function createTraceWriter({
     if (name === "stat" && summary) return `Inspected ${summary}`;
     if (name === "grep" && summary) return `Searched for ${summary}`;
     if (name === "glob" && summary) return `Listed ${summary}`;
-    if (name === "write_file" && summary) return `Edited ${summary}`;
+    if (name === "write_file" && summary) return `Created ${summary}`;
     if (name === "edit_file" && summary) return `Patched ${summary}`;
     if (name === "edit_text" && summary) return `Edited ${summary}`;
     if (name === "replace_text" && summary) return `Replaced text in ${summary}`;
