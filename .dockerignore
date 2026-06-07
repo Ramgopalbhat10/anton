@@ -8,7 +8,6 @@ workspace
 *.db-journal
 *.db-wal
 *.db-shm
-docker
 .github
 scripts
 ROADMAP.md
