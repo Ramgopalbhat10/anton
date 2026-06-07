@@ -1,0 +1,15 @@
+node_modules
+.next
+.git
+.gitignore
+.env*
+workspace
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+docker
+.github
+scripts
+ROADMAP.md
+AGENTS.md
