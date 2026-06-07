@@ -64,6 +64,13 @@
       "msw",
       "sharp",
       "unrs-resolver"
+    ],
+    "approvedBuilds": [
+      "better-sqlite3",
+      "esbuild",
+      "msw",
+      "sharp",
+      "unrs-resolver"
     ]
   }
 }
