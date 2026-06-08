@@ -14,8 +14,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
 
 FROM node:22-slim AS runner
-RUN apt-get update && apt-get install -y --no-install-recommends git bash sqlite3 python3 make g++ && rm -rf /var/lib/apt/lists/*
-RUN npm install -g tsx
+RUN apt-get update && apt-get install -y --no-install-recommends git bash sqlite3 && rm -rf /var/lib/apt/lists/*
+RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN pnpm add -g tsx
 
 WORKDIR /app
 ENV NODE_ENV=production
@@ -27,8 +28,11 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
-# Install migration dependencies (drizzle-orm, better-sqlite3) for the migration script
-RUN npm install drizzle-orm better-sqlite3 --no-save
+# Copy migration dependencies from builder (already compiled for ARM64)
+COPY --from=builder /app/node_modules/.pnpm/drizzle-orm@* ./node_modules/.pnpm/drizzle-orm@*
+COPY --from=builder /app/node_modules/.pnpm/better-sqlite3@* ./node_modules/.pnpm/better-sqlite3@*
+COPY --from=builder /app/node_modules/.pnpm/drizzle-orm@*/node_modules/drizzle-orm ./node_modules/drizzle-orm
+COPY --from=builder /app/node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3 ./node_modules/better-sqlite3
 
 COPY --from=builder /app/src/db/migrations ./src/db/migrations
 COPY --from=builder /app/src/db/schema.ts ./src/db/schema.ts
