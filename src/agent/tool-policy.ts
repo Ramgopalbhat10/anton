@@ -324,18 +324,13 @@ export class ToolPolicyEngine {
     this.processedStepCount = steps.length;
   }
 
-  checkPromotion(
-    effectiveTokensUsed: number,
-    maxEffectiveTokens: number,
-  ): ProfilePromotionEvent | undefined {
+  checkPromotion(): ProfilePromotionEvent | undefined {
     if (this.promoted || this.promotionEvent) return this.promotionEvent;
     const event = evaluateFastEditPromotion(this.profile, this.promoted, {
       distinctPathsRead: this.distinctPathsRead.size,
       partialReadPaths: this.partialReadPaths.size,
       failedEditPaths: this.failedEditsByPath.size,
       searchStepsBeforeEdit: this.searchStepsBeforeEdit,
-      effectiveTokensUsed,
-      maxEffectiveTokens,
       hadSuccessfulEdit: this.hadStateChangingSuccess,
     });
     if (event) this.promotionEvent = event;
@@ -347,17 +342,12 @@ export class ToolPolicyEngine {
     return this.promotionEvent;
   }
 
-  promotionTriggerInput(
-    effectiveTokensUsed: number,
-    maxEffectiveTokens: number,
-  ): PromotionTriggerInput {
+  promotionTriggerInput(): PromotionTriggerInput {
     return {
       distinctPathsRead: this.distinctPathsRead.size,
       partialReadPaths: this.partialReadPaths.size,
       failedEditPaths: this.failedEditsByPath.size,
       searchStepsBeforeEdit: this.searchStepsBeforeEdit,
-      effectiveTokensUsed,
-      maxEffectiveTokens,
       hadSuccessfulEdit: this.hadStateChangingSuccess,
     };
   }
@@ -584,7 +574,7 @@ export class ToolPolicyEngine {
       !STATE_CHANGING_TOOLS.has(toolName)
     ) {
       this.forceFinalReason =
-        "Fast-edit exploration exceeded its step budget without a successful edit. Explain what is blocking progress or wait for profile promotion.";
+        "Fast-edit exploration repeated without a successful edit. Explain what is blocking progress or wait for profile promotion.";
       this.recordGuard();
       return blockedOutput(this.forceFinalReason, "replace_lines", {
         phase: this.phase,

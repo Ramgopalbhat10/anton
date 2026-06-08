@@ -21,7 +21,6 @@ const routingPreferenceSchema = z.object({
 const patchSchema = z.object({
   localWorkspacesRoot: z.string().trim().min(1).nullable().optional(),
   defaultModel: z.string().trim().min(1).nullable().optional(),
-  defaultMaxSteps: z.number().int().min(1).max(64).nullable().optional(),
   defaultPermissionMode: permissionModeSchema.nullable().optional(),
   openRouterRoutingPreferences: z
     .record(z.string().trim().min(1), routingPreferenceSchema)
@@ -69,9 +68,6 @@ export async function PATCH(req: Request) {
                 : resolveModelId(parsed.data.defaultModel),
           }
         : {}),
-      ...(parsed.data.defaultMaxSteps !== undefined
-        ? { defaultMaxSteps: parsed.data.defaultMaxSteps }
-        : {}),
       ...(parsed.data.defaultPermissionMode !== undefined
         ? { defaultPermissionMode: parsed.data.defaultPermissionMode }
         : {}),
@@ -102,7 +98,6 @@ function serializeSettings() {
     source: resolved.source,
     exists: resolved.exists,
     defaultModel: settings.defaultModel,
-    defaultMaxSteps: settings.defaultMaxSteps,
     defaultPermissionMode: settings.defaultPermissionMode,
     openRouterRoutingPreferences: sanitizeOpenRouterRoutingPreferences(
       settings.openRouterRoutingPreferences,

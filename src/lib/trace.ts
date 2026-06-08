@@ -146,29 +146,10 @@ export type AntonTodoSnapshot = {
   updatedAt: number;
 };
 
-export type TokenBudgetMultiplierOption = 2 | 3;
-
-export type AntonBudgetGateData = {
-  runId: string;
-  status: "open" | "resolved" | "exhausted";
-  tokensUsed: number;
-  effectiveTokensUsed?: number;
-  cachedInputTokens?: number;
-  uncachedInputTokens?: number;
-  baseMaxTotalTokens: number;
-  currentMaxTotalTokens: number;
-  currentMaxEffectiveTokens?: number;
-  currentMultiplier: number;
-  options: readonly TokenBudgetMultiplierOption[];
-  selectedMultiplier?: TokenBudgetMultiplierOption;
-  lastFailedToolReason?: string;
-};
-
 export type AntonDataParts = {
   run: AntonRunData;
   activity: AntonActivityEvent;
   todos: AntonTodoSnapshot;
-  "budget-gate": AntonBudgetGateData;
 };
 
 export type AntonUIMessage = UIMessage<
@@ -445,12 +426,6 @@ function isFailedToolOutput(output: unknown): boolean {
   }
   const exitCode = output.exitCode;
   return typeof exitCode === "number" && exitCode !== 0;
-}
-
-export function messageHasBudgetLimit(message: AntonUIMessage): boolean {
-  return getRunDataList(message).some(
-    (run) => run.finishReason === "token_budget_limit",
-  );
 }
 
 function stringArray(value: unknown): string[] {
@@ -983,13 +958,7 @@ function stablePartSignature(part: AntonUIMessage["parts"][number]): string {
       item.status,
     ]);
   }
-  if (isBudgetGateDataPart(part)) {
-    signature.id = part.id;
-    signature.runId = part.data.runId;
-    signature.status = part.data.status;
-    signature.selectedMultiplier = part.data.selectedMultiplier;
-  }
-  if (part.type !== "text" && part.type !== "reasoning" && !isTodosDataPart(part) && !isBudgetGateDataPart(part)) {
+  if (part.type !== "text" && part.type !== "reasoning" && !isTodosDataPart(part)) {
     signature.id = typeof record.id === "string" ? record.id : undefined;
   }
 
@@ -1310,43 +1279,6 @@ export function isTodosDataPart(
   part: AntonUIMessage["parts"][number],
 ): part is Extract<AntonUIMessage["parts"][number], { type: "data-todos" }> {
   return isDataUIPart(part) && part.type === "data-todos";
-}
-
-export function isBudgetGateDataPart(
-  part: AntonUIMessage["parts"][number],
-): part is Extract<AntonUIMessage["parts"][number], { type: "data-budget-gate" }> {
-  return isDataUIPart(part) && part.type === "data-budget-gate";
-}
-
-export function getBudgetGateData(
-  message: AntonUIMessage,
-  runId?: string,
-): AntonBudgetGateData | undefined {
-  const gates = message.parts.flatMap((part) =>
-    isBudgetGateDataPart(part) ? [part.data] : [],
-  );
-  if (gates.length === 0) return undefined;
-  if (runId) {
-    return gates.find((gate) => gate.runId === runId) ?? gates.at(-1);
-  }
-  return gates.at(-1);
-}
-
-export function getLatestOpenBudgetGate(
-  message: AntonUIMessage,
-): AntonBudgetGateData | undefined {
-  return message.parts
-    .flatMap((part) => (isBudgetGateDataPart(part) ? [part.data] : []))
-    .findLast((gate) => gate.status === "open");
-}
-
-export function getLatestBudgetGate(
-  message: AntonUIMessage,
-): AntonBudgetGateData | undefined {
-  const gates = message.parts.flatMap((part) =>
-    isBudgetGateDataPart(part) ? [part.data] : [],
-  );
-  return gates.at(-1);
 }
 
 export function isAssistantTurnActive(message: AntonUIMessage): boolean {

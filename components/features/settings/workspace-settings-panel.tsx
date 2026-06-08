@@ -311,46 +311,72 @@ export function WorkspaceSettingsPanel() {
               <EmptyState message="No repositories for this account." />
             ) : (
               <ul className="grid gap-2 lg:grid-cols-2">
-                {filteredRepositories.map((repo) => (
-                  <li
-                    key={`${installationKey(repo.installationId)}:${repo.id}`}
-                    className="rounded-md bg-background/45 p-2.5 ring-1 ring-border"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="truncate text-xs font-medium">
-                          {repo.fullName}
+                {filteredRepositories.map((repo) => {
+                  const cloning = cloningRepoId === repo.id;
+                  const clonePending = repo.cloneStatus === "cloning";
+                  const cloned =
+                    repo.cloneStatus === "ready" && repo.clonedProjectId !== null;
+                  const cloneFailed = repo.cloneStatus === "error";
+                  return (
+                    <li
+                      key={`${installationKey(repo.installationId)}:${repo.id}`}
+                      className="rounded-md bg-background/45 p-2.5 ring-1 ring-border"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-xs font-medium">
+                            {repo.fullName}
+                          </div>
+                          <div className="mt-0.5 text-[11px] text-muted-foreground">
+                            {repo.private ? "Private" : "Public"} -{" "}
+                            {repo.defaultBranch}
+                            {showAccountLabels
+                              ? ` - ${repo.accountLogin} (${repo.accountType})`
+                              : ""}
+                          </div>
                         </div>
-                        <div className="mt-0.5 text-[11px] text-muted-foreground">
-                          {repo.private ? "Private" : "Public"} -{" "}
-                          {repo.defaultBranch}
-                          {showAccountLabels
-                            ? ` - ${repo.accountLogin} (${repo.accountType})`
-                            : ""}
-                        </div>
+                        {cloned ? (
+                          <span className="text-[11px] text-muted-foreground">
+                            Cloned
+                          </span>
+                        ) : (
+                          <div className="flex shrink-0 items-center gap-2">
+                            {cloneFailed && (
+                              <span
+                                className="text-[11px] text-destructive"
+                                title={repo.cloneError ?? "Clone failed"}
+                              >
+                                Failed
+                              </span>
+                            )}
+                            {clonePending && !cloning && (
+                              <span className="text-[11px] text-muted-foreground">
+                                Pending
+                              </span>
+                            )}
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={() => void cloneRepo(repo)}
+                              disabled={cloning}
+                            >
+                              {cloning ? (
+                                <Loader2 className="animate-spin" />
+                              ) : (
+                                <GitBranch />
+                              )}
+                              {cloning
+                                ? "Cloning"
+                                : cloneFailed || clonePending
+                                  ? "Retry"
+                                  : "Clone"}
+                            </Button>
+                          </div>
+                        )}
                       </div>
-                      {repo.clonedProjectId ? (
-                        <span className="text-[11px] text-muted-foreground">
-                          Cloned
-                        </span>
-                      ) : (
-                        <Button
-                          type="button"
-                          size="sm"
-                          onClick={() => void cloneRepo(repo)}
-                          disabled={cloningRepoId === repo.id}
-                        >
-                          {cloningRepoId === repo.id ? (
-                            <Loader2 className="animate-spin" />
-                          ) : (
-                            <GitBranch />
-                          )}
-                          Clone
-                        </Button>
-                      )}
-                    </div>
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>

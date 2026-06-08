@@ -11,7 +11,6 @@ import {
 import { cn } from "@/lib/utils";
 import {
   getApprovalMetadata,
-  messageHasBudgetLimit,
   type AntonUIMessage,
   type ToolTraceEntry,
 } from "@/src/lib/trace";
@@ -110,10 +109,6 @@ export function WorklogTimeline({
     <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
       <TraceThreadRoot>
         {groups.map((group) => {
-          const message =
-            messages.find((candidate) => candidate.id === group.messageId) ??
-            messages.at(-1)!;
-          const budgetLimited = messageHasBudgetLimit(message);
           const runMeta = timelineEventMeta(
             "progress",
             group.run.status === "running"
@@ -173,7 +168,6 @@ export function WorklogTimeline({
                           {step.items.map((item) =>
                             renderTimelineItem({
                               item,
-                              budgetLimited,
                               expandedItemId,
                               setExpandedItemId,
                               onApproval,
@@ -208,13 +202,11 @@ function visibleStepsForGroup(
 
 function renderTimelineItem({
   item,
-  budgetLimited,
   expandedItemId,
   setExpandedItemId,
   onApproval,
 }: {
   item: SessionTimelineItem;
-  budgetLimited: boolean;
   expandedItemId: string | null;
   setExpandedItemId: (value: string | null | ((current: string | null) => string | null)) => void;
   onApproval: ChatAddToolApproveResponseFunction;
@@ -226,7 +218,7 @@ function renderTimelineItem({
     <TraceThreadNode key={item.id}>
       <TraceTimelineRow
         kind={item.kind}
-        status={displayItemStatus(item, budgetLimited)}
+        status={displayItemStatus(item)}
         label={item.label}
         durationMs={item.durationMs}
         expandable={expandable}
@@ -267,10 +259,7 @@ function renderTimelineItem({
   );
 }
 
-function displayItemStatus(
-  item: SessionTimelineItem,
-  budgetLimited: boolean,
-): SessionTimelineItem["status"] {
+function displayItemStatus(item: SessionTimelineItem): SessionTimelineItem["status"] {
   if (item.kind !== "tool" || !item.tool) return item.status;
   const effectiveState = effectiveToolState(item.tool);
   if (
@@ -279,7 +268,7 @@ function displayItemStatus(
     (effectiveState === "input-streaming" ||
       effectiveState === "input-available")
   ) {
-    return budgetLimited ? "completed" : "error";
+    return "error";
   }
   if (effectiveState === "output-error") return "error";
   return item.status;
@@ -292,7 +281,6 @@ function ToolEntryExpandPanel({
 }: {
   entry: ToolTraceEntry;
   runStatus: SessionTimelineRunGroup["run"]["status"];
-  budgetLimited?: boolean;
   onApproval: ChatAddToolApproveResponseFunction;
 }) {
   const displayState = effectiveToolState(entry);

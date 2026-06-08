@@ -2,7 +2,6 @@ import {
   buildReasoningTextByEventId,
   getActivityEvents,
   getAssistantTextDisplay,
-  getLatestBudgetGate,
   getRunData,
   getRunDataList,
   getTodoSnapshots,
@@ -17,7 +16,6 @@ import {
   stripLeakedProviderMarkup,
   type AntonActivityKind,
   type AntonActivityStatus,
-  type AntonBudgetGateData,
   type AntonRunStatus,
   type AntonActivityEvent,
   type AntonTodoSnapshot,
@@ -59,12 +57,6 @@ export type TraceRow =
       order: number;
       kind: "todos";
       snapshot: AntonTodoSnapshot;
-    }
-  | {
-      id: string;
-      order: number;
-      kind: "budget-gate";
-      gate: AntonBudgetGateData;
     }
   | {
       id: string;
@@ -523,20 +515,10 @@ export function runTimelineGroupLabel(group: SessionTimelineRunGroup): string {
     segmentCount > 1 ? `Segment ${segmentIndex}/${segmentCount}` : "Run";
   const duration =
     run.durationMs !== undefined ? formatDuration(run.durationMs) : undefined;
-  const finishLabel =
-    run.finishReason === "token_budget_limit"
-      ? "budget reached"
-      : run.finishReason === "max_step_limit"
-        ? "step limit"
-        : run.finishReason === "cost_budget_limit"
-          ? "cost limit"
-          : undefined;
-
   return [
     segmentLabel,
     segmentIndex > 1 ? "continued" : undefined,
     duration,
-    finishLabel,
   ]
     .filter((part): part is string => part !== undefined)
     .join(" · ");
@@ -885,16 +867,6 @@ export function getTraceRows(
     });
   }
 
-  const budgetGate = getLatestBudgetGate(message);
-  if (budgetGate && budgetGate.status !== "resolved") {
-    rows.push({
-      id: `${budgetGate.runId}:budget-gate`,
-      order: 20_000,
-      kind: "budget-gate",
-      gate: budgetGate,
-    });
-  }
-
   return rows.sort((a, b) => a.order - b.order);
 }
 
@@ -1077,7 +1049,6 @@ export function getTraceDurationMs(rows: TraceRow[]): number | undefined {
       if (row.kind === "reasoning") return row.event?.durationMs;
       if (row.kind === "progress") return undefined;
       if (row.kind === "todos") return undefined;
-      if (row.kind === "budget-gate") return undefined;
       return row.tool.activity?.durationMs;
     })
     .filter((duration): duration is number => duration !== undefined);

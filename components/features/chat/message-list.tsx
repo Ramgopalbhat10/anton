@@ -12,17 +12,14 @@ import {
 import {
   failedToolOutputMessage,
   getAssistantTextDisplay,
-  getLatestOpenBudgetGate,
   getRunData,
   getToolTraceEntries,
   hasPendingToolApproval,
   messageHadSuccessfulStateChangingEdit,
-  messageHasBudgetLimit,
   messageIsLoopGuardIncomplete,
   messageIsUnverifiedEdit,
   messageIsVerificationFailed,
   type AntonUIMessage,
-  type TokenBudgetMultiplierOption,
 } from "@/src/lib/trace";
 import type { ChatMode } from "@/src/lib/chat-modes";
 import { cn } from "@/lib/utils";
@@ -47,10 +44,6 @@ interface MessageListProps {
   onApproval: ChatAddToolApproveResponseFunction;
   onAcceptPlan: (plan: string) => void;
   acceptPlanDisabled?: boolean;
-  onExtendTokenBudget?: (
-    runId: string,
-    multiplier: TokenBudgetMultiplierOption,
-  ) => void;
 }
 
 export function MessageList({
@@ -61,7 +54,6 @@ export function MessageList({
   onApproval,
   onAcceptPlan,
   acceptPlanDisabled = false,
-  onExtendTokenBudget,
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollFrameRef = useRef<number | null>(null);
@@ -102,7 +94,6 @@ export function MessageList({
   const latestMessage = messages.at(-1);
   const activeAssistantMessageId =
     latestMessage?.role === "assistant" ? latestMessage.id : undefined;
-  const streaming = status === "submitted" || status === "streaming";
 
   return (
     <div
@@ -126,12 +117,6 @@ export function MessageList({
             onApproval={onApproval}
             onAcceptPlan={onAcceptPlan}
             acceptPlanDisabled={acceptPlanDisabled}
-            showBudgetGate={
-              !streaming &&
-              message.id === activeAssistantMessageId &&
-              onExtendTokenBudget !== undefined
-            }
-            onExtendTokenBudget={onExtendTokenBudget}
           />
         ))}
       </div>
@@ -153,8 +138,6 @@ function MessageEvent({
   onApproval,
   onAcceptPlan,
   acceptPlanDisabled,
-  showBudgetGate,
-  onExtendTokenBudget,
 }: {
   message: AntonUIMessage;
   status: "submitted" | "streaming" | "ready" | "error";
@@ -163,11 +146,6 @@ function MessageEvent({
   onApproval: ChatAddToolApproveResponseFunction;
   onAcceptPlan: (plan: string) => void;
   acceptPlanDisabled: boolean;
-  showBudgetGate: boolean;
-  onExtendTokenBudget?: (
-    runId: string,
-    multiplier: TokenBudgetMultiplierOption,
-  ) => void;
 }) {
   const isUser = message.role === "user";
   const streaming = status === "submitted" || status === "streaming";
@@ -210,19 +188,14 @@ function MessageEvent({
     responseText.length > 0 &&
     assistantFinal &&
     !streaming;
-  const openBudgetGate = showBudgetGate ? getLatestOpenBudgetGate(message) : undefined;
   const incompleteWithoutEdits =
     !isUser && messageIsLoopGuardIncomplete(message) && !messageHadSuccessfulStateChangingEdit(message);
   const unverifiedWithEdits =
     !isUser && messageIsUnverifiedEdit(message) && messageHadSuccessfulStateChangingEdit(message);
   const verificationFailedWithEdits =
     !isUser && messageIsVerificationFailed(message) && messageHadSuccessfulStateChangingEdit(message);
-  const suppressToolFailure =
-    (openBudgetGate !== undefined || messageHasBudgetLimit(message)) &&
-    messageHadSuccessfulStateChangingEdit(message);
   const showToolFailure =
     !isUser &&
-    !suppressToolFailure &&
     failedToolText.length > 0 &&
     assistantText.length === 0 &&
     !pendingApproval &&
@@ -260,9 +233,6 @@ function MessageEvent({
               status={status}
               todoDisplay={todoDisplay}
               onApproval={onApproval}
-              onExtendTokenBudget={
-                showBudgetGate ? onExtendTokenBudget : undefined
-              }
             />
             {showPlanCard ? (
               <PlanMessageCard

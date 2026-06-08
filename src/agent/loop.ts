@@ -1,4 +1,5 @@
 import {
+  stepCountIs,
   streamText,
   type LanguageModelUsage,
   type ModelMessage,
@@ -24,7 +25,6 @@ import {
 } from "@/src/lib/openrouter-routing";
 import {
   buildTokenUsageMetrics,
-  openRouterCostFromMetadata,
 } from "@/src/lib/token-usage";
 import {
   estimateTokensFromBytes,
@@ -35,13 +35,6 @@ import {
 import { listMemories } from "@/src/db/queries";
 import {
   budgetForProfile,
-  capRunBudget,
-  applyTokenBudgetMultiplier,
-  applyThinkingBudgetAdjustment,
-  mutableCostBudgetStopCondition,
-  mutableEffectiveTokenBudgetStopCondition,
-  mutableRawTokenSanityStopCondition,
-  mutableStepBudgetStopCondition,
   type RunBudget,
 } from "./run-budget";
 import {
@@ -112,7 +105,6 @@ export type TokenAudit = {
   targetPath?: string;
   targetResolution?: "exact" | "unique_search" | "unresolved" | "ambiguous";
   targetResolutionReason?: string;
-  tokenBudgetReached?: boolean;
   usage?: UsageAudit;
   steps: StepUsageAudit[];
 };
@@ -132,15 +124,8 @@ export type ContextBudgetAudit = {
 type RunBudgetAudit = Pick<
   RunBudget,
   | "profile"
-  | "maxSteps"
-  | "maxOutputTokens"
   | "maxInputTokens"
   | "maxInputBytes"
-  | "maxTotalTokens"
-  | "maxEffectiveTokens"
-  | "maxRawInputTokensPerStep"
-  | "rawTokenSanityCap"
-  | "maxCostUsd"
   | "priorRunContextChars"
   | "workspaceContextChars"
 >;
@@ -471,12 +456,9 @@ export async function runAgent({
   profile = profileForMode(mode),
   enabledMcpServerIds,
   thinkingEnabled = false,
-  maxStepsCap,
   requestBodyBytes,
   contextBudget,
-  tokenBudgetMultiplier = 1,
   priorTokensUsed = 0,
-  priorEffectiveTokens = 0,
   priorCostUsd = 0,
   priorToolHistory = [],
   previousPromptCacheAudit,
@@ -506,12 +488,9 @@ export async function runAgent({
   profile?: AgentRunProfile;
   enabledMcpServerIds?: string[];
   thinkingEnabled?: boolean;
-  maxStepsCap?: number | null;
   requestBodyBytes?: number;
   contextBudget?: ContextBudgetAudit;
-  tokenBudgetMultiplier?: number;
   priorTokensUsed?: number;
-  priorEffectiveTokens?: number;
   priorCostUsd?: number;
   priorToolHistory?: readonly PriorToolCallRecord[];
   previousPromptCacheAudit?: PromptCacheAudit | null;
@@ -559,17 +538,8 @@ export async function runAgent({
     providerMetadata?: ProviderMetadata;
     stepProviderMetadata: ProviderMetadata[];
     stepCount: number;
-    maxSteps: number;
-    maxTotalTokens: number;
-    maxEffectiveTokens: number;
-    baseMaxTotalTokens: number;
-    baseMaxEffectiveTokens: number;
-    maxCostUsd: number;
     priorTokensUsed: number;
     priorCostUsd: number;
-    maxStepLimitReached: boolean;
-    tokenBudgetReached: boolean;
-    costBudgetReached: boolean;
     loopGuardIncomplete?: boolean;
     unverifiedEdit?: boolean;
     verificationFailed?: boolean;
@@ -579,20 +549,7 @@ export async function runAgent({
   }) => void;
 }) {
   const isFastEditStart = profile === "localized-edit";
-  const baseBudget = capRunBudget(
-    budgetForProfile(isFastEditStart ? "localized-edit" : profile),
-    maxStepsCap,
-  );
-  const budget = applyThinkingBudgetAdjustment(
-    applyTokenBudgetMultiplier(baseBudget, tokenBudgetMultiplier),
-    thinkingEnabled,
-  );
-  const budgetState = {
-    maxSteps: budget.maxSteps,
-    maxEffectiveTokens: budget.maxEffectiveTokens,
-    maxCostUsd: budget.maxCostUsd,
-    rawTokenSanityCap: budget.rawTokenSanityCap,
-  };
+  const budget = budgetForProfile(isFastEditStart ? "localized-edit" : profile);
   const effectiveProfile: AgentRunProfile = profile;
   let promotionReason: string | undefined;
   let profileHandoff: ProfilePromotionEvent | undefined;
@@ -686,12 +643,12 @@ export async function runAgent({
     },
     budget: {
       profile: budget.profile,
-      maxSteps: budgetState.maxSteps,
+      maxSteps: budget.maxSteps,
       maxOutputTokens: budget.maxOutputTokens,
       maxInputTokens: budget.maxInputTokens,
       maxInputBytes: budget.maxInputBytes,
       maxTotalTokens: budget.maxTotalTokens,
-      maxEffectiveTokens: budgetState.maxEffectiveTokens,
+      maxEffectiveTokens: budget.maxEffectiveTokens,
       maxRawInputTokensPerStep: budget.maxRawInputTokensPerStep,
       rawTokenSanityCap: budget.rawTokenSanityCap,
       maxCostUsd: budget.maxCostUsd,
@@ -712,11 +669,7 @@ export async function runAgent({
     if (!isFastEditStart && profile !== "single-file-edit") return false;
     toolPolicy.observeSteps(steps);
     if (profileHandoff) return true;
-    const segmentEffective = effectiveTokensForSteps(steps);
-    const promotion = toolPolicy.checkPromotion(
-      priorEffectiveTokens + segmentEffective,
-      budgetState.maxEffectiveTokens,
-    );
+    const promotion = toolPolicy.checkPromotion();
     if (!promotion) return false;
     profileHandoff = promotion;
     promotionReason = promotion.reason;
@@ -742,23 +695,10 @@ export async function runAgent({
     model: getLanguageModel(selectedModel),
     system,
     messages,
-    maxOutputTokens: budget.maxOutputTokens,
     tools,
     activeTools: currentActiveToolNames,
     ...(openRouterOptions ? { providerOptions: openRouterOptions } : {}),
-    stopWhen: [
-      profileHandoffStopCondition,
-      mutableStepBudgetStopCondition(() => budgetState.maxSteps),
-      mutableEffectiveTokenBudgetStopCondition(
-        () => budgetState.maxEffectiveTokens,
-        priorEffectiveTokens,
-      ),
-      mutableRawTokenSanityStopCondition(
-        () => budgetState.rawTokenSanityCap,
-        priorTokensUsed,
-      ),
-      mutableCostBudgetStopCondition(() => budgetState.maxCostUsd, priorCostUsd),
-    ],
+    stopWhen: [profileHandoffStopCondition, stepCountIs(1_000_000)],
     prepareStep: ({ messages: stepMessages, steps }) => {
       toolPolicy.observeSteps(steps);
       let nextMessages = stepMessages;
@@ -972,10 +912,6 @@ export async function runAgent({
         intentionalSegmentTransition: promptCacheIntentionalSegmentTransition,
         openRouterRouting: resolvedOpenRouterRouting,
       });
-      const segmentTokens = finiteNumber(totalUsage.totalTokens) ?? 0;
-      const segmentEffective = tokenUsage?.effectiveTokens ?? segmentTokens;
-      const tokenBudgetReached =
-        priorEffectiveTokens + segmentEffective >= budgetState.maxEffectiveTokens;
       const tokenAudit: TokenAudit = {
         ...tokenAuditBase,
         profile: effectiveProfile,
@@ -990,7 +926,6 @@ export async function runAgent({
               handoffReason: profileHandoff.reason,
             }
           : {}),
-        tokenBudgetReached,
         ...(resolvedOpenRouterRouting
           ? { openRouterRouting: resolvedOpenRouterRouting }
           : {}),
@@ -999,29 +934,14 @@ export async function runAgent({
         usage: usageAudit(totalUsage, providerMetadata),
         steps: stepUsage,
       };
-      const segmentCost =
-        openRouterCostFromMetadata(undefined, stepProviderMetadata) ?? 0;
       onFinish?.({
         totalUsage,
         finishReason,
         providerMetadata,
         stepProviderMetadata,
         stepCount: observedStepCount,
-        maxSteps: budgetState.maxSteps,
-        maxTotalTokens: budget.maxTotalTokens,
-        maxEffectiveTokens: budgetState.maxEffectiveTokens,
-        baseMaxTotalTokens: baseBudget.maxTotalTokens,
-        baseMaxEffectiveTokens: baseBudget.maxEffectiveTokens,
-        maxCostUsd: budgetState.maxCostUsd,
         priorTokensUsed,
         priorCostUsd,
-        maxStepLimitReached:
-          observedStepCount >= budgetState.maxSteps && finishReason === "tool-calls",
-        tokenBudgetReached:
-          priorEffectiveTokens + segmentEffective >= budgetState.maxEffectiveTokens,
-        costBudgetReached:
-          priorCostUsd + segmentCost >= budgetState.maxCostUsd &&
-          segmentCost > 0,
         loopGuardIncomplete:
           profileHandoff
             ? false
@@ -1158,30 +1078,6 @@ function usageAudit(
     result.cachedInputTokens = cachedInputTokens;
   }
   return result;
-}
-
-function effectiveTokensForSteps(
-  steps: readonly {
-    usage?: LanguageModelUsage;
-    providerMetadata?: ProviderMetadata;
-  }[],
-): number {
-  return steps.reduce((sum, step) => {
-    const metrics = buildTokenUsageMetrics({
-      usage: step.usage,
-      providerMetadata: step.providerMetadata,
-    });
-    if (metrics?.effectiveTokens !== undefined) {
-      return sum + metrics.effectiveTokens;
-    }
-    const total = finiteNumber(step.usage?.totalTokens);
-    if (total !== undefined) return sum + total;
-    return (
-      sum +
-      (finiteNumber(step.usage?.inputTokens) ?? 0) +
-      (finiteNumber(step.usage?.outputTokens) ?? 0)
-    );
-  }, 0);
 }
 
 function messagesHaveDuplicateToolReplay(messages: ModelMessage[]): boolean {
