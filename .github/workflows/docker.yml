@@ -49,3 +49,4 @@ jobs:
           tags: ghcr.io/ramgopalbhat10/anton:latest,ghcr.io/ramgopalbhat10/anton:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          platforms: linux/arm64
