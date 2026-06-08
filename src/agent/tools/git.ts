@@ -85,20 +85,54 @@ export function createGitShowTool(workspaceRoot?: string) {
   });
 }
 
-const branchInputSchema = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("current") }),
-  z.object({ action: z.literal("list") }),
-  z.object({
-    action: z.literal("create"),
-    name: z.string().min(1),
-    startPoint: z.string().optional(),
-    switch: z.boolean().optional(),
-  }),
-  z.object({
-    action: z.literal("switch"),
-    name: z.string().min(1),
-  }),
-]);
+const branchInputSchema = z
+  .object({
+    action: z
+      .enum(["current", "list", "create", "switch"])
+      .describe("Branch operation to perform."),
+    name: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe("Branch name. Required for create and switch."),
+    startPoint: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe("Optional git start point for create."),
+    switch: z
+      .boolean()
+      .optional()
+      .describe("For create, switch to the new branch. Defaults to true."),
+  })
+  .superRefine((input, ctx) => {
+    if (
+      (input.action === "create" || input.action === "switch") &&
+      !input.name
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["name"],
+        message: "name is required for create and switch",
+      });
+    }
+    if (input.action !== "create" && input.startPoint) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["startPoint"],
+        message: "startPoint is only supported for create",
+      });
+    }
+    if (input.action !== "create" && input.switch !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["switch"],
+        message: "switch is only supported for create",
+      });
+    }
+  });
 
 export function createGitBranchTool(workspaceRoot?: string) {
   return tool({
@@ -120,6 +154,9 @@ export function createGitBranchTool(workspaceRoot?: string) {
             ok: true as const,
             branches: result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
           };
+        }
+        if (!input.name) {
+          throw new Error("branch name is required for create and switch");
         }
         const branch = normalizeBranchName(input.name);
         await assertValidBranchName(root, branch);

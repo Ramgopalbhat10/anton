@@ -71,7 +71,6 @@ const PERMISSION_MODE_ITEMS = [
 export function AgentSettingsPanel() {
   const [settings, setSettings] = useState<WorkspaceSettingsSummary | null>(null);
   const [model, setModel] = useState<ModelId>(DEFAULT_MODEL_ID);
-  const [maxSteps, setMaxSteps] = useState("");
   const [permissionMode, setPermissionMode] = useState<PermissionMode>("auto-review");
   const [routingPreferences, setRoutingPreferences] =
     useState<OpenRouterRoutingPreferences>({});
@@ -98,11 +97,6 @@ export function AgentSettingsPanel() {
             isSupportedModelId(data.settings.defaultModel)
             ? resolveModelId(data.settings.defaultModel)
             : DEFAULT_MODEL_ID,
-        );
-        setMaxSteps(
-          data.settings.defaultMaxSteps !== null
-            ? String(data.settings.defaultMaxSteps)
-            : "",
         );
         setPermissionMode(data.settings.defaultPermissionMode ?? "auto-review");
         setRoutingPreferences(data.settings.openRouterRoutingPreferences);
@@ -195,16 +189,6 @@ export function AgentSettingsPanel() {
   const save = async () => {
     setSaving(true);
     try {
-      const parsedMaxSteps = maxSteps.trim() ? Number(maxSteps.trim()) : null;
-      if (
-        parsedMaxSteps !== null &&
-        (!Number.isInteger(parsedMaxSteps) ||
-          parsedMaxSteps < 1 ||
-          parsedMaxSteps > 50)
-      ) {
-        setError("Max steps must be an integer between 1 and 50.");
-        return;
-      }
       const data = await requestJson<{ settings: WorkspaceSettingsSummary }>(
         "/api/workspace-settings",
         {
@@ -212,7 +196,6 @@ export function AgentSettingsPanel() {
           headers: jsonHeaders(),
           body: JSON.stringify({
             defaultModel: model,
-            defaultMaxSteps: parsedMaxSteps,
             defaultPermissionMode: permissionMode,
             openRouterRoutingPreferences: routingPreferences,
           }),
@@ -232,7 +215,7 @@ export function AgentSettingsPanel() {
   return (
     <SettingsPageShell
       title="Agent defaults"
-      description="Set the default model, step budget cap, and approval strictness for new chat sessions."
+      description="Set the default model, provider routing, and approval strictness for new chat sessions."
     >
       {error ? (
         <div className="mb-3">
@@ -365,30 +348,6 @@ export function AgentSettingsPanel() {
               </div>
             </SettingsCard>
           ) : null}
-
-          <SettingsCard title="Max steps">
-            <div className="max-w-xs space-y-2">
-              <Input
-                type="text"
-                inputMode="numeric"
-                autoComplete="off"
-                value={maxSteps}
-                placeholder="Profile default"
-                onChange={(event) => {
-                  const next = event.target.value.replace(/\D/g, "");
-                  if (next === "" || Number(next) <= 64) {
-                    setMaxSteps(next);
-                  }
-                }}
-                aria-label="Default max steps"
-                className="h-7 px-2 text-[11px] tabular-nums"
-              />
-              <p className="text-xs text-muted-foreground">
-                Caps the agent step budget. Profile-specific limits may still be
-                lower.
-              </p>
-            </div>
-          </SettingsCard>
 
           <SettingsCard title="Approval strictness">
             <div className="max-w-sm">

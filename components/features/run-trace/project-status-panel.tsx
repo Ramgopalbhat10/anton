@@ -187,7 +187,6 @@ function LastRunCard({
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [detailsEverOpened, setDetailsEverOpened] = useState(false);
   const statusMeta = runStatusMeta(lastRun);
-  const budgetReached = lastRun.finishReason === "token_budget_limit";
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
@@ -198,7 +197,7 @@ function LastRunCard({
           )}
         >
           <statusMeta.Icon className="size-3" />
-          {budgetReached ? "Budget reached" : statusMeta.label}
+          {statusMeta.label}
         </span>
         <span className="font-mono text-[10px] text-muted-foreground">
           {lastRun.model}
@@ -278,13 +277,6 @@ function LastRunCard({
 }
 
 function runStatusMeta(lastRun: NonNullable<ProjectStatusSummary["lastRun"]>) {
-  if (lastRun.finishReason === "token_budget_limit") {
-    return {
-      Icon: Clock,
-      label: "Budget reached",
-      className: "text-amber-400 ring-amber-400/30 bg-amber-400/10",
-    };
-  }
   switch (lastRun.status) {
     case "completed":
       return {

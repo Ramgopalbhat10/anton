@@ -135,7 +135,9 @@ export function useWorkspaceSettings() {
       });
       await refresh();
     } catch (err) {
-      setError(errorMessage(err, "Clone failed"));
+      const message = errorMessage(err, "Clone failed");
+      await refresh().catch(() => null);
+      setError(message);
     } finally {
       setCloningRepoId(null);
     }

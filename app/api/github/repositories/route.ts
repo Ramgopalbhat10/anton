@@ -51,8 +51,9 @@ export async function GET() {
             private: repo.private,
             defaultBranch: repo.default_branch,
             htmlUrl: repo.html_url,
-            clonedProjectId: project?.id ?? null,
+            clonedProjectId: project?.status === "ready" ? project.id : null,
             cloneStatus: project?.status ?? null,
+            cloneError: project?.lastError ?? null,
           };
         }),
       });
@@ -78,8 +79,9 @@ export async function GET() {
             private: repo.private,
             defaultBranch: repo.default_branch,
             htmlUrl: repo.html_url,
-            clonedProjectId: project?.id ?? null,
+            clonedProjectId: project?.status === "ready" ? project.id : null,
             cloneStatus: project?.status ?? null,
+            cloneError: project?.lastError ?? null,
           };
         }),
       );

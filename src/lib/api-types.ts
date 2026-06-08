@@ -4,7 +4,6 @@ export type WorkspaceSettingsSummary = {
   source: "database" | "env" | "default";
   exists: boolean;
   defaultModel: string | null;
-  defaultMaxSteps: number | null;
   defaultPermissionMode: "default" | "auto-review" | "full-access" | null;
   openRouterRoutingPreferences: OpenRouterRoutingPreferences;
 };
@@ -81,6 +80,7 @@ export type GitHubRepositorySummary = {
   htmlUrl?: string;
   clonedProjectId: string | null;
   cloneStatus?: "cloning" | "ready" | "error" | null;
+  cloneError?: string | null;
 };
 
 export type GitHubInstallationSummary = {

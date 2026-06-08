@@ -11,8 +11,6 @@ export type PromotionTriggerInput = {
   partialReadPaths: number;
   failedEditPaths: number;
   searchStepsBeforeEdit: number;
-  effectiveTokensUsed: number;
-  maxEffectiveTokens: number;
   hadSuccessfulEdit: boolean;
 };
 
@@ -39,14 +37,6 @@ export function evaluateFastEditPromotion(
   }
   if (input.searchStepsBeforeEdit >= 3) {
     reasons.push("Multiple searches ran before a successful edit.");
-  }
-  if (
-    input.maxEffectiveTokens > 0 &&
-    input.effectiveTokensUsed >= Math.floor(input.maxEffectiveTokens * 0.75)
-  ) {
-    reasons.push(
-      "Half of the fast-edit effective budget was used without a successful edit.",
-    );
   }
 
   if (reasons.length === 0) return undefined;

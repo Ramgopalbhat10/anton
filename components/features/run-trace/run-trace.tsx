@@ -15,10 +15,8 @@ import {
   getMessageRunDurationMs,
   getRunData,
   hasPendingToolApproval,
-  messageHasBudgetLimit,
   type AntonUIMessage,
   type AntonRunStatus,
-  type TokenBudgetMultiplierOption,
 } from "@/src/lib/trace";
 import { Disclosure } from "@/components/shared/disclosure";
 
@@ -52,10 +50,6 @@ interface RunTraceAccordionProps {
   status: "submitted" | "streaming" | "ready" | "error";
   todoDisplay?: TodoTraceDisplay;
   onApproval: ChatAddToolApproveResponseFunction;
-  onExtendTokenBudget?: (
-    runId: string,
-    multiplier: TokenBudgetMultiplierOption,
-  ) => void;
 }
 
 export function RunTraceAccordion({
@@ -63,7 +57,6 @@ export function RunTraceAccordion({
   status,
   todoDisplay,
   onApproval,
-  onExtendTokenBudget,
 }: RunTraceAccordionProps) {
   const run = getRunData(message);
   const metadata = message.metadata;
@@ -73,7 +66,6 @@ export function RunTraceAccordion({
     transportRunning,
   );
   const isRunning = runStatus === "running";
-  const budgetLimited = messageHasBudgetLimit(message);
 
   const pendingApproval = useMemo(
     () => hasPendingToolApproval(message),
@@ -138,10 +130,7 @@ export function RunTraceAccordion({
           message={message}
           todoDisplay={todoDisplay}
           runStatus={runStatus}
-          budgetLimited={budgetLimited}
-          budgetGateDisabled={isRunning || pendingApproval}
           onApproval={onApproval}
-          onExtendTokenBudget={onExtendTokenBudget}
         />
       )}
     </Disclosure>
@@ -152,21 +141,12 @@ function RunTraceAccordionBody({
   message,
   todoDisplay,
   runStatus,
-  budgetLimited,
-  budgetGateDisabled,
   onApproval,
-  onExtendTokenBudget,
 }: {
   message: AntonUIMessage;
   todoDisplay?: TodoTraceDisplay;
   runStatus: AntonRunStatus;
-  budgetLimited: boolean;
-  budgetGateDisabled: boolean;
   onApproval: ChatAddToolApproveResponseFunction;
-  onExtendTokenBudget?: (
-    runId: string,
-    multiplier: TokenBudgetMultiplierOption,
-  ) => void;
 }) {
   const rows = useMemo(
     () => getTraceRows(message, todoDisplay),
@@ -188,7 +168,6 @@ function RunTraceAccordionBody({
               key={`step-${item.group.stepNumber}`}
               group={item.group}
               runStatus={runStatus}
-              budgetLimited={budgetLimited}
               onApproval={onApproval}
             />
           ) : (
@@ -196,13 +175,6 @@ function RunTraceAccordionBody({
               <TraceRowView
                 row={item.row}
                 runStatus={runStatus}
-                budgetLimited={budgetLimited}
-                budgetGateDisabled={
-                  budgetGateDisabled ||
-                  (item.row.kind === "budget-gate" &&
-                    item.row.gate.status !== "open")
-                }
-                onExtendTokenBudget={onExtendTokenBudget}
                 onApproval={onApproval}
               />
             </div>
@@ -219,8 +191,7 @@ function messageHasTracePayload(message: AntonUIMessage): boolean {
       part.type === "reasoning" ||
       part.type === "data-run" ||
       part.type === "data-activity" ||
-      part.type === "data-todos" ||
-      part.type === "data-budget-gate"
+      part.type === "data-todos"
     ) {
       return true;
     }

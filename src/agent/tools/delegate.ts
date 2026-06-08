@@ -27,9 +27,6 @@ import { createGlobTool } from "./glob";
 import { listMemoryTool } from "./memory";
 import { createListSkillsTool, createReadSkillTool } from "./skills";
 
-const DEFAULT_MAX_STEPS = 6;
-const MAX_DELEGATE_STEPS = 10;
-
 export function createDelegateTaskTool({
   model,
   workspaceRoot,
@@ -50,7 +47,7 @@ export function createDelegateTaskTool({
 
   return tool({
     description:
-      "Delegate a bounded read-only investigation to a child Anton agent. The child can read/search workspace files, memories, and skills, but cannot write files, run shell commands, or mutate memory.",
+      "Delegate a read-only investigation to a child Anton agent. The child can read/search workspace files, memories, and skills, but cannot write files, run shell commands, or mutate memory.",
     inputSchema: z.object({
       task: z
         .string()
@@ -58,17 +55,8 @@ export function createDelegateTaskTool({
         .min(1)
         .max(4000)
         .describe("The specific read-only question or investigation to delegate."),
-      maxSteps: z
-        .number()
-        .int()
-        .min(1)
-        .max(MAX_DELEGATE_STEPS)
-        .optional()
-        .describe(
-          `Maximum child-agent tool-loop steps. Defaults to ${DEFAULT_MAX_STEPS}.`,
-        ),
     }),
-    execute: async ({ task, maxSteps }) => {
+    execute: async ({ task }) => {
       try {
         const selectedModel = resolveModelId(model ?? DEFAULT_MODEL);
         const openRouterOptions =
@@ -87,7 +75,7 @@ export function createDelegateTaskTool({
           system: childSystemPrompt(workspaceRoot),
           prompt: task,
           tools: readOnlyTools,
-          stopWhen: stepCountIs(maxSteps ?? DEFAULT_MAX_STEPS),
+          stopWhen: stepCountIs(1_000_000),
           ...(openRouterOptions ? { providerOptions: openRouterOptions } : {}),
         });
 

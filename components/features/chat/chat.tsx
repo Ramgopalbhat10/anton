@@ -28,7 +28,6 @@ import { CHAT_MODES, DEFAULT_CHAT_MODE, type ChatMode } from "@/src/lib/chat-mod
 import type { PermissionMode } from "@/src/agent/permissions";
 import {
   getRunDataList,
-  isBudgetGateDataPart,
   type AntonRunData,
   type AntonUIMessage,
 } from "@/src/lib/trace";
@@ -461,21 +460,6 @@ function ChatSession({
     [addToolApprovalResponse, mode, requestBodyForMode],
   );
 
-  const extendTokenBudget = useCallback(
-    (runId: string, multiplier: 2 | 3) => {
-      if (lastNonEmptyMessagesRef.current.length > 0) {
-        setMessageDisplayOverride(lastNonEmptyMessagesRef.current);
-      }
-      void sendMessage(undefined, {
-        body: {
-          ...requestBodyForMode(mode),
-          extendTokenBudget: { runId, multiplier },
-        },
-      });
-    },
-    [mode, requestBodyForMode, sendMessage],
-  );
-
   useEffect(() => {
     if (status !== "ready") return;
     const handoffRun = latestPendingProfileHandoffRun(messages);
@@ -649,7 +633,6 @@ function ChatSession({
               void sendWithMcp("Implement plan", "agent");
             }}
             acceptPlanDisabled={streaming || !effectiveProjectId}
-            onExtendTokenBudget={extendTokenBudget}
           />
 
           {error && (
@@ -943,7 +926,6 @@ function hasVisibleMessageParts(message: AntonUIMessage): boolean {
     if (part.type === "text" || part.type === "reasoning") {
       return part.text.trim().length > 0;
     }
-    if (isBudgetGateDataPart(part)) return true;
     return part.type !== "step-start";
   });
 }

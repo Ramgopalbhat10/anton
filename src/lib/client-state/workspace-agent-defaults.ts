@@ -16,7 +16,6 @@ export const WORKSPACE_AGENT_DEFAULTS_CHANGED_EVENT =
 export type WorkspaceAgentDefaults = {
   model: ModelId;
   permissionMode: PermissionMode;
-  maxSteps: number | null;
 };
 
 export function workspaceDefaultsFromSettings(
@@ -28,7 +27,6 @@ export function workspaceDefaultsFromSettings(
         ? resolveModelId(settings.defaultModel)
         : DEFAULT_MODEL_ID,
     permissionMode: settings.defaultPermissionMode ?? "auto-review",
-    maxSteps: settings.defaultMaxSteps,
   };
 }
 
