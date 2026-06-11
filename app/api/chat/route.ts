@@ -1587,7 +1587,9 @@ function createTraceWriter({
       }
 
       if (event.toolName === "bash") {
-        const classification = preClassifyBashInput(event.input);
+        const classification = preClassifyBashInput(event.input, {
+          workspaceRoot,
+        });
         const commandPolicyMode = commandPolicyModeForPermission(permissionMode);
         details.commandPolicyMode = commandPolicyMode;
         if (classification) {
