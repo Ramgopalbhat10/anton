@@ -9,6 +9,11 @@ export interface BashOutput {
   stderr?: string;
   exitCode?: number | null;
   commandPolicyMode?: "enforced" | "advisory";
+  boundary?: {
+    kind: "workspace-cwd";
+    confinement: "unconfined";
+    label: "Workspace cwd only";
+  };
   timedOut?: boolean;
   killed?: boolean;
   failedReason?: BashFailedReason;
@@ -39,12 +44,32 @@ export function parseBashOutput(output: unknown): BashOutput {
       record.commandPolicyMode === "advisory"
         ? record.commandPolicyMode
         : undefined,
+    boundary: parseExecutionBoundary(record.boundary),
     timedOut:
       typeof record.timedOut === "boolean" ? record.timedOut : undefined,
     killed: typeof record.killed === "boolean" ? record.killed : undefined,
     failedReason: isFailedReason(record.failedReason)
       ? record.failedReason
       : undefined,
+  };
+}
+
+function parseExecutionBoundary(
+  value: unknown,
+): BashOutput["boundary"] | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const record = value as Record<string, unknown>;
+  if (
+    record.kind !== "workspace-cwd" ||
+    record.confinement !== "unconfined" ||
+    record.label !== "Workspace cwd only"
+  ) {
+    return undefined;
+  }
+  return {
+    kind: "workspace-cwd",
+    confinement: "unconfined",
+    label: "Workspace cwd only",
   };
 }
 

@@ -205,6 +205,11 @@ export type ApprovalMetadata = {
     cwd: string;
     timeoutMs: number;
     outputCapBytes: number;
+    boundary?: {
+      kind: "workspace-cwd";
+      confinement: "unconfined";
+      label: "Workspace cwd only";
+    };
     classification: {
       categories: string[];
       forbidden: boolean;
@@ -590,7 +595,27 @@ function structuredCommandMetadata(
     cwd: record.cwd,
     timeoutMs: record.timeoutMs,
     outputCapBytes: record.outputCapBytes,
+    boundary: structuredExecutionBoundary(record.boundary),
     classification,
+  };
+}
+
+function structuredExecutionBoundary(
+  value: unknown,
+): NonNullable<ApprovalMetadata["command"]>["boundary"] | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const record = value as Record<string, unknown>;
+  if (
+    record.kind !== "workspace-cwd" ||
+    record.confinement !== "unconfined" ||
+    record.label !== "Workspace cwd only"
+  ) {
+    return undefined;
+  }
+  return {
+    kind: "workspace-cwd",
+    confinement: "unconfined",
+    label: "Workspace cwd only",
   };
 }
 

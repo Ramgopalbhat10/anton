@@ -1,9 +1,7 @@
 import { z } from "zod";
-import { execa } from "execa";
 import { tool, type JSONValue } from "ai";
 import { ensureWorkspaceRoot, ensureWorkspaceRootAt } from "../sandbox";
 import {
-  buildBashEnvironment,
   classifyBashCommand,
   evaluateBashCommandPolicy,
 } from "../command-policy";
@@ -11,13 +9,18 @@ import {
   bashProgress,
   type BashFailedReason,
 } from "@/src/lib/bash-stream";
-import { redactText } from "@/src/lib/redaction";
 import { modelVisibleToolOutput } from "./model-output";
 import {
   commandPolicyModeForPermission,
   type CommandPolicyMode,
   type PermissionMode,
 } from "../permissions";
+import {
+  getWorkspaceExecutionBoundary,
+  startWorkspaceProcess,
+  truncateWorkspaceProcessOutput,
+  type WorkspaceExecutionBoundary,
+} from "@/src/workspace/process-runner";
 
 const MAX_OUTPUT_BYTES = 64 * 1024;
 const DEFAULT_TIMEOUT_MS = 180_000;
@@ -130,14 +133,6 @@ function compactBashModelOutput(output: unknown): JSONValue {
   }) as JSONValue;
 }
 
-function truncate(output: string): string {
-  const redacted = redactText(output);
-  const buf = Buffer.from(redacted, "utf8");
-  if (buf.byteLength <= MAX_OUTPUT_BYTES) return redacted;
-  const head = buf.subarray(0, MAX_OUTPUT_BYTES).toString("utf8");
-  return `${head}\n...[truncated ${buf.byteLength - MAX_OUTPUT_BYTES} bytes]`;
-}
-
 async function executeWithStreaming(
   command: string,
   root: string,
@@ -153,37 +148,29 @@ async function executeWithStreaming(
   let sentExit = false;
 
   try {
-    const subprocess = execa("bash", ["-lc", command], {
-      cwd: root,
-      env: buildBashEnvironment(),
-      extendEnv: false,
-      timeout,
-      reject: false,
-      stripFinalNewline: false,
-      maxBuffer: MAX_OUTPUT_BYTES * 4,
+    const processHandle = startWorkspaceProcess("bash", ["-lc", command], root, {
+      timeoutMs: timeout,
+      outputCapBytes: MAX_OUTPUT_BYTES,
+      maxBufferBytes: MAX_OUTPUT_BYTES * 4,
+      onStdout: (text) => {
+        stdoutChunks.push(text);
+        bashProgress.emitChunk(streamId, { type: "stdout", chunk: text });
+      },
+      onStderr: (text) => {
+        stderrChunks.push(text);
+        bashProgress.emitChunk(streamId, { type: "stderr", chunk: text });
+      },
     });
 
-    subprocess.stdout?.on("data", (chunk: Buffer) => {
-      const text = redactText(chunk.toString("utf8"));
-      stdoutChunks.push(text);
-      bashProgress.emitChunk(streamId, { type: "stdout", chunk: text });
-    });
+    const result = await processHandle.result;
+    const exitCode = result.exitCode;
+    const timedOut = result.timedOut;
+    const killed = result.killed;
+    const failedReason = result.failedReason;
 
-    subprocess.stderr?.on("data", (chunk: Buffer) => {
-      const text = redactText(chunk.toString("utf8"));
-      stderrChunks.push(text);
-      bashProgress.emitChunk(streamId, { type: "stderr", chunk: text });
-    });
-
-    const result = await subprocess;
-    const exitCode = result.exitCode ?? null;
-    const timedOut = result.timedOut ?? false;
-    const killed = result.isCanceled ?? false;
-    const failedReason = failedReasonForResult({
-      timedOut,
-      killed,
-      isMaxBuffer: result.isMaxBuffer ?? false,
-    });
+    if (result.failedToStart && result.stderr && stderrChunks.length === 0) {
+      bashProgress.emitChunk(streamId, { type: "stderr", chunk: `${result.stderr}\n` });
+    }
 
     bashProgress.emitChunk(streamId, {
       type: "exit",
@@ -206,9 +193,10 @@ async function executeWithStreaming(
       timedOut,
       killed,
       failedReason,
-      stdout: truncate(stdoutChunks.join("")),
-      stderr: truncate(stderrChunks.join("")),
+      stdout: result.stdout,
+      stderr: result.stderr,
       streamId,
+      boundary: result.boundary,
       ...(commandFailed
         ? {
             error:
@@ -218,8 +206,11 @@ async function executeWithStreaming(
         : {}),
     };
   } catch (err) {
-    const error = redactText(errorMessage(err));
-    const stderr = truncate([...stderrChunks, error].filter(Boolean).join("\n"));
+    const error = truncateWorkspaceProcessOutput(errorMessage(err), MAX_OUTPUT_BYTES);
+    const stderr = truncateWorkspaceProcessOutput(
+      [...stderrChunks, error].filter(Boolean).join("\n"),
+      MAX_OUTPUT_BYTES,
+    );
     bashProgress.emitChunk(streamId, { type: "stderr", chunk: `${error}\n` });
     bashProgress.emitChunk(streamId, {
       type: "exit",
@@ -240,9 +231,10 @@ async function executeWithStreaming(
       timedOut: false,
       killed: false,
       failedReason: "error",
-      stdout: truncate(stdoutChunks.join("")),
+      stdout: truncateWorkspaceProcessOutput(stdoutChunks.join(""), MAX_OUTPUT_BYTES),
       stderr,
       streamId,
+      boundary: getWorkspaceExecutionBoundary(),
     };
   } finally {
     if (!sentExit) {
@@ -271,6 +263,7 @@ type BashToolOutput = {
   stderr: string;
   streamId: string;
   error?: string;
+  boundary: WorkspaceExecutionBoundary;
 };
 
 type BashToolErrorOutput = {
@@ -286,22 +279,8 @@ type BashToolErrorOutput = {
   stdout: string;
   stderr: string;
   streamId: string;
+  boundary: WorkspaceExecutionBoundary;
 };
-
-function failedReasonForResult({
-  timedOut,
-  killed,
-  isMaxBuffer,
-}: {
-  timedOut: boolean;
-  killed: boolean;
-  isMaxBuffer: boolean;
-}): BashFailedReason | undefined {
-  if (timedOut) return "timeout";
-  if (killed) return "killed";
-  if (isMaxBuffer) return "max_buffer";
-  return undefined;
-}
 
 function looksLikeSearchCommand(command: string): boolean {
   const trimmed = command.trim();

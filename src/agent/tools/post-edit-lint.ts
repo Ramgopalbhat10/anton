@@ -9,7 +9,7 @@ import {
   runScriptCommand,
   scriptNames,
 } from "./package-manager";
-import { runWorkspaceProcess } from "./process";
+import { runWorkspaceProcess } from "@/src/workspace/process-runner";
 
 export type PostEditLintIssue = {
   line: number;

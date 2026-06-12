@@ -2,10 +2,7 @@ import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import { execa, type ResultPromise } from "execa";
-
 import {
-  buildBashEnvironment,
   evaluateBashCommandPolicy,
 } from "@/src/agent/command-policy";
 import {
@@ -32,6 +29,10 @@ import {
 import type { BackgroundCommandSession } from "@/src/db/schema";
 import { backgroundCommandStream } from "@/src/lib/background-command-stream";
 import { redactText } from "@/src/lib/redaction";
+import {
+  startWorkspaceProcess,
+  type StartedWorkspaceProcess,
+} from "@/src/workspace/process-runner";
 
 const execFileAsync = promisify(execFile);
 
@@ -46,7 +47,7 @@ const LOCALHOST_URL_RE =
   /https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(?::\d+)?(?:\/[^\s"'<>]*)?/gi;
 
 type ActiveProcess = {
-  subprocess: ResultPromise;
+  subprocess: StartedWorkspaceProcess["subprocess"];
 };
 
 const activeProcesses = new Map<string, ActiveProcess>();
@@ -368,17 +369,34 @@ async function spawnSessionProcess(
   cwd: string,
   spawnArgs: { file: string; args: string[]; shell?: false },
 ): Promise<void> {
-  const subprocess = execa(spawnArgs.file, spawnArgs.args, {
-    cwd,
-    env: buildBashEnvironment(),
-    extendEnv: false,
-    reject: false,
-    stripFinalNewline: false,
+  let stdoutTail = "";
+  let stderrTail = "";
+  let detectedUrls: string[] = [];
+
+  const processHandle = startWorkspaceProcess(spawnArgs.file, spawnArgs.args, cwd, {
     cleanup: true,
     forceKillAfterDelay: false,
-    windowsHide: true,
     detached: process.platform !== "win32",
+    onStdout: (text) => {
+      stdoutTail = capTail(stdoutTail + text);
+      detectedUrls = mergeDetectedUrls(detectedUrls, detectLocalhostUrls(text));
+      updateBackgroundCommandSession(sessionId, {
+        stdoutTail,
+        detectedUrls,
+      });
+      backgroundCommandStream.emitEvent(sessionId, { type: "stdout", chunk: text });
+    },
+    onStderr: (text) => {
+      stderrTail = capTail(stderrTail + text);
+      detectedUrls = mergeDetectedUrls(detectedUrls, detectLocalhostUrls(text));
+      updateBackgroundCommandSession(sessionId, {
+        stderrTail,
+        detectedUrls,
+      });
+      backgroundCommandStream.emitEvent(sessionId, { type: "stderr", chunk: text });
+    },
   });
+  const { subprocess } = processHandle;
 
   activeProcesses.set(sessionId, { subprocess });
 
@@ -388,32 +406,6 @@ async function spawnSessionProcess(
     startedAt: new Date(),
   });
   backgroundCommandStream.emitEvent(sessionId, { type: "status", status: "running" });
-
-  let stdoutTail = "";
-  let stderrTail = "";
-  let detectedUrls: string[] = [];
-
-  subprocess.stdout?.on("data", (chunk: Buffer) => {
-    const text = redactText(chunk.toString("utf8"));
-    stdoutTail = capTail(stdoutTail + text);
-    detectedUrls = mergeDetectedUrls(detectedUrls, detectLocalhostUrls(text));
-    updateBackgroundCommandSession(sessionId, {
-      stdoutTail,
-      detectedUrls,
-    });
-    backgroundCommandStream.emitEvent(sessionId, { type: "stdout", chunk: text });
-  });
-
-  subprocess.stderr?.on("data", (chunk: Buffer) => {
-    const text = redactText(chunk.toString("utf8"));
-    stderrTail = capTail(stderrTail + text);
-    detectedUrls = mergeDetectedUrls(detectedUrls, detectLocalhostUrls(text));
-    updateBackgroundCommandSession(sessionId, {
-      stderrTail,
-      detectedUrls,
-    });
-    backgroundCommandStream.emitEvent(sessionId, { type: "stderr", chunk: text });
-  });
 
   void subprocess.then((result) => {
     finalizeProcess(sessionId, {
@@ -480,7 +472,7 @@ function forceFinalizeStoppedSession(sessionId: string): void {
 }
 
 async function readSubprocessExit(
-  subprocess: ResultPromise,
+  subprocess: StartedWorkspaceProcess["subprocess"],
 ): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }> {
   try {
     const result = await Promise.race([
@@ -504,7 +496,7 @@ async function readSubprocessExit(
 
 async function killProcessTreeGracefully(
   pid: number | undefined,
-  subprocess: ResultPromise,
+  subprocess: StartedWorkspaceProcess["subprocess"],
 ): Promise<void> {
   await sendGracefulTermination(pid, subprocess);
   if (await waitForSubprocessExit(subprocess, TERMINATION_GRACE_MS)) {
@@ -517,7 +509,7 @@ async function killProcessTreeGracefully(
 
 async function sendGracefulTermination(
   pid: number | undefined,
-  subprocess: ResultPromise,
+  subprocess: StartedWorkspaceProcess["subprocess"],
 ): Promise<void> {
   if (pid !== undefined && process.platform === "win32") {
     try {
@@ -554,7 +546,7 @@ async function sendGracefulTermination(
 
 async function sendForceTermination(
   pid: number | undefined,
-  subprocess: ResultPromise,
+  subprocess: StartedWorkspaceProcess["subprocess"],
 ): Promise<void> {
   if (pid !== undefined && process.platform === "win32") {
     try {
@@ -590,7 +582,7 @@ async function sendForceTermination(
 }
 
 async function waitForSubprocessExit(
-  subprocess: ResultPromise,
+  subprocess: StartedWorkspaceProcess["subprocess"],
   timeoutMs: number,
 ): Promise<boolean> {
   return Promise.race([

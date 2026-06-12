@@ -589,6 +589,8 @@ function bashOutputFromEntry(entry: ToolTraceEntry): BashOutput {
   const failedReason = parseFailedReason(
     entry.errorText ?? pickString(entry.output as Record<string, unknown>, "failedReason"),
   );
+  const commandPolicyMode = pickCommandPolicyMode(entry.output);
+  const boundary = pickExecutionBoundary(entry.output);
   const stdout =
     typeof entry.output === "object" &&
     entry.output !== null &&
@@ -607,9 +609,8 @@ function bashOutputFromEntry(entry: ToolTraceEntry): BashOutput {
   return {
     ...(stdout ? { stdout } : {}),
     ...(stderr ? { stderr } : {}),
-    ...(pickCommandPolicyMode(entry.output)
-      ? { commandPolicyMode: pickCommandPolicyMode(entry.output) }
-      : {}),
+    ...(commandPolicyMode ? { commandPolicyMode } : {}),
+    ...(boundary ? { boundary } : {}),
     exitCode:
       typeof entry.output === "object" &&
       entry.output !== null &&
@@ -629,6 +630,25 @@ function pickCommandPolicyMode(
   if (typeof output !== "object" || output === null) return undefined;
   const value = (output as Record<string, unknown>).commandPolicyMode;
   return value === "enforced" || value === "advisory" ? value : undefined;
+}
+
+function pickExecutionBoundary(output: unknown): BashOutput["boundary"] {
+  if (typeof output !== "object" || output === null) return undefined;
+  const value = (output as Record<string, unknown>).boundary;
+  if (typeof value !== "object" || value === null) return undefined;
+  const record = value as Record<string, unknown>;
+  if (
+    record.kind !== "workspace-cwd" ||
+    record.confinement !== "unconfined" ||
+    record.label !== "Workspace cwd only"
+  ) {
+    return undefined;
+  }
+  return {
+    kind: "workspace-cwd",
+    confinement: "unconfined",
+    label: "Workspace cwd only",
+  };
 }
 
 function parseFailedReason(
