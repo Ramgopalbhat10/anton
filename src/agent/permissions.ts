@@ -14,6 +14,7 @@ import {
 import { planFormatCommand } from "./tools/format";
 import {
   classifyBashCommand as classifyBashCommandByPolicy,
+  evaluateBashCommandPolicy,
   type BashCommandClassification,
 } from "./command-policy";
 import { planVerification } from "./tools/verify";
@@ -314,11 +315,12 @@ export function stripApprovalFlags<TTools extends ToolSet>(
 
 export function preClassifyBashInput(
   input: unknown,
+  options: { workspaceRoot?: string } = {},
 ): BashCommandClassification | undefined {
   if (typeof input !== "object" || input === null) return undefined;
   const command = (input as Record<string, unknown>)["command"];
   if (typeof command !== "string") return undefined;
-  return classifyBashCommand(command);
+  return evaluateBashCommandPolicy(command, options).classification;
 }
 
 export function isMcpTool(name: string): boolean {
@@ -688,7 +690,8 @@ function buildBashApproval(
   const command = stringValue(input.command) ?? "";
   const timeoutMs = numberValue(input.timeoutMs) ?? BASH_DEFAULT_TIMEOUT_MS;
   const cwd = workspaceRootLabel(workspaceRoot);
-  const classification = classifyBashCommand(command);
+  const policy = evaluateBashCommandPolicy(command, { workspaceRoot });
+  const classification = policy.classification;
   const commandPolicyMode = commandPolicyModeForPermission(permissionMode);
 
   return {
@@ -715,8 +718,8 @@ function buildBashApproval(
       `Classification: ${classification.reason}.`,
       commandPolicyMode === "advisory"
         ? "Full-access mode treats command policy classification as advisory; sandbox cwd, timeout, output limits, and redaction still apply."
-        : classification.forbidden
-        ? "This command matches a forbidden pattern and will be refused even if approved."
+        : !policy.allowed
+        ? "This command violates command policy and will be refused even if approved."
         : "Approval lets the command start; it does not bypass sandbox cwd, timeout, or output limits.",
     ],
   };

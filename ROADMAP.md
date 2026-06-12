@@ -78,6 +78,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Scrub shell environment by default and pass only an allowlist of required variables.
 - [✔️] Add command policy checks for absolute paths, shell redirection outside workspace, destructive filesystem operations, network access, and secret-printing commands.
 - [✔️] Replace the current `sudo`/`su` denylist with a parser-backed or policy-backed command classifier.
+- [✔️] Harden parser-backed shell command policy against complex shell syntax, redirection escapes, destructive git/force-push commands, and nested shell bypasses (#160).
 - [✔️] Add secret redaction for tool inputs, tool outputs, logs, and UI rendering.
 - [✔️] Add workspace-root validation that prevents using Anton source, `.git`, dependency folders, build output, system directories, and user home as agent workspaces.
 - [✔️] Harden sandbox traversal, symlink escape, workspace root validation, and command policy behavior.
