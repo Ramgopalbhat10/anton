@@ -1,7 +1,13 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { useState } from "react";
+import {
+  Loader2,
+  Pencil,
+  Plus,
+  Trash2,
+  User,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -14,7 +20,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Textarea } from "@/components/ui/textarea";
 import type { ProjectMemory } from "@/src/lib/api-types";
 import {
   EmptyState,
@@ -23,6 +28,8 @@ import {
 } from "@/components/shared/feedback-states";
 
 import { useMemories } from "./hooks";
+
+const MAX_MEMORY_CHARS = 1000;
 
 export function MemoryManager({
   active,
@@ -57,121 +64,157 @@ export function MemoryManager({
   };
 
   return (
-    <>
+    <div className="space-y-7">
       {error && <ErrorBanner message={error} />}
-      <MemorySection title="New memory">
-        <Textarea
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          maxLength={1000}
-          placeholder="A durable project preference or fact."
-          className="min-h-16 resize-none text-xs"
-          aria-label="New memory"
-        />
-        <div className="mt-2 flex items-center justify-between gap-2">
-          <span className="text-xs text-muted-foreground">
-            {draft.trim().length}/1000
+
+      <section className="overflow-hidden rounded-[10px] border border-border bg-card">
+        <div className="space-y-2.5 p-4">
+          <h3 className="text-sm font-semibold">New memory</h3>
+          <textarea
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            maxLength={MAX_MEMORY_CHARS}
+            placeholder="A durable project preference or fact..."
+            aria-label="New memory"
+            rows={3}
+            className="min-h-[76px] w-full resize-none rounded-lg border border-border bg-input px-3 py-2.5 text-[13px] leading-relaxed outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-ring"
+          />
+        </div>
+        <div className="flex items-center justify-between border-t border-layout-border px-4 py-2.5">
+          <span className="text-[12.5px] text-muted-foreground/80">
+            {draft.trim().length} / {MAX_MEMORY_CHARS}
           </span>
           <Button
             type="button"
-            size="sm"
             onClick={() => void createMemory()}
             disabled={saving || draft.trim().length === 0}
+            className="h-[33px] rounded-lg px-3.5 text-[13px] font-semibold"
           >
-            {saving ? <Loader2 className="animate-spin" /> : <Plus />}
+            {saving ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Plus className="size-3.5" />
+            )}
             Add memory
           </Button>
         </div>
-      </MemorySection>
+      </section>
 
-      <MemorySection title="Saved memories">
-        {loading ? (
-          <LoadingState label="Loading memories" />
-        ) : memories.length === 0 ? (
-          <EmptyState message="No project memories saved." />
-        ) : (
-          <ul className="space-y-1.5">
-            {memories.map((memory) => {
-              const editing = editingId === memory.id;
-              return (
-                <li
-                  key={memory.id}
-                  className="rounded-md bg-background/45 p-2.5 ring-1 ring-border"
-                >
-                  {editing ? (
-                    <div className="space-y-2">
-                      <Textarea
-                        value={editingDraft}
-                        onChange={(event) =>
-                          setEditingDraft(event.target.value)
-                        }
-                        maxLength={1000}
-                        className="min-h-16 resize-none text-xs"
-                        aria-label="Edit memory"
-                      />
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            setEditingId(null);
-                            setEditingDraft("");
-                          }}
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          onClick={() => void updateMemory(memory.id)}
-                          disabled={saving || editingDraft.trim().length === 0}
-                        >
-                          Save
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="whitespace-pre-wrap text-xs leading-normal">
-                          {memory.content}
-                        </p>
-                        <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">
-                          {memory.id}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1">
-                        <Button
-                          type="button"
-                          size="icon-sm"
-                          variant="ghost"
-                          onClick={() => {
-                            setEditingId(memory.id);
-                            setEditingDraft(memory.content);
-                          }}
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <h3 className="text-[15px] font-semibold">Saved memories</h3>
+            <span className="rounded-full border border-border bg-secondary px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              {memories.length}
+            </span>
+          </div>
+          <span className="text-[12.5px] text-muted-foreground/80">
+            Included in every session for this project
+          </span>
+        </div>
+
+        <div className="overflow-hidden rounded-[10px] border border-border bg-card">
+          {loading ? (
+            <div className="p-5">
+              <LoadingState label="Loading memories" />
+            </div>
+          ) : memories.length === 0 ? (
+            <div className="p-5">
+              <EmptyState message="No project memories saved." />
+            </div>
+          ) : (
+            <ul className="divide-y divide-layout-border">
+              {memories.map((memory) => {
+                const editing = editingId === memory.id;
+                return (
+                  <li key={memory.id} className="px-4 py-3.5">
+                    {editing ? (
+                      <div className="space-y-3">
+                        <textarea
+                          value={editingDraft}
+                          onChange={(event) =>
+                            setEditingDraft(event.target.value)
+                          }
+                          maxLength={MAX_MEMORY_CHARS}
                           aria-label="Edit memory"
-                        >
-                          <Pencil />
-                        </Button>
-                        <Button
-                          type="button"
-                          size="icon-sm"
-                          variant="ghost"
-                          onClick={() => setMemoryToDelete(memory)}
-                          aria-label="Delete memory"
-                        >
-                          <Trash2 />
-                        </Button>
+                          rows={3}
+                          className="min-h-[76px] w-full resize-none rounded-lg border border-border bg-input px-3 py-2.5 text-[13px] leading-relaxed outline-none transition-colors focus:border-ring"
+                        />
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[12.5px] text-muted-foreground/80">
+                            {editingDraft.trim().length} / {MAX_MEMORY_CHARS}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              onClick={() => {
+                                setEditingId(null);
+                                setEditingDraft("");
+                              }}
+                              className="h-[33px] rounded-lg border-border px-3 text-[13px]"
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              type="button"
+                              onClick={() => void updateMemory(memory.id)}
+                              disabled={
+                                saving || editingDraft.trim().length === 0
+                              }
+                              className="h-[33px] rounded-lg px-3.5 text-[13px] font-semibold"
+                            >
+                              {saving && (
+                                <Loader2 className="size-3.5 animate-spin" />
+                              )}
+                              Save
+                            </Button>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </MemorySection>
+                    ) : (
+                      <div className="flex items-start gap-3">
+                        <div className="min-w-0 flex-1 space-y-2">
+                          <p className="whitespace-pre-wrap text-[13px] leading-relaxed">
+                            {memory.content}
+                          </p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <MemorySourceBadge />
+                            <span className="text-xs text-muted-foreground/80">
+                              Added {formatMemoryDate(memory.createdAt)}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingId(memory.id);
+                              setEditingDraft(memory.content);
+                            }}
+                            aria-label="Edit memory"
+                            className="grid size-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                          >
+                            <Pencil className="size-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMemoryToDelete(memory)}
+                            aria-label="Delete memory"
+                            className="grid size-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </section>
 
       <AlertDialog
         open={memoryToDelete !== null}
@@ -201,21 +244,23 @@ export function MemoryManager({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </>
+    </div>
   );
 }
 
-function MemorySection({
-  title,
-  children,
-}: {
-  title: string;
-  children: ReactNode;
-}) {
+function MemorySourceBadge() {
   return (
-    <section className="rounded-md bg-card p-3 ring-1 ring-border">
-      <h3 className="mb-3 text-xs font-semibold">{title}</h3>
-      {children}
-    </section>
+    <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+      <User className="size-2.5" />
+      Manual
+    </span>
   );
+}
+
+function formatMemoryDate(timestamp: number): string {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(timestamp));
 }

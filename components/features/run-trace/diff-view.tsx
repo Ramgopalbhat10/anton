@@ -47,7 +47,7 @@ const COMPACT_DIFF_OPTIONS = {
       max-width: none;
       color: var(--foreground);
       background: transparent;
-      font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-family: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
       font-size: 10px;
       line-height: 1.45;
       --diffs-bg: var(--background);

@@ -1,11 +1,18 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { ChevronLeft, X } from "lucide-react";
+import {
+  ArrowLeft,
+  Brain,
+  FolderGit2,
+  Plug,
+  SlidersHorizontal,
+  Sparkles,
+  X,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { SearchField } from "@/components/shared/search-field";
-import { Surface } from "@/components/shared/surface";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
@@ -29,38 +36,36 @@ export function SettingsShell({
       aria-modal="true"
       aria-labelledby="settings-title"
     >
-      <div className="grid h-dvh min-h-0 grid-cols-1 md:grid-cols-[300px_minmax(0,1fr)]">
-        <aside className="hidden min-h-0 border-r border-layout-border bg-sidebar md:flex md:flex-col">
-          <div className="border-b border-layout-border px-3 py-3">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="-ml-2 mb-2 h-6 text-xs text-muted-foreground"
-              onClick={onClose}
-            >
-              <ChevronLeft />
-              Back
-            </Button>
-            <SearchField
-              placeholder="Search settings..."
-              aria-label="Search settings"
-            />
-          </div>
+      <div className="grid h-dvh min-h-0 grid-cols-1 md:grid-cols-[248px_minmax(0,1fr)]">
+        <aside className="hidden min-h-0 border-r border-sidebar-border bg-sidebar px-3 py-4 md:flex md:flex-col">
+          <button
+            type="button"
+            onClick={onClose}
+            className="mb-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ArrowLeft className="size-3.5" />
+            Back
+          </button>
+          <SearchField
+            placeholder="Search settings..."
+            aria-label="Search settings"
+            className="rounded-lg bg-input px-2.5 py-2"
+            inputClassName="text-[13px]"
+          />
 
-          <nav className="min-h-0 flex-1 overflow-y-auto p-2">
+          <nav className="mt-1 min-h-0 flex-1 overflow-y-auto">
             <SettingsGroup title="Workspace">
               <SettingsNavButton
                 active={section === "workspaces"}
                 onClick={() => onSectionChange("workspaces")}
+                icon={<FolderGit2 />}
               >
                 Workspaces
               </SettingsNavButton>
-            </SettingsGroup>
-            <SettingsGroup title="Agent">
               <SettingsNavButton
                 active={section === "agent"}
                 onClick={() => onSectionChange("agent")}
+                icon={<SlidersHorizontal />}
               >
                 Agent defaults
               </SettingsNavButton>
@@ -69,18 +74,21 @@ export function SettingsShell({
               <SettingsNavButton
                 active={section === "mcp"}
                 onClick={() => onSectionChange("mcp")}
+                icon={<Plug />}
               >
                 MCP
               </SettingsNavButton>
               <SettingsNavButton
                 active={section === "memories"}
                 onClick={() => onSectionChange("memories")}
+                icon={<Brain />}
               >
                 Memories
               </SettingsNavButton>
               <SettingsNavButton
                 active={section === "skills"}
                 onClick={() => onSectionChange("skills")}
+                icon={<Sparkles />}
               >
                 Skills
               </SettingsNavButton>
@@ -89,13 +97,13 @@ export function SettingsShell({
         </aside>
 
         <main className="flex min-h-0 min-w-0 flex-col bg-background">
-          <header className="flex h-10 items-center justify-between border-b border-layout-border px-3 md:px-4">
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="hidden text-xs text-muted-foreground md:inline">
+          <header className="flex items-center justify-between border-b border-layout-border px-4 py-3 md:px-6">
+            <div className="flex min-w-0 items-center gap-2 text-[13px]">
+              <span className="hidden text-muted-foreground/80 md:inline">
                 Settings
               </span>
-              <span className="hidden text-muted-foreground md:inline">/</span>
-              <h1 id="settings-title" className="truncate text-xs font-semibold tracking-tight">
+              <span className="hidden text-muted-foreground/80 md:inline">/</span>
+              <h1 id="settings-title" className="truncate font-medium">
                 {sectionTitle(section)}
               </h1>
             </div>
@@ -106,7 +114,7 @@ export function SettingsShell({
               onClick={onClose}
               aria-label="Close settings"
             >
-              <X />
+              <X className="text-muted-foreground" />
             </Button>
           </header>
 
@@ -126,7 +134,7 @@ export function SettingsShell({
             </TabsList>
           </Tabs>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-5 md:px-8">
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-8 md:px-10 md:py-10">
             {children}
           </div>
         </main>
@@ -139,16 +147,25 @@ export function SettingsPageShell({
   title,
   description,
   children,
+  contentClassName,
 }: {
   title: string;
   description: string;
   children: ReactNode;
+  contentClassName?: string;
 }) {
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-3">
-      <div className="mb-3">
-        <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">{description}</p>
+    <div
+      className={cn(
+        "mx-auto w-full max-w-[760px] space-y-8 pb-6",
+        contentClassName,
+      )}
+    >
+      <div className="space-y-1.5">
+        <h2 className="text-[22px] font-semibold tracking-tight">{title}</h2>
+        <p className="text-[13px] leading-relaxed text-muted-foreground">
+          {description}
+        </p>
       </div>
       {children}
     </div>
@@ -167,16 +184,16 @@ export function SettingsCard({
   children: ReactNode;
 }) {
   return (
-    <Surface variant="elevated" padding="md">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <h3 className="flex items-center gap-1.5 text-xs font-semibold [&_svg]:size-3.5">
+    <section className="rounded-[10px] border border-border bg-card p-5">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h3 className="flex items-center gap-2 text-sm font-semibold [&_svg]:size-3.5 [&_svg]:text-muted-foreground">
           {icon}
           {title}
         </h3>
         {action}
       </div>
       {children}
-    </Surface>
+    </section>
   );
 }
 
@@ -188,8 +205,8 @@ function SettingsGroup({
   children: ReactNode;
 }) {
   return (
-    <section className="mb-3">
-      <h2 className="mb-1 px-2 text-[11px] font-medium text-muted-foreground">
+    <section>
+      <h2 className="px-2 pb-1.5 pt-4 text-[11px] font-medium uppercase tracking-[0.05em] text-muted-foreground/70">
         {title}
       </h2>
       <div className="space-y-0.5">{children}</div>
@@ -200,10 +217,12 @@ function SettingsGroup({
 function SettingsNavButton({
   active,
   onClick,
+  icon,
   children,
 }: {
   active: boolean;
   onClick: () => void;
+  icon: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -211,12 +230,13 @@ function SettingsNavButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex h-7 w-full items-center rounded-md px-2 text-left text-xs font-medium transition-colors duration-150",
+        "flex w-full items-center gap-2.5 rounded-md px-2 py-[7px] text-left text-[13px] transition-colors duration-150 [&_svg]:size-3.5 [&_svg]:shrink-0",
         active
-          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-          : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+          ? "bg-sidebar-accent font-medium text-foreground [&_svg]:text-primary"
+          : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground [&_svg]:text-muted-foreground/70",
       )}
     >
+      {icon}
       {children}
     </button>
   );

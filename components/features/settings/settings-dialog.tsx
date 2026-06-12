@@ -65,6 +65,7 @@ export function SettingsDialog({
         <SettingsPageShell
           title="Skills"
           description="Review project-local skills available to Anton from the active workspace."
+          contentClassName="max-w-[960px] space-y-6"
         >
           <SkillsBrowser active />
         </SettingsPageShell>

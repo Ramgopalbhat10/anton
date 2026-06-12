@@ -526,6 +526,7 @@ export type SkillSummary = {
   name: string;
   description: string;
   path: string;
+  updatedAt: string;
 };
 
 export type SkillDocument = SkillSummary & {
