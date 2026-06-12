@@ -30,7 +30,7 @@ const codeViewerOptions = {
       --diffs-dark: #ededed;
       --diffs-font-size: 11px;
       --diffs-line-height: 19px;
-      --diffs-font-family: var(--font-geist-mono), "SF Mono", Monaco, Consolas, "Liberation Mono", monospace;
+      --diffs-font-family: var(--font-jetbrains-mono), "SF Mono", Monaco, Consolas, "Liberation Mono", monospace;
       --diffs-fg-number-override: rgba(255, 255, 255, 0.34);
       --diffs-gap-block: 0;
       --diffs-gap-inline: 0;

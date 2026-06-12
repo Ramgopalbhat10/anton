@@ -128,31 +128,33 @@ export function useSkills(active: boolean) {
   const [skillLoading, setSkillLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await getJson<{
+        skills: SkillSummary[];
+        warnings: string[];
+      }>("/api/skills");
+      setSkills(data.skills);
+      setWarnings(data.warnings);
+      setSelectedSlug((current) =>
+        current && data.skills.some((skill) => skill.slug === current)
+          ? current
+          : data.skills[0]?.slug ?? null,
+      );
+      setError(null);
+    } catch (err) {
+      setError(errorMessage(err, "Failed to load skills"));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    if (!active) return;
-    const loadSkills = async () => {
-      setLoading(true);
-      try {
-        const data = await getJson<{
-          skills: SkillSummary[];
-          warnings: string[];
-        }>("/api/skills");
-        setSkills(data.skills);
-        setWarnings(data.warnings);
-        setSelectedSlug((current) =>
-          current && data.skills.some((skill) => skill.slug === current)
-            ? current
-            : data.skills[0]?.slug ?? null,
-        );
-        setError(null);
-      } catch (err) {
-        setError(errorMessage(err, "Failed to load skills"));
-      } finally {
-        setLoading(false);
-      }
-    };
-    void loadSkills();
-  }, [active]);
+    // Fetching on activation updates state after the request settles.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (active) void refresh();
+  }, [active, refresh]);
 
   useEffect(() => {
     if (!selectedSlug) return;
@@ -183,5 +185,6 @@ export function useSkills(active: boolean) {
     skillLoading,
     error,
     setSelectedSlug,
+    refresh,
   };
 }

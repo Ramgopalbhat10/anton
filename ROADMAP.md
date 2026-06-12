@@ -157,6 +157,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Clean up shared UI primitives after modularization.
 - [✔️] Replace duplicate workspace/settings UI paths with one canonical Settings implementation.
 - [✔️] Clean up layout formatting and UI polish issues that are not core behavior.
+- [✔️] Adopted the `design/mockups.pen` design-system theme: layered neutral surface tokens, orange accent, Inter + JetBrains Mono fonts, and the redesigned Settings shell and Workspaces screen (#166).
 - [] Fix project file code view scrollbar corner styling when both scrollbars are visible.
 
 ## Phase 7: Evaluation

@@ -12,6 +12,7 @@ export type SkillSummary = {
   name: string;
   description: string;
   path: string;
+  updatedAt: string;
 };
 
 export type SkillDocument = SkillSummary & {
@@ -78,6 +79,7 @@ export function readSkill(slug: string, workspaceRoot?: string): SkillDocument {
     slug,
     path: workspaceRelative(abs).split(path.sep).join("/"),
     raw: fs.readFileSync(abs, "utf8"),
+    updatedAt: stat.mtime.toISOString(),
   });
 }
 
@@ -85,10 +87,12 @@ function parseSkill({
   slug,
   path,
   raw,
+  updatedAt,
 }: {
   slug: string;
   path: string;
   raw: string;
+  updatedAt: string;
 }): SkillDocument {
   const normalized = raw.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
   const { metadata, body } = splitFrontmatter(normalized);
@@ -100,6 +104,7 @@ function parseSkill({
     name: metadata.name ?? fallbackName,
     description: metadata.description ?? "",
     body: body.trim(),
+    updatedAt,
   };
 }
 
@@ -149,6 +154,7 @@ function summarizeSkill(skill: SkillDocument): SkillSummary {
     name: skill.name,
     description: skill.description,
     path: skill.path,
+    updatedAt: skill.updatedAt,
   };
 }
 
