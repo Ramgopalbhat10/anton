@@ -185,7 +185,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [] Workspace process execution is centralized around cwd, environment allowlist, timeouts, output caps, and redaction, but does not provide OS-level confinement yet.
 - [✔️] MCP stdio server startup can execute configured commands before user approval.
 - [✔️] Full-file `write_file` replacement risk is resolved by patch-first editing.
-- [] Message persistence still deletes and reinserts the full session transcript in some recovery paths.
+- [✔️] Message persistence still deletes and reinserts the full session transcript in some recovery paths.
 - [] GitHub clone/fetch runs synchronously inside request handling and may exceed request duration for large repositories.
 - [] Installation tokens are injected into git through extra headers; keep redaction behavior current as clone/fetch behavior evolves.
 - [] New chats require explicit project selection; there is no default or durable user/workspace project preference yet.

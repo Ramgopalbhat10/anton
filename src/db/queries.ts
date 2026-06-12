@@ -756,7 +756,6 @@ export function getMessagePersistenceConflict<UI extends UIMessage>(
 export function saveMessagesIncrementally<UI extends UIMessage>(
   sessionId: string,
   incoming: UI[],
-  options: { pruneExtraAssistantTail?: boolean } = {},
 ): void {
   db.transaction((tx) => {
     const existing = tx
@@ -807,16 +806,6 @@ export function saveMessagesIncrementally<UI extends UIMessage>(
         })
         .where(eq(messages.id, id))
         .run();
-    }
-
-    if (options.pruneExtraAssistantTail) {
-      const incomingIds = new Set(
-        incoming.map((message, index) => messageId(message, sessionId, index)),
-      );
-      for (const current of existing) {
-        if (incomingIds.has(current.id) || current.role !== "assistant") continue;
-        tx.delete(messages).where(eq(messages.id, current.id)).run();
-      }
     }
 
     tx
