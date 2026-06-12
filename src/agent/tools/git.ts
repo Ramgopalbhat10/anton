@@ -4,7 +4,7 @@ import { tool } from "ai";
 
 import { ensureWorkspaceRoot, ensureWorkspaceRootAt, resolveInWorkspace, SandboxError } from "../sandbox";
 import { assertPathGuardAllowed, normalizeRelPath } from "./file-guardrails";
-import { runWorkspaceProcess } from "./process";
+import { runWorkspaceProcess } from "@/src/workspace/process-runner";
 
 const pathListSchema = z
   .array(z.string())
@@ -352,10 +352,10 @@ function assertSafeGitRef(ref: string): void {
   }
 }
 
-function gitError(result: { stderr: string; stdout: string; exitCode: number }) {
+function gitError(result: { stderr: string; stdout: string; exitCode: number | null }) {
   return {
     ok: false as const,
-    exitCode: result.exitCode,
+    exitCode: result.exitCode ?? 1,
     error: result.stderr || result.stdout || "git command failed",
   };
 }

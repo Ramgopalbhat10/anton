@@ -12,7 +12,7 @@ import {
   assertPathGuardAllowed,
   normalizeRelPath,
 } from "./file-guardrails";
-import { runWorkspaceProcess } from "./process";
+import { runWorkspaceProcess } from "@/src/workspace/process-runner";
 import {
   detectPackageManager,
   execCommand,

@@ -35,6 +35,8 @@ export function LiveTerminalOutput({
   const timedOut = streamState.timedOut ?? initialOutput?.timedOut;
   const killed = streamState.killed ?? initialOutput?.killed;
   const failedReason = streamState.failedReason ?? initialOutput?.failedReason;
+  const commandPolicyMode = initialOutput?.commandPolicyMode;
+  const boundary = initialOutput?.boundary;
   const isRunning = Boolean(streamToken) && !streamState.finished;
   const status = terminalStatus({
     exitCode,
@@ -96,24 +98,39 @@ export function LiveTerminalOutput({
           (no output)
         </div>
       )}
-      {status ? (
-        <div className="border-t border-white/8 px-2 py-1">
-          <span
-            className={cn(
-              "text-[10px] font-medium",
-              status.tone === "error"
-                ? "text-red-400"
-                : "text-muted-foreground/60",
-            )}
-          >
-            {status.label}
-          </span>
-        </div>
-      ) : isRunning ? (
-        <div className="border-t border-white/8 px-2 py-1">
-          <span className="text-[10px] font-medium text-sky-400 animate-pulse">
-            Running...
-          </span>
+      {status || isRunning || commandPolicyMode || boundary ? (
+        <div className="flex flex-wrap items-center gap-2 border-t border-white/8 px-2 py-1">
+          {status ? (
+            <span
+              className={cn(
+                "text-[10px] font-medium",
+                status.tone === "error"
+                  ? "text-red-400"
+                  : "text-muted-foreground/60",
+              )}
+            >
+              {status.label}
+            </span>
+          ) : isRunning ? (
+            <span className="animate-pulse text-[10px] font-medium text-sky-400">
+              Running...
+            </span>
+          ) : null}
+          {commandPolicyMode ? (
+            <span className="text-[10px] text-muted-foreground/60">
+              Policy: {commandPolicyMode}
+            </span>
+          ) : null}
+          {boundary ? (
+            <span className="text-[10px] text-muted-foreground/60">
+              Boundary: {boundary.label}
+            </span>
+          ) : null}
+          {boundary ? (
+            <span className="text-[10px] text-muted-foreground/60">
+              Confinement: Unconfined
+            </span>
+          ) : null}
         </div>
       ) : null}
     </div>

@@ -1,10 +1,10 @@
 import { z } from "zod";
-import { execa } from "execa";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { tool, type JSONValue } from "ai";
 import { globToRegex } from "./glob";
 import { compactGrepForModel } from "./model-output";
+import { runWorkspaceProcess } from "@/src/workspace/process-runner";
 import {
   resolveInWorkspace,
   SandboxError,
@@ -66,20 +66,18 @@ export function createGrepTool(workspaceRoot?: string) {
       }
       args.push("--", pattern, target);
 
-      const result = await execa("rg", args, {
-        cwd: root,
-        reject: false,
-        maxBuffer: MAX_OUTPUT_BYTES * 4,
+      const result = await runWorkspaceProcess("rg", args, root, {
+        outputCapBytes: MAX_OUTPUT_BYTES,
       });
 
       if (result.exitCode === 2) {
         return {
           ok: false as const,
-          error: result.stderr?.trim() || "ripgrep failed",
+          error: result.stderr.trim() || "ripgrep failed",
         };
       }
 
-      const rawLines = (result.stdout ?? "")
+      const rawLines = result.stdout
         .split("\n")
         .filter((line) => line.length > 0)
         .slice(0, MAX_RESULTS);

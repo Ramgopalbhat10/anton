@@ -60,8 +60,8 @@ export function TerminalOutput({ command, output, className }: TerminalOutputPro
           (no output)
         </div>
       )}
-      {(status || parsed.commandPolicyMode) && (
-        <div className="flex items-center gap-2 border-t border-white/8 px-2 py-1">
+      {(status || parsed.commandPolicyMode || parsed.boundary) && (
+        <div className="flex flex-wrap items-center gap-2 border-t border-white/8 px-2 py-1">
           {status ? (
             <span
               className={cn(
@@ -77,6 +77,16 @@ export function TerminalOutput({ command, output, className }: TerminalOutputPro
           {parsed.commandPolicyMode ? (
             <span className="text-[10px] text-muted-foreground/60">
               Policy: {parsed.commandPolicyMode}
+            </span>
+          ) : null}
+          {parsed.boundary ? (
+            <span className="text-[10px] text-muted-foreground/60">
+              Boundary: {parsed.boundary.label}
+            </span>
+          ) : null}
+          {parsed.boundary ? (
+            <span className="text-[10px] text-muted-foreground/60">
+              Confinement: Unconfined
             </span>
           ) : null}
         </div>

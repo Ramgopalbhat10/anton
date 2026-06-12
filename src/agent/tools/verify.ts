@@ -14,7 +14,7 @@ import {
   runScriptCommand,
   type PackageManager,
 } from "./package-manager";
-import { runWorkspaceProcess } from "./process";
+import { runWorkspaceProcess } from "@/src/workspace/process-runner";
 import {
   compactVerifyForModel,
   verifyDefaultsForProfile,
@@ -190,8 +190,8 @@ export function createVerifyTool(
             ok,
             command: step.command.join(" "),
             timeoutMs: stepTimeoutMs,
-            exitCode: result.exitCode,
-            timedOut: result.timedOut ?? false,
+            exitCode: result.exitCode ?? undefined,
+            timedOut: result.timedOut,
             stdout: capOutput(result.stdout),
             stderr: capOutput(result.stderr),
             ...(result.failedToStart ? { commandBroken: true as const } : {}),

@@ -18,6 +18,10 @@ import {
   type BashCommandClassification,
 } from "./command-policy";
 import { planVerification } from "./tools/verify";
+import {
+  getWorkspaceExecutionBoundary,
+  type WorkspaceExecutionBoundary,
+} from "@/src/workspace/process-runner";
 
 // Permission gate helpers for tool execution.
 //
@@ -71,6 +75,7 @@ export type ToolApprovalMetadata = {
     cwd: string;
     timeoutMs: number;
     outputCapBytes: number;
+    boundary: WorkspaceExecutionBoundary;
     classification: BashCommandClassification;
   };
   external?: {
@@ -80,7 +85,8 @@ export type ToolApprovalMetadata = {
   };
 };
 
-const BASH_DEFAULT_TIMEOUT_MS = 30_000;
+const BASH_DEFAULT_TIMEOUT_MS = 180_000;
+const BASH_SEARCH_COMMAND_TIMEOUT_MS = 240_000;
 const BASH_OUTPUT_CAP_BYTES = 64 * 1024;
 const WRITE_FILE_MAX_BYTES = 1024 * 1024;
 const READ_FILE_MAX_BYTES = 256 * 1024;
@@ -688,11 +694,16 @@ function buildBashApproval(
   permissionMode: PermissionMode,
 ): ToolApprovalMetadata {
   const command = stringValue(input.command) ?? "";
-  const timeoutMs = numberValue(input.timeoutMs) ?? BASH_DEFAULT_TIMEOUT_MS;
+  const timeoutMs =
+    numberValue(input.timeoutMs) ??
+    (looksLikeSearchCommand(command)
+      ? BASH_SEARCH_COMMAND_TIMEOUT_MS
+      : BASH_DEFAULT_TIMEOUT_MS);
   const cwd = workspaceRootLabel(workspaceRoot);
   const policy = evaluateBashCommandPolicy(command, { workspaceRoot });
   const classification = policy.classification;
   const commandPolicyMode = commandPolicyModeForPermission(permissionMode);
+  const boundary = getWorkspaceExecutionBoundary();
 
   return {
     title: "Run shell command",
@@ -706,21 +717,24 @@ function buildBashApproval(
       cwd,
       timeoutMs,
       outputCapBytes: BASH_OUTPUT_CAP_BYTES,
+      boundary,
       classification,
     },
     details: [
       `Command: ${command || "(empty)"}`,
       `Shell: bash -lc`,
+      `Command policy mode: ${commandPolicyMode}.`,
       `Working directory: ${cwd}`,
       `Timeout: ${timeoutMs}ms`,
       `Output cap: ${BASH_OUTPUT_CAP_BYTES} bytes per stream.`,
-      `Command policy mode: ${commandPolicyMode}.`,
+      `Execution boundary: ${boundary.label}.`,
+      "Confinement: Unconfined.",
       `Classification: ${classification.reason}.`,
       commandPolicyMode === "advisory"
-        ? "Full-access mode treats command policy classification as advisory; sandbox cwd, timeout, output limits, and redaction still apply."
+        ? "Full-access mode treats command policy classification as advisory; cwd, environment allowlist, timeout, output limits, and redaction still apply. OS confinement is not provided."
         : !policy.allowed
         ? "This command violates command policy and will be refused even if approved."
-        : "Approval lets the command start; it does not bypass sandbox cwd, timeout, or output limits.",
+        : "Approval lets the command start; cwd, environment allowlist, timeout, output limits, and redaction still apply. OS confinement is not provided.",
     ],
   };
 }
@@ -1006,6 +1020,11 @@ export function commandPolicyModeForPermission(
   permissionMode: PermissionMode,
 ): CommandPolicyMode {
   return permissionMode === "full-access" ? "advisory" : "enforced";
+}
+
+function looksLikeSearchCommand(command: string): boolean {
+  const trimmed = command.trim();
+  return /^(grep|rg|find)\b/.test(trimmed);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
