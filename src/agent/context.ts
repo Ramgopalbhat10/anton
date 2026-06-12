@@ -1,8 +1,14 @@
+import {
+  getToolName,
+  isToolUIPart,
+} from "ai";
+
 import type { RunContextSummary } from "@/src/db/schema";
 import {
   listRunContextSummariesForSession,
   upsertRunContextSummary,
 } from "@/src/db/queries";
+import type { AntonUIMessage } from "@/src/lib/trace";
 import { redactText } from "@/src/lib/redaction";
 import {
   outputExitCode,
@@ -15,6 +21,8 @@ const DEFAULT_CONTEXT_BUDGET_CHARS = 6_000;
 const MAX_SUMMARY_CHARS = 2_000;
 const MAX_TEXT_FIELD_CHARS = 1_200;
 const MAX_DIGEST_BLOCK_CHARS = 1_500;
+const MAX_DROPPED_HISTORY_DIGEST_CHARS = 1_500;
+const MAX_DROPPED_MESSAGE_TEXT_CHARS = 500;
 
 export type RunContextStatus = "completed" | "error" | "aborted";
 
@@ -64,6 +72,13 @@ type RunContextCommand = {
   error?: string;
   stdoutTail?: string;
   stderrTail?: string;
+};
+
+type RunContextBudgetFact = {
+  droppedMessages: number;
+  preservedMessages: number;
+  droppedHistoryDigestInjected: boolean;
+  contextDigestBytes: number;
 };
 
 type RunContextTool = {
@@ -163,6 +178,26 @@ export class RunContextCollector {
       status: blocker.forceFinal ? "error" : "completed",
       output: blocker.reason,
       blocker,
+    });
+  }
+
+  noteContextBudget(input: RunContextBudgetFact): void {
+    if (input.droppedMessages <= 0 && !input.droppedHistoryDigestInjected) {
+      return;
+    }
+    const summary = [
+      `Context budget: kept ${input.preservedMessages} message${input.preservedMessages === 1 ? "" : "s"}`,
+      `dropped ${input.droppedMessages}`,
+      input.droppedHistoryDigestInjected
+        ? "dropped-history digest injected"
+        : "dropped-history digest not injected",
+      `context digest ${input.contextDigestBytes} bytes`,
+    ].join("; ");
+    this.addFact(summary);
+    this.tools.push({
+      name: "context_budget",
+      status: "completed",
+      output: summary,
     });
   }
 
@@ -308,6 +343,76 @@ export function buildSessionContextDigest({
   }
 
   return blocks.length > 1 ? blocks.join("\n\n") : undefined;
+}
+
+export function buildDroppedHistoryDigest(
+  messages: AntonUIMessage[],
+  maxChars = MAX_DROPPED_HISTORY_DIGEST_CHARS,
+): string | undefined {
+  if (messages.length === 0 || maxChars <= 0) return undefined;
+
+  const digestLines = messages
+    .flatMap(droppedMessageDigestLines)
+    .filter(Boolean);
+  if (digestLines.length === 0) return undefined;
+
+  const header = "Dropped conversation context:";
+  const selected: string[] = [];
+  let remaining = maxChars - header.length - 1;
+
+  for (let index = digestLines.length - 1; index >= 0; index -= 1) {
+    if (remaining <= 0) break;
+    const line = digestLines[index];
+    const selectedLine =
+      line.length > remaining ? truncate(line, remaining) : line;
+    if (!selectedLine.trim()) break;
+    selected.unshift(selectedLine);
+    remaining -= selectedLine.length + 1;
+    if (line.length > selectedLine.length) break;
+  }
+
+  if (selected.length === 0) return undefined;
+  return compactBlock([header, ...selected].join("\n"), maxChars);
+}
+
+function droppedMessageDigestLines(message: AntonUIMessage): string[] {
+  const text = messageTextSnippet(message);
+  const tools = messageToolDigest(message);
+  const lines: string[] = [];
+
+  if (message.role === "user" && text) {
+    lines.push(`- User: ${text}`);
+  } else if (message.role === "assistant") {
+    if (text) lines.push(`- Assistant: ${text}`);
+    if (tools) lines.push(`- Tools: ${tools}`);
+  }
+
+  return lines;
+}
+
+function messageTextSnippet(message: AntonUIMessage): string {
+  return compactBlock(
+    message.parts
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n\n"),
+    MAX_DROPPED_MESSAGE_TEXT_CHARS,
+  );
+}
+
+function messageToolDigest(message: AntonUIMessage): string {
+  const tools = message.parts.flatMap((part): string[] => {
+    if (!isToolUIPart(part)) return [];
+    const name = compactLine(getToolName(part), 100);
+    if (!name) return [];
+    const state =
+      "state" in part && typeof part.state === "string"
+        ? compactLine(part.state, 80)
+        : "";
+    return [state ? `${name} (${state})` : name];
+  });
+
+  return uniqueStrings(tools).slice(0, 12).join(", ");
 }
 
 function selectSummaries(
@@ -878,6 +983,15 @@ function stringArray(value: unknown): string[] {
     .filter((item): item is string => typeof item === "string")
     .map((item) => compactLine(item, 500))
     .filter(Boolean);
+}
+
+function uniqueStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    if (seen.has(value)) return false;
+    seen.add(value);
+    return true;
+  });
 }
 
 function stringValue(value: unknown): string {

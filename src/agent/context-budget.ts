@@ -12,6 +12,7 @@ export type ContextBudgetResult =
   | {
       ok: true;
       messages: AntonUIMessage[];
+      droppedMessages: AntonUIMessage[];
       report: ContextBudgetReport;
     }
   | {
@@ -113,18 +114,19 @@ export function budgetMessagesForModel({
     afterBytes = utf8Bytes(stableJson(selected));
   }
 
-  const droppedMessages = messages.length - selected.length;
+  const droppedMessages = droppedMessagesFromSelection(messages, selectedIndexes);
   return {
     ok: true,
     messages: selected,
+    droppedMessages,
     report: {
       beforeBytes,
       afterBytes,
       maxInputBytes: budget.maxInputBytes,
       latestUserBytes,
       preservedMessages: selected.length,
-      droppedMessages,
-      prunedMessages: droppedMessages,
+      droppedMessages: droppedMessages.length,
+      prunedMessages: droppedMessages.length,
       requiredMessages,
       contextDigestBytes,
       ok: true,
@@ -137,6 +139,13 @@ function selectedMessages(
   selectedIndexes: Set<number>,
 ): AntonUIMessage[] {
   return messages.filter((_, index) => selectedIndexes.has(index));
+}
+
+function droppedMessagesFromSelection(
+  messages: AntonUIMessage[],
+  selectedIndexes: Set<number>,
+): AntonUIMessage[] {
+  return messages.filter((_, index) => !selectedIndexes.has(index));
 }
 
 function firstRemovableIndex(

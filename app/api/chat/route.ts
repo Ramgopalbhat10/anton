@@ -45,6 +45,7 @@ import {
   promptCacheAuditFromCostMetadata,
 } from "@/src/agent/prompt-cache-audit";
 import {
+  buildDroppedHistoryDigest,
   buildSessionContextDigest,
   RunContextCollector,
   type RunContextStatus,
@@ -108,7 +109,6 @@ import {
   type TokenUsageMetrics,
 } from "@/src/lib/token-usage";
 import {
-  collapseAssistantContinuationMessages,
   getApprovalMetadata,
   getAssistantTextDisplay,
   getToolTraceEntries,
@@ -421,18 +421,18 @@ export async function POST(req: Request) {
           latestUserText: userText,
           budgetChars: budget.workspaceContextChars,
         });
-  const contextDigestBytes = byteLength(
-    isProfileHandoffContinuation
-      ? (continuationNote ?? "")
-      : profile === "single-file-edit" &&
-          singleFileTargetResolution &&
-          "targetPath" in singleFileTargetResolution
-        ? singleFileTargetContext(singleFileTargetResolution)
-      : (modelOnlyContextMessageText({
+  const baseModelContextText = isProfileHandoffContinuation
+    ? continuationContextMessageText(continuationNote)
+    : profile === "single-file-edit" &&
+        singleFileTargetResolution &&
+        "targetPath" in singleFileTargetResolution
+      ? singleFileTargetContext(singleFileTargetResolution)
+      : modelOnlyContextMessageText({
           sessionContextDigest,
           workspaceContextDigest,
-        }) ?? ""),
-  );
+        });
+  let modelContextText = baseModelContextText;
+  let contextDigestBytes = byteLength(modelContextText ?? "");
   const preservation = modelContextPreservation(
     uiMessages,
     profile,
@@ -443,12 +443,37 @@ export async function POST(req: Request) {
     profile,
     isSegmentContinuation,
   );
-  const contextBudget = budgetMessagesForModel({
+  let contextBudget = budgetMessagesForModel({
     messages: preparedMessages,
     budget,
     ...preservation,
     contextDigestBytes,
   });
+  let droppedHistoryDigestInjected = false;
+  if (contextBudget.ok && contextBudget.droppedMessages.length > 0) {
+    const droppedHistoryDigest = buildDroppedHistoryDigest(
+      contextBudget.droppedMessages,
+    );
+    const nextModelContextText =
+      isProfileHandoffContinuation || profile === "single-file-edit"
+        ? combineModelContextText(baseModelContextText, droppedHistoryDigest)
+        : modelOnlyContextMessageText({
+            sessionContextDigest,
+            workspaceContextDigest,
+            droppedHistoryDigest,
+          });
+    if (nextModelContextText !== modelContextText) {
+      modelContextText = nextModelContextText;
+      contextDigestBytes = byteLength(modelContextText ?? "");
+      droppedHistoryDigestInjected = true;
+      contextBudget = budgetMessagesForModel({
+        messages: preparedMessages,
+        budget,
+        ...preservation,
+        contextDigestBytes,
+      });
+    }
+  }
   if (!contextBudget.ok) {
     return Response.json(
       {
@@ -493,19 +518,15 @@ export async function POST(req: Request) {
     startedAt,
   );
   const modelMessages = isProfileHandoffContinuation
-    ? appendModelOnlyContextMessage(convertedMessages, continuationNote ?? "")
-    : profile === "single-file-edit" &&
-        singleFileTargetResolution &&
-        "targetPath" in singleFileTargetResolution
-      ? addSingleFileTargetContextMessage(
-          convertedMessages,
-          singleFileTargetContext(singleFileTargetResolution),
-        )
-    : addModelOnlyContextMessage(convertedMessages, {
-        sessionContextDigest,
-        workspaceContextDigest,
-      });
+    ? appendModelOnlyContextMessage(convertedMessages, modelContextText)
+    : addModelOnlyContextMessage(convertedMessages, modelContextText);
   const contextCollector = new RunContextCollector(runId, sessionId);
+  contextCollector.noteContextBudget({
+    droppedMessages: contextBudget.report.droppedMessages,
+    preservedMessages: contextBudget.report.preservedMessages,
+    droppedHistoryDigestInjected,
+    contextDigestBytes: contextBudget.report.contextDigestBytes,
+  });
   let contextTerminalStatus: RunContextStatus = "completed";
   let contextTerminalError: unknown;
 
@@ -644,25 +665,12 @@ export async function POST(req: Request) {
       const visibleMessages = messages
         .map(stripDurableTraceParts)
         .filter(hasSubstantiveHistoryParts);
-      const persistedMessages =
-        collapseAssistantContinuationMessages(visibleMessages);
-      if (persistedMessages.length === 0) return;
+      if (visibleMessages.length === 0) return;
       persistFinalToolApprovalStates(runId, messages);
       try {
-        const approvalContinuation =
-          isToolApprovalContinuation(persistedMessages);
-        const profileHandoffContinuationPersisted = isProfileHandoffContinuation;
-        const collapsedContinuations =
-          persistedMessages.length < visibleMessages.length;
         saveMessagesIncrementally<AntonUIMessage>(
           sessionId,
-          redactValue(persistedMessages) as AntonUIMessage[],
-          {
-            pruneExtraAssistantTail:
-              approvalContinuation ||
-              profileHandoffContinuationPersisted ||
-              collapsedContinuations,
-          },
+          redactValue(visibleMessages) as AntonUIMessage[],
         );
         contextCollector.persist({
           status: contextTerminalStatus,
@@ -861,51 +869,24 @@ async function convertMessagesForRun(
 
 function appendModelOnlyContextMessage(
   messages: ModelMessage[],
-  continuationNote: string,
+  contextText: string | undefined,
 ): ModelMessage[] {
-  const text = continuationNote.trim();
+  const text = contextText?.trim();
   if (!text) return messages;
   return [
     ...messages,
     {
       role: "assistant",
-      content: [
-        "Model-only continuation note:",
-        text,
-      ].join("\n"),
+      content: text,
     },
   ];
 }
 
 function addModelOnlyContextMessage(
   messages: ModelMessage[],
-  context: {
-    sessionContextDigest: string | undefined;
-    workspaceContextDigest: string | undefined;
-  },
+  contextText: string | undefined,
 ): ModelMessage[] {
-  const text = modelOnlyContextMessageText(context);
-  if (!text) return messages;
-  const contextMessage: ModelMessage = {
-    role: "assistant",
-    content: text,
-  };
-  const latestUserIndex = messages.findLastIndex(
-    (message) => message.role === "user",
-  );
-  if (latestUserIndex === -1) return [...messages, contextMessage];
-  return [
-    ...messages.slice(0, latestUserIndex),
-    contextMessage,
-    ...messages.slice(latestUserIndex),
-  ];
-}
-
-function addSingleFileTargetContextMessage(
-  messages: ModelMessage[],
-  contextText: string,
-): ModelMessage[] {
-  const text = contextText.trim();
+  const text = contextText?.trim();
   if (!text) return messages;
   const contextMessage: ModelMessage = {
     role: "assistant",
@@ -925,11 +906,13 @@ function addSingleFileTargetContextMessage(
 function modelOnlyContextMessageText({
   sessionContextDigest,
   workspaceContextDigest,
+  droppedHistoryDigest,
 }: {
   sessionContextDigest: string | undefined;
   workspaceContextDigest: string | undefined;
+  droppedHistoryDigest?: string | undefined;
 }): string | undefined {
-  const blocks = [workspaceContextDigest, sessionContextDigest]
+  const blocks = [workspaceContextDigest, sessionContextDigest, droppedHistoryDigest]
     .map((block) => block?.trim())
     .filter((block): block is string => Boolean(block));
   if (blocks.length === 0) return undefined;
@@ -939,6 +922,27 @@ function modelOnlyContextMessageText({
     "",
     "Use this context for orientation and continuity. Re-read files or rerun commands when exact current state matters.",
   ].join("\n");
+}
+
+function continuationContextMessageText(
+  continuationNote: string | undefined,
+): string | undefined {
+  const text = continuationNote?.trim();
+  if (!text) return undefined;
+  return [
+    "Model-only continuation note:",
+    text,
+  ].join("\n");
+}
+
+function combineModelContextText(
+  primaryContextText: string | undefined,
+  droppedHistoryDigest: string | undefined,
+): string | undefined {
+  const blocks = [primaryContextText, droppedHistoryDigest]
+    .map((block) => block?.trim())
+    .filter((block): block is string => Boolean(block));
+  return blocks.length === 0 ? undefined : blocks.join("\n\n");
 }
 
 function isModelContextPart(
