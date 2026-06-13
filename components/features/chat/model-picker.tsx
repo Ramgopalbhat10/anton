@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { Check, ChevronDown, Loader2, RefreshCw, Search } from "lucide-react";
 
 import {
@@ -89,6 +89,7 @@ interface ModelPickerProps {
   showThinking?: boolean;
   disabled?: boolean;
   triggerClassName?: string;
+  triggerIcon?: ReactNode;
 }
 
 export function ModelPicker({
@@ -99,6 +100,7 @@ export function ModelPicker({
   showThinking = true,
   disabled,
   triggerClassName,
+  triggerIcon,
 }: ModelPickerProps) {
   const [open, setOpen] = useState(false);
   const [activeProvider, setActiveProvider] = useState<ProviderId>(() =>
@@ -193,14 +195,17 @@ export function ModelPicker({
           disabled={disabled}
           className={cn("min-w-0 justify-between", triggerClassName)}
         >
-          <span className="truncate">{triggerLabel}</span>
+          <span className="flex min-w-0 items-center gap-2">
+            {triggerIcon}
+            <span className="truncate">{triggerLabel}</span>
+          </span>
           <ChevronDown className="size-3 shrink-0 opacity-70" />
         </Button>
       </PopoverTrigger>
       <PopoverContent
         align="end"
         side="top"
-        className="w-[min(22rem,calc(100vw-1rem))] overflow-hidden p-0"
+        className="w-[min(360px,calc(100vw-1rem))] overflow-hidden p-0"
       >
         <Tabs
           value={activeProvider}
@@ -210,24 +215,27 @@ export function ModelPicker({
           }}
           className="min-w-0 gap-0"
         >
-          <TabsList
-            size="md"
-            className="w-full rounded-none rounded-t-md border-b border-layout-border"
-          >
-            {PROVIDERS.map((provider) => (
-              <TabsTrigger key={provider.id} value={provider.id}>
-                {provider.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-          <div className="border-b border-border p-1.5">
-            <div className="grid grid-cols-[0.75rem_1fr_auto] items-center gap-1.5 rounded-md bg-background/70 px-1.5 py-1 ring-1 ring-border">
-              <Search className="size-3 text-muted-foreground" />
+          <div className="p-2 pb-1">
+            <TabsList size="md" className="flex w-full rounded-lg bg-input p-[3px]">
+              {PROVIDERS.map((provider) => (
+                <TabsTrigger
+                  key={provider.id}
+                  value={provider.id}
+                  className="dark:data-[state=active]:border-border"
+                >
+                  {provider.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </div>
+          <div className="px-3 pb-2.5 pt-1">
+            <div className="flex items-center gap-2 rounded-[7px] bg-input px-2.5 py-[7px] ring-1 ring-border">
+              <Search className="size-[13px] shrink-0 text-muted-foreground/70" />
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search models"
-                className="min-w-0 bg-transparent font-mono text-[11px] outline-none placeholder:text-muted-foreground"
+                className="min-w-0 flex-1 bg-transparent text-[12.5px] outline-none placeholder:text-muted-foreground/70"
                 aria-label="Search models"
               />
               {activeProvider === "openrouter" ? (
@@ -235,7 +243,7 @@ export function ModelPicker({
                   type="button"
                   onClick={() => void loadCatalog({ refresh: true })}
                   disabled={catalogLoading}
-                  className="inline-flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-60"
+                  className="inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-60"
                   aria-label="Refresh OpenRouter models"
                   title="Refresh OpenRouter models"
                 >
@@ -245,9 +253,7 @@ export function ModelPicker({
                     <RefreshCw className="size-3" />
                   )}
                 </button>
-              ) : (
-                <span className="size-5" aria-hidden="true" />
-              )}
+              ) : null}
             </div>
             {activeProvider === "openrouter" && catalogError ? (
               <p className="mt-1 text-[11px] text-muted-foreground">
@@ -267,7 +273,7 @@ export function ModelPicker({
                   }));
             return (
               <TabsContent key={provider.id} value={provider.id} className="m-0">
-                <div className="max-h-96 overflow-y-auto p-0.5">
+                <div className="max-h-96 overflow-y-auto p-1.5 pt-0">
                   <PopupSectionHeader
                     title="Models"
                     action={
@@ -277,6 +283,7 @@ export function ModelPicker({
                           options={MODEL_FILTER_OPTIONS}
                           onChange={setModelFilter}
                           aria-label="Filter models"
+                          className="size-[22px] rounded-md bg-secondary text-foreground ring-1 ring-border hover:bg-secondary/80"
                         />
                       ) : undefined
                     }
@@ -296,7 +303,7 @@ export function ModelPicker({
                             <button
                               type="button"
                               className={cn(
-                                "grid w-full grid-cols-[minmax(0,1fr)_0.75rem] items-start gap-1.5 rounded-md px-1.5 py-1 text-left text-[11px] transition-colors hover:bg-accent",
+                                "grid w-full grid-cols-[minmax(0,1fr)_0.875rem] items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent",
                                 selected && "bg-accent text-foreground",
                               )}
                               onClick={() => {
@@ -305,17 +312,17 @@ export function ModelPicker({
                               }}
                             >
                               <span className="min-w-0">
-                                <span className="block truncate font-medium">
+                                <span className="block truncate text-[12.5px] font-medium leading-4">
                                   {model.label}
                                 </span>
-                                <span className="block truncate font-mono text-[10px] text-muted-foreground">
+                                <span className="block truncate font-mono text-[10.5px] text-muted-foreground/80">
                                   {provider.id === "openrouter"
                                     ? openRouterModelMeta(model)
                                     : getProviderModelId(model.id as ModelId)}
                                 </span>
                               </span>
                               {selected ? (
-                                <Check className="size-3 text-primary" />
+                                <Check className="size-3.5 text-primary" />
                               ) : null}
                             </button>
                           </li>
@@ -330,11 +337,11 @@ export function ModelPicker({
         </Tabs>
         {showThinking && onThinkingEnabledChange ? (
           <div
-            className="flex items-center justify-between gap-4 border-t border-border px-1.5 py-1.5 text-xs"
+            className="flex items-center justify-between gap-4 border-t border-layout-border px-3 py-2.5 text-[12.5px]"
             onPointerDown={(event) => event.stopPropagation()}
             onKeyDown={(event) => event.stopPropagation()}
           >
-            <span className="font-medium text-muted-foreground">Thinking</span>
+            <span className="font-medium text-foreground">Thinking</span>
             <Switch
               checked={thinkingEnabled}
               onCheckedChange={onThinkingEnabledChange}

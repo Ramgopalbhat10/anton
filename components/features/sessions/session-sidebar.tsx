@@ -3,7 +3,7 @@
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
-  PanelLeftClose,
+  PanelLeft,
   Plus,
   Settings,
 } from "lucide-react";
@@ -43,7 +43,7 @@ export function SessionSidebar() {
     <aside
       className={cn(
         "hidden shrink-0 overflow-hidden border-r border-sidebar-border bg-sidebar transition-[width] duration-200 ease-out md:flex",
-        open ? "w-[300px]" : "w-[41px]",
+        open ? "w-[248px]" : "w-[41px]",
       )}
       data-open={open}
     >
@@ -98,11 +98,11 @@ function ExpandedSidebar({
   }, [query, sessions]);
 
   return (
-    <div className="flex h-full w-[300px] shrink-0 flex-col">
-      <div className="flex h-10 items-center justify-between px-2">
-        <div className="flex min-w-0 items-center gap-1.5">
+    <div className="flex h-full w-[248px] shrink-0 flex-col">
+      <div className="flex items-center justify-between py-2.5 pl-3.5 pr-2">
+        <div className="flex min-w-0 items-center gap-2">
           <BrandMark />
-          <span className="truncate text-xs font-semibold tracking-tight">
+          <span className="truncate text-[13.5px] font-semibold tracking-tight">
             Anton
           </span>
         </div>
@@ -113,30 +113,31 @@ function ExpandedSidebar({
           onClick={onCollapse}
           aria-label="Collapse sidebar"
         >
-          <PanelLeftClose />
+          <PanelLeft className="text-muted-foreground/70" />
         </Button>
       </div>
 
-      <div className="flex items-center justify-between gap-2 px-2 py-1.5">
-        <span className="text-xs font-medium text-muted-foreground">Recent</span>
-        <Button
+      <div className="flex flex-col gap-2.5 px-3 pt-0.5">
+        <button
           type="button"
-          size="icon-sm"
-          variant="ghost"
-          aria-label="New chat"
           onClick={onNewChat}
+          className="flex h-[34px] w-full items-center justify-center gap-1.5 rounded-lg border border-border bg-secondary text-[13px] font-medium transition-colors hover:bg-secondary/80"
         >
-          <Plus />
-        </Button>
-      </div>
-
-      <div className="px-2 pb-1.5">
+          <Plus className="size-[13px]" />
+          New chat
+        </button>
         <SearchField
           value={query}
           onChange={setQuery}
-          placeholder="Search chats"
+          placeholder="Search chats..."
           aria-label="Search recent chats"
+          className="rounded-lg bg-input px-2.5 py-2"
+          inputClassName="text-[13px]"
         />
+      </div>
+
+      <div className="px-5 pb-1 pt-3 text-[11px] font-medium uppercase tracking-[0.05em] text-muted-foreground/70">
+        Recent
       </div>
 
       <SessionList
@@ -148,18 +149,16 @@ function ExpandedSidebar({
         query={query}
       />
 
-      <div className="border-t border-sidebar-border p-1.5">
-        <Button
+      <div className="border-t border-layout-border">
+        <button
           type="button"
-          variant="ghost"
-          size="sm"
-          className="h-6 w-full justify-start text-xs text-muted-foreground transition-colors duration-150 hover:bg-sidebar-accent/60 hover:text-foreground"
           onClick={onOpenSettings}
+          className="flex w-full items-center gap-2 px-3.5 py-3 text-left text-[13px] text-muted-foreground transition-colors hover:text-foreground"
           aria-label="Settings"
         >
-          <Settings />
+          <Settings className="size-3.5 text-muted-foreground/70" />
           Settings
-        </Button>
+        </button>
       </div>
     </div>
   );
@@ -233,7 +232,7 @@ function SessionList({
           No chats match &ldquo;{query.trim()}&rdquo;.
         </div>
       ) : (
-        <ul className="space-y-0.5 px-2">
+        <ul className="space-y-0.5 px-3">
           {sessions.map((session) => (
             <SessionRow
               key={session.id}
@@ -256,7 +255,7 @@ function SessionList({
 function BrandMark() {
   return (
     <div className="flex items-center justify-center">
-      <span className="flex size-5 items-center justify-center rounded bg-secondary text-[11px] font-semibold text-muted-foreground">
+      <span className="flex size-[22px] items-center justify-center rounded-md bg-primary text-[11px] font-bold text-primary-foreground">
         A
       </span>
     </div>

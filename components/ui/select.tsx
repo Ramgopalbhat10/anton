@@ -50,7 +50,7 @@ function SelectContent({
         data-slot="select-content"
         position={position}
         className={cn(
-          "relative z-50 max-h-72 min-w-[8rem] overflow-hidden rounded-md bg-popover text-popover-foreground shadow-md ring-1 ring-border data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[side=bottom]:slide-in-from-top-1 data-[side=top]:slide-in-from-bottom-1",
+          "relative z-50 max-h-72 min-w-[8rem] overflow-hidden rounded-[10px] bg-popover text-popover-foreground shadow-[0_12px_32px_rgba(0,0,0,0.35)] ring-1 ring-border data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[side=bottom]:slide-in-from-top-1 data-[side=top]:slide-in-from-bottom-1",
           position === "popper" &&
             "data-[side=bottom]:translate-y-1 data-[side=top]:-translate-y-1",
           className,
@@ -83,7 +83,7 @@ function SelectItem({
     <SelectPrimitive.Item
       data-slot="select-item"
       className={cn(
-        "relative flex cursor-default select-none items-center rounded-sm py-1.5 pr-8 pl-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:opacity-50",
+        "relative flex cursor-default select-none items-center rounded-md py-1.5 pr-8 pl-2 text-xs outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:opacity-50",
         className,
       )}
       {...props}
@@ -91,7 +91,7 @@ function SelectItem({
       <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
       <span className="absolute right-2 flex size-3.5 items-center justify-center">
         <SelectPrimitive.ItemIndicator>
-          <Check className="size-3.5" />
+          <Check className="size-3.5 text-primary" />
         </SelectPrimitive.ItemIndicator>
       </span>
     </SelectPrimitive.Item>

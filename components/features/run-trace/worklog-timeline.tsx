@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import type { ChatAddToolApproveResponseFunction } from "ai";
 import {
   CheckCircle2,
@@ -17,6 +17,12 @@ import {
 import type { BashOutput } from "@/components/features/run-trace/terminal-utils";
 import { TerminalOutput } from "@/components/features/run-trace/terminal-output";
 import { LiveTerminalOutput } from "@/components/features/run-trace/live-terminal";
+import { BashTerminalFooter } from "@/components/features/run-trace/bash-terminal";
+import {
+  ToolDetailCard,
+  ToolDetailFooter,
+  ToolDetailSection,
+} from "@/components/features/run-trace/tool-detail-card";
 import { ApprovalDetails } from "@/components/features/run-trace/approval-details";
 import { DiffView, PatchDiffView } from "@/components/features/run-trace/diff-view";
 import { TodoCard } from "@/components/features/run-trace/todo-card";
@@ -45,7 +51,6 @@ import {
   PermissionLabel,
   StatusPill,
   TraceExpandPanel,
-  TraceLogBlock,
   TraceThreadChildren,
   TraceThreadHeaderRow,
   TraceThreadNode,
@@ -127,7 +132,6 @@ export function WorklogTimeline({
               <TraceThreadHeaderRow
                 icon={Layers}
                 iconClass={runMeta.iconClass}
-                dotClass={runMeta.dotClass}
                 label={runTimelineGroupLabel(group)}
                 durationMs={group.run.durationMs}
                 status={group.run.status}
@@ -150,7 +154,6 @@ export function WorklogTimeline({
                       <TraceThreadHeaderRow
                         icon={Hash}
                         iconClass={stepMeta.iconClass}
-                        dotClass={stepMeta.dotClass}
                         label={step.label}
                         labelSuffix={
                           displayStepNumber !== undefined ? (
@@ -240,8 +243,8 @@ function renderTimelineItem({
             onApproval={onApproval}
           />
         ) : item.kind === "reasoning" && item.reasoningText ? (
-          <TraceExpandPanel>
-            <pre className="max-h-48 overflow-y-auto font-mono text-[10px] leading-relaxed text-foreground/80 whitespace-pre-wrap">
+          <TraceExpandPanel scrollable>
+            <pre className="font-mono text-[10px] leading-relaxed text-foreground/80 whitespace-pre-wrap">
               {item.reasoningText}
             </pre>
           </TraceExpandPanel>
@@ -316,41 +319,45 @@ function ToolEntryExpandPanel({
     entry.name === "edit_text" &&
     entry.state === "output-available" &&
     typeof editTextOutput?.patchPreview === "string";
+  const stepNumber = toolStepNumber(entry);
+  const isLiveBash =
+    entry.name === "bash" &&
+    runStatus === "running" &&
+    entry.activity?.status === "running" &&
+    entry.activity?.toolCallId;
+  const bashParsed =
+    entry.name === "bash" ? bashOutputFromEntry(entry) : undefined;
 
   return (
-    <TraceExpandPanel errored={errored} denied={denied}>
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-        <span className="inline-flex min-w-0 items-center gap-1.5 font-mono text-[10px] font-medium text-foreground/90">
-          {entry.name}
-          {permissionLabel ? (
-            <PermissionLabel label={permissionLabel} />
+    <ToolDetailCard
+      toolName={entry.name}
+      step={stepNumber}
+      failed={errored}
+      denied={denied}
+      copyText={toolDetailCopyText(entry, bashParsed)}
+      footer={toolDetailFooter(entry, errored, bashParsed, Boolean(isLiveBash && streamToken))}
+    >
+      {permissionLabel ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <PermissionLabel label={permissionLabel} />
+          {displayState !== "output-available" || errored ? (
+            <StatusPill
+              status={
+                errored
+                  ? "error"
+                  : denied
+                    ? "denied"
+                    : displayState === "approval-requested"
+                      ? "pending"
+                      : "running"
+              }
+            />
           ) : null}
-        </span>
-        {displayState !== "output-available" || errored ? (
-          <StatusPill
-            status={
-              errored
-                ? "error"
-                : denied
-                  ? "denied"
-                  : displayState === "approval-requested"
-                    ? "pending"
-                    : "running"
-            }
-          />
-        ) : null}
-        {entry.activity?.details &&
-        typeof entry.activity.details === "object" &&
-        "stepNumber" in entry.activity.details &&
-        typeof entry.activity.details.stepNumber === "number" ? (
-          <span className="text-[10px] text-muted-foreground">
-            step {harnessStepDisplayNumber(entry.activity.details.stepNumber)}
-          </span>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       {approvalMeta ? (
-        <div className="mt-1.5 space-y-1 border-t border-border/30 pt-1.5">
+        <div className="space-y-1">
           <div className="flex min-w-0 items-center gap-1.5">
             <ShieldCheck className="size-3 shrink-0 text-sky-400/90" />
             <span className="min-w-0 flex-1 truncate text-[10px] font-medium text-foreground/85">
@@ -407,80 +414,171 @@ function ToolEntryExpandPanel({
       ) : null}
 
       {approvalMeta?.diffPreview ? (
-        <div className="mt-1.5 border-t border-border/30 pt-1.5">
-          <DiffView
-            previous={approvalMeta.diffPreview.previous}
-            next={approvalMeta.diffPreview.next}
-            newFile={approvalMeta.diffPreview.previous.length === 0}
-          />
-        </div>
+        <DiffView
+          previous={approvalMeta.diffPreview.previous}
+          next={approvalMeta.diffPreview.next}
+          newFile={approvalMeta.diffPreview.previous.length === 0}
+        />
       ) : null}
 
-      <div className="mt-1.5 border-t border-border/30 pt-1.5">
-        {showWriteDiff ? (
-          <DiffView
-            previous={(entry.output as WriteFileOkOutput).previousContent ?? ""}
-            next={pickString(entry.input, "content") ?? ""}
-            newFile={(entry.output as WriteFileOkOutput).existed === false}
-            filename={pickString(entry.input, "path")}
-          />
-        ) : showEditDiff ? (
-          <DiffView
-            previous={editOutput?.previousContent ?? ""}
-            next={editOutput?.nextContent ?? ""}
-            filename={pickString(entry.input, "path")}
-          />
-        ) : showEditTextDiff ? (
-          <PatchDiffView
-            patch={editTextOutput?.patchPreview ?? null}
-            filename={editTextOutput?.path ?? pickString(entry.input, "path") ?? "diff.txt"}
-          />
-        ) : entry.name === "bash" &&
-          runStatus === "running" &&
-          entry.activity?.status === "running" &&
-          entry.activity?.toolCallId ? (
-          <LiveTerminalOutput
-            command={pickString(entry.input, "command")}
-            streamId={entry.activity.toolCallId}
-            streamToken={streamToken}
-            initialOutput={
-              typeof entry.output === "object" && entry.output !== null
-                ? (entry.output as {
-                    stdout?: string;
-                    stderr?: string;
-                    exitCode?: number | null;
-                    timedOut?: boolean;
-                    killed?: boolean;
-                    failedReason?:
-                      | "timeout"
-                      | "killed"
-                      | "max_buffer"
-                      | "error";
-                  })
-                : undefined
-            }
-          />
-        ) : entry.name === "bash" ? (
-          <TerminalOutput
-            command={
-              pickString(entry.input, "command") ?? safeStringify(entry.input)
-            }
-            output={bashOutputFromEntry(entry)}
-            className="text-[10px]"
-          />
-        ) : (
-          <ToolIoBlocks entry={entry} />
-        )}
-      </div>
-    </TraceExpandPanel>
+      {showWriteDiff ? (
+        <DiffView
+          previous={(entry.output as WriteFileOkOutput).previousContent ?? ""}
+          next={pickString(entry.input, "content") ?? ""}
+          newFile={(entry.output as WriteFileOkOutput).existed === false}
+          filename={pickString(entry.input, "path")}
+        />
+      ) : showEditDiff ? (
+        <DiffView
+          previous={editOutput?.previousContent ?? ""}
+          next={editOutput?.nextContent ?? ""}
+          filename={pickString(entry.input, "path")}
+        />
+      ) : showEditTextDiff ? (
+        <PatchDiffView
+          patch={editTextOutput?.patchPreview ?? null}
+          filename={editTextOutput?.path ?? pickString(entry.input, "path") ?? "diff.txt"}
+        />
+      ) : isLiveBash && entry.activity?.toolCallId ? (
+        <LiveTerminalOutput
+          command={pickString(entry.input, "command")}
+          streamId={entry.activity.toolCallId}
+          streamToken={streamToken}
+          variant="sections"
+          includeFooter={false}
+          initialOutput={
+            typeof entry.output === "object" && entry.output !== null
+              ? (entry.output as {
+                  stdout?: string;
+                  stderr?: string;
+                  exitCode?: number | null;
+                  timedOut?: boolean;
+                  killed?: boolean;
+                  failedReason?:
+                    | "timeout"
+                    | "killed"
+                    | "max_buffer"
+                    | "error";
+                })
+              : undefined
+          }
+        />
+      ) : entry.name === "bash" ? (
+        <TerminalOutput
+          command={
+            pickString(entry.input, "command") ?? safeStringify(entry.input)
+          }
+          output={bashParsed ?? {}}
+          variant="sections"
+          includeFooter={false}
+        />
+      ) : (
+        <ToolIoBlocks entry={entry} />
+      )}
+    </ToolDetailCard>
   );
+}
+
+function toolStepNumber(entry: ToolTraceEntry): number | undefined {
+  if (
+    entry.activity?.details &&
+    typeof entry.activity.details === "object" &&
+    "stepNumber" in entry.activity.details &&
+    typeof entry.activity.details.stepNumber === "number"
+  ) {
+    return harnessStepDisplayNumber(entry.activity.details.stepNumber);
+  }
+  return undefined;
+}
+
+function toolDetailCopyText(
+  entry: ToolTraceEntry,
+  bashParsed: BashOutput | undefined,
+): string | undefined {
+  if (entry.name === "bash") {
+    const command = pickString(entry.input, "command");
+    const parts: string[] = [];
+    if (command) parts.push(`$ ${command}`);
+    if (bashParsed?.stdout) parts.push(bashParsed.stdout);
+    if (bashParsed?.stderr) parts.push(bashParsed.stderr);
+    return parts.length > 0 ? parts.join("\n\n") : command ?? undefined;
+  }
+
+  const inputText = safeStringify(entry.input);
+  const outputText =
+    entry.state === "output-error" && entry.errorText
+      ? entry.errorText
+      : entry.output !== undefined
+        ? safeStringify(entry.output)
+        : undefined;
+  const parts = [inputText, outputText].filter(
+    (part): part is string => Boolean(part),
+  );
+  return parts.length > 0 ? parts.join("\n\n") : undefined;
+}
+
+function toolDetailFooter(
+  entry: ToolTraceEntry,
+  errored: boolean,
+  bashParsed: BashOutput | undefined,
+  isRunning: boolean,
+): ReactNode {
+  if (entry.name === "bash") {
+    return (
+      <BashTerminalFooter
+        {...bashParsed}
+        isRunning={isRunning}
+      />
+    );
+  }
+
+  if (
+    typeof entry.output === "object" &&
+    entry.output !== null &&
+    "ok" in entry.output
+  ) {
+    const record = entry.output as Record<string, unknown>;
+    if (record.ok === true) {
+      return (
+        <ToolDetailFooter>
+          <span className="font-mono text-[11px] font-semibold text-success">
+            Completed successfully
+          </span>
+        </ToolDetailFooter>
+      );
+    }
+    if (record.ok === false) {
+      const error =
+        typeof record.error === "string"
+          ? record.error
+          : "Operation failed";
+      return (
+        <ToolDetailFooter>
+          <span className="font-mono text-[11px] font-semibold text-destructive">
+            {error}
+          </span>
+        </ToolDetailFooter>
+      );
+    }
+  }
+
+  if (errored && entry.errorText) {
+    return (
+      <ToolDetailFooter>
+        <span className="font-mono text-[11px] font-semibold text-destructive">
+          {entry.errorText}
+        </span>
+      </ToolDetailFooter>
+    );
+  }
+
+  return null;
 }
 
 function ToolIoBlocks({ entry }: { entry: ToolTraceEntry }) {
   if (entry.name === "grep" && isGrepOutput(entry.output)) {
     return <GrepOutputPanel output={entry.output} />;
   }
-
   const inputText = safeStringify(entry.input);
   const durableOutput =
     entry.name === "read_file" &&
@@ -503,24 +601,37 @@ function ToolIoBlocks({ entry }: { entry: ToolTraceEntry }) {
         (entry.output !== undefined ? safeStringify(entry.output) : undefined);
 
   return (
-    <div className="space-y-1.5">
+    <div className="flex flex-col gap-2.5">
       {inputText ? (
-        <TraceLogBlock title="Input">{inputText}</TraceLogBlock>
+        <ToolDetailSection label="Input" scrollable>
+          <pre className="whitespace-pre-wrap break-words font-mono text-[10.5px] leading-[1.65] text-muted-foreground">
+            {inputText}
+          </pre>
+        </ToolDetailSection>
       ) : null}
       {outputText ? (
-        <TraceLogBlock title={durableOutput ? "Durable output" : "Output"}>
-          {outputText}
-        </TraceLogBlock>
+        <ToolDetailSection
+          label={durableOutput ? "Durable output" : "Output"}
+          scrollable
+        >
+          <pre className="whitespace-pre-wrap break-words font-mono text-[10.5px] leading-[1.65] text-muted-foreground">
+            {outputText}
+          </pre>
+        </ToolDetailSection>
       ) : null}
       {modelVisibleOutput && modelVisibleOutput !== outputText ? (
-        <TraceLogBlock title="Model-visible output">
-          {modelVisibleOutput}
-        </TraceLogBlock>
+        <ToolDetailSection label="Model-visible output" scrollable>
+          <pre className="whitespace-pre-wrap break-words font-mono text-[10.5px] leading-[1.65] text-muted-foreground">
+            {modelVisibleOutput}
+          </pre>
+        </ToolDetailSection>
       ) : null}
       {entry.errorText ? (
-        <TraceLogBlock title="Error" tone="error">
-          {entry.errorText}
-        </TraceLogBlock>
+        <ToolDetailSection label="Error" tone="error" scrollable>
+          <pre className="whitespace-pre-wrap break-words font-mono text-[10.5px] leading-[1.65] text-muted-foreground">
+            {entry.errorText}
+          </pre>
+        </ToolDetailSection>
       ) : null}
     </div>
   );
@@ -548,39 +659,42 @@ function isGrepOutput(value: unknown): value is GrepOutput {
 
 function GrepOutputPanel({ output }: { output: GrepOutput }) {
   return (
-    <div className="space-y-1.5">
-      <div className="rounded border border-border/50 bg-background/40 px-2 py-1.5 font-mono text-[10px] text-muted-foreground">
-        <span className="text-foreground/80">{output.matchCount}</span>{" "}
-        match{output.matchCount === 1 ? "" : "es"} for{" "}
-        <span className="text-foreground/80">{output.pattern}</span>
-        {output.target ? (
-          <>
-            {" "}in <span className="text-foreground/80">{output.target}</span>
-          </>
-        ) : null}
-        {output.truncated ? " (truncated)" : null}
-      </div>
-      {output.matches.length > 0 ? (
-        <div className="max-h-56 overflow-y-auto rounded border border-border/50 bg-card/30">
-          {output.matches.map((match) => (
-            <div
-              key={`${match.file}:${match.line}:${match.text}`}
-              className="border-b border-border/30 px-2 py-1 last:border-b-0"
-            >
-              <div className="font-mono text-[10px] text-muted-foreground">
-                {match.file}:{match.line}
-              </div>
-              <pre className="whitespace-pre-wrap break-words font-mono text-[10px] leading-snug text-foreground/85">
-                {match.text}
-              </pre>
+    <div className="flex flex-col gap-2.5">
+      <ToolDetailSection label="Output" scrollable maxHeight="max-h-56">
+        <div className="space-y-2 font-mono text-[10.5px] leading-[1.65] text-muted-foreground">
+          <div>
+            <span className="text-foreground/80">{output.matchCount}</span>{" "}
+            match{output.matchCount === 1 ? "" : "es"} for{" "}
+            <span className="text-foreground/80">{output.pattern}</span>
+            {output.target ? (
+              <>
+                {" "}
+                in <span className="text-foreground/80">{output.target}</span>
+              </>
+            ) : null}
+            {output.truncated ? " (truncated)" : null}
+          </div>
+          {output.matches.length > 0 ? (
+            <div className="space-y-1">
+              {output.matches.map((match) => (
+                <div
+                  key={`${match.file}:${match.line}:${match.text}`}
+                  className="border-t border-layout-border pt-1 first:border-t-0 first:pt-0"
+                >
+                  <div className="text-muted-foreground/80">
+                    {match.file}:{match.line}
+                  </div>
+                  <pre className="whitespace-pre-wrap break-words text-foreground/85">
+                    {match.text}
+                  </pre>
+                </div>
+              ))}
             </div>
-          ))}
+          ) : (
+            <div>No matching lines.</div>
+          )}
         </div>
-      ) : (
-        <div className="rounded border border-border/50 bg-card/30 px-2 py-1.5 font-mono text-[10px] text-muted-foreground">
-          No matching lines.
-        </div>
-      )}
+      </ToolDetailSection>
     </div>
   );
 }

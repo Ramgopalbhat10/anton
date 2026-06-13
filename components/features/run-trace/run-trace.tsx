@@ -104,23 +104,26 @@ export function RunTraceAccordion({
       forceOpen={forceOpen}
       lazyMount
       trigger={({ open }) => (
-        <span className="inline-flex max-w-full items-center gap-1.5 rounded px-1 py-0.5 text-[11px]">
+        <span className="inline-flex max-w-full items-center gap-2 rounded px-1 py-0.5">
           {pendingApproval ? (
-            <AlertCircle className="size-3.5 text-amber-400" />
+            <AlertCircle className="size-3.5 text-warning" />
           ) : runStatus === "running" ? (
-            <Loader2 className="size-3.5 animate-spin text-sky-400" />
+            <Loader2 className="size-3.5 animate-spin text-info" />
           ) : runStatus === "completed" ? (
-            <CheckCircle2 className="size-3.5 text-emerald-400" />
+            <CheckCircle2 className="size-3.5 text-success" />
           ) : (
-            <AlertCircle className="size-3.5 text-amber-400" />
+            <AlertCircle className="size-3.5 text-warning" />
           )}
-          <span className="font-medium text-foreground/90" title={modelTurnSummary}>
+          <span
+            className="text-[13px] font-medium text-muted-foreground"
+            title={modelTurnSummary}
+          >
             {header}
           </span>
           {open ? (
-            <ChevronDown className="size-3 opacity-70" />
+            <ChevronDown className="size-3 text-muted-foreground/70" />
           ) : (
-            <ChevronRight className="size-3 opacity-70" />
+            <ChevronRight className="size-3 text-muted-foreground/70" />
           )}
         </span>
       )}
@@ -161,7 +164,7 @@ function RunTraceAccordionBody({
 
   return (
     <div className="min-h-0 overflow-hidden">
-      <div className="ml-2 mt-1 space-y-0 border-l border-border/70 pl-3">
+      <div className="ml-[7px] mt-2 space-y-1 border-l-2 border-border py-0.5 pl-4">
         {buildInterleaved(rows, stepGroups).map((item) =>
           item.kind === "group" ? (
             <StepGroupView

@@ -51,14 +51,14 @@ export function PopupSortSelect<T extends string>({
         align="start"
         side="right"
         sideOffset={6}
-        className="z-[100] min-w-32"
+        className="z-[100] min-w-[150px]"
       >
-        <SelectViewport className="p-0.5">
+        <SelectViewport className="p-1.5">
           {options.map((option) => (
             <SelectItem
               key={option.value}
               value={option.value}
-              className="py-1 pr-7 pl-1.5 text-xs leading-4"
+              className="py-[5px] pr-8 pl-[9px] text-[12.5px] leading-4 text-foreground data-[state=checked]:font-medium"
             >
               {option.label}
             </SelectItem>

@@ -9,6 +9,7 @@ import {
   Clock,
   Copy,
   ExternalLink,
+  GitBranch,
   RefreshCw,
   XCircle,
 } from "lucide-react";
@@ -19,7 +20,6 @@ import {
   ErrorBanner,
   LoadingState,
 } from "@/components/shared/feedback-states";
-import { MetricTile } from "@/components/shared/metric-tile";
 import { BackgroundCommandsPanel } from "@/components/features/projects/background-commands-panel";
 import { ProjectRunDetails } from "@/components/features/run-trace/project-run-details";
 import { cn } from "@/lib/utils";
@@ -54,9 +54,9 @@ export function ProjectStatusPanel({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <section className="border-b border-layout-border px-3 py-2">
+      <section className="border-b border-layout-border px-3 py-3">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="truncate text-sm font-medium">{project.fullName}</h2>
+          <h2 className="truncate text-sm font-semibold">{project.fullName}</h2>
           <Button
             type="button"
             size="icon-sm"
@@ -88,16 +88,16 @@ export function ProjectStatusPanel({
       ) : status ? (
         <div className="space-y-0">
           <StatusSection title="Overview">
-            <div className="space-y-1.5 text-[11px] text-muted-foreground">
-              <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                <span className="font-mono text-foreground">
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <GitBranch className="size-3 shrink-0 text-muted-foreground" />
+                <span className="font-mono text-xs font-semibold text-foreground">
                   {status.git.branch ?? "—"}
                 </span>
-                <span>·</span>
-                <span>{status.git.dirtyCount} dirty</span>
-                <span>·</span>
-                <span>{status.packageManager ?? "no pm"}</span>
-              </p>
+                <span className="text-[11.5px] text-muted-foreground/65">
+                  · {status.git.dirtyCount} dirty · {status.packageManager ?? "no pm"}
+                </span>
+              </div>
               <PathRow path={status.project.localPath} />
             </div>
           </StatusSection>
@@ -135,8 +135,8 @@ function StatusSection({
   children: ReactNode;
 }) {
   return (
-    <section className="border-b border-layout-border px-3 py-2">
-      <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+    <section className="border-b border-layout-border px-3 py-2.5">
+      <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.07em] text-muted-foreground/65">
         {title}
       </h3>
       {children}
@@ -149,7 +149,7 @@ function PathRow({ path }: { path: string }) {
 
   return (
     <div className="flex min-w-0 items-center gap-1">
-      <code className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground">
+      <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-(--accent-muted)">
         {path}
       </code>
       <Button
@@ -192,19 +192,19 @@ function LastRunCard({
       <div className="flex flex-wrap items-center gap-2">
         <span
           className={cn(
-            "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1",
+            "inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11px] font-medium",
             statusMeta.className,
           )}
         >
-          <statusMeta.Icon className="size-3" />
+          <statusMeta.Icon className="size-[11px]" />
           {statusMeta.label}
         </span>
-        <span className="font-mono text-[10px] text-muted-foreground">
+        <span className="font-mono text-[11px] text-muted-foreground/65">
           {lastRun.model}
         </span>
       </div>
-      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <MetricTile
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <RunStatTile
           label="Duration"
           value={
             lastRun.durationMs !== null
@@ -212,24 +212,24 @@ function LastRunCard({
               : "—"
           }
         />
-        <MetricTile label="Steps" value={lastRun.stepCount ?? "—"} />
-        <MetricTile label="Tokens" value={lastRun.totalTokens ?? "—"} />
-        <MetricTile
+        <RunStatTile label="Steps" value={lastRun.stepCount ?? "—"} />
+        <RunStatTile label="Tokens" value={lastRun.totalTokens ?? "—"} />
+        <RunStatTile
           label="Cost"
           value={
             lastRun.costUsd !== null ? `$${lastRun.costUsd.toFixed(4)}` : "—"
           }
         />
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
-        <Clock className="size-3 shrink-0" />
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11.5px] text-muted-foreground/65">
+        <Clock className="size-[11px] shrink-0" />
         <span>{new Date(lastRun.startedAt).toLocaleString()}</span>
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="ml-auto flex items-center gap-2">
           <button
             type="button"
             className={cn(
-              "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] text-foreground transition-colors hover:bg-secondary/60",
-              detailsOpen && "bg-secondary/40",
+              "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11.5px] font-medium text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground",
+              detailsOpen && "bg-secondary/40 text-foreground",
             )}
             onClick={() => {
               setDetailsEverOpened(true);
@@ -246,10 +246,10 @@ function LastRunCard({
           </button>
           <Link
             href={`/s/${lastRun.sessionId}`}
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] text-foreground transition-colors hover:bg-secondary/60 hover:underline"
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11.5px] font-medium text-primary transition-colors hover:bg-primary/10"
           >
             Open session
-            <ExternalLink className="size-3" />
+            <ExternalLink className="size-2.5" />
           </Link>
         </div>
       </div>
@@ -276,19 +276,38 @@ function LastRunCard({
   );
 }
 
+function RunStatTile({
+  label,
+  value,
+}: {
+  label: string;
+  value: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5 rounded-lg border border-border bg-card px-2.5 py-2">
+      <span className="text-[9.5px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/65">
+        {label}
+      </span>
+      <span className="truncate font-mono text-sm font-semibold tabular-nums text-foreground">
+        {value}
+      </span>
+    </div>
+  );
+}
+
 function runStatusMeta(lastRun: NonNullable<ProjectStatusSummary["lastRun"]>) {
   switch (lastRun.status) {
     case "completed":
       return {
         Icon: CheckCircle2,
         label: "Completed",
-        className: "text-emerald-400 ring-emerald-400/30 bg-emerald-400/10",
+        className: "text-success ring-success/30 bg-success/10",
       };
     case "running":
       return {
         Icon: Clock,
         label: "Running",
-        className: "text-amber-400 ring-amber-400/30 bg-amber-400/10",
+        className: "text-warning ring-warning/30 bg-warning/10",
       };
     case "aborted":
       return {

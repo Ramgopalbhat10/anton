@@ -97,14 +97,21 @@ export function SessionRow({
       <Link
         href={`/s/${session.id}`}
         className={cn(
-          "group relative flex min-w-0 items-start rounded-md px-2 py-1.5 text-xs transition-colors duration-150",
-          "text-foreground hover:bg-sidebar-accent/60",
+          "group relative flex min-w-0 items-start rounded-md px-2 py-[7px] transition-colors duration-150",
+          "hover:bg-sidebar-accent/60",
           isActive && "bg-sidebar-accent",
         )}
       >
         <span className="min-w-0 flex-1 pr-0 transition-[padding] group-hover:pr-11 group-focus-within:pr-11">
-          <span className="block truncate font-medium">{session.title}</span>
-          <span className="block truncate text-[10px] text-muted-foreground">
+          <span
+            className={cn(
+              "block truncate text-[12.5px] leading-4",
+              isActive ? "text-foreground" : "text-muted-foreground",
+            )}
+          >
+            {session.title}
+          </span>
+          <span className="mt-[3px] block truncate text-[11px] leading-none text-muted-foreground/70">
             {formatRelativeTime(session.updatedAt)}
           </span>
         </span>

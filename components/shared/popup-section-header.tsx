@@ -20,7 +20,7 @@ export function PopupSectionHeader({
         className,
       )}
     >
-      <span className="text-[10px] font-medium uppercase text-muted-foreground">
+      <span className="text-[10.5px] font-medium uppercase tracking-[0.06em] text-muted-foreground/70">
         {title}
       </span>
       {action}

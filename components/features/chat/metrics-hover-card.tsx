@@ -1,20 +1,14 @@
 "use client";
 
 import type { ReactNode } from "react";
-import {
-  ArrowDownToLine,
-  ArrowUpFromLine,
-  Clock,
-  Cpu,
-  DollarSign,
-  Hash,
-} from "lucide-react";
+import { Coins, Cpu } from "lucide-react";
 
 import {
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
+import { cn } from "@/lib/utils";
 import {
   formatMetricCost,
   formatMetricDuration,
@@ -24,20 +18,29 @@ import {
 import type { SessionTokenUsage } from "@/src/lib/token-usage";
 
 function MetricRow({
-  icon: Icon,
   label,
   value,
+  accent = false,
 }: {
-  icon: typeof Hash;
   label: string;
-  value: number | undefined;
+  value: string;
+  accent?: boolean;
 }) {
+  const empty = value === "-" || value === "—";
   return (
-    <div className="flex items-center gap-1.5 text-muted-foreground">
-      <Icon className="size-3" />
-      <span>{label}</span>
-      <span className="ml-auto whitespace-nowrap font-mono text-foreground">
-        {formatMetricNumber(value)}
+    <div className="flex items-center justify-between gap-3 py-1">
+      <span className="text-[11.5px] text-muted-foreground/70">{label}</span>
+      <span
+        className={cn(
+          "whitespace-nowrap font-mono text-[11.5px] tabular-nums",
+          accent
+            ? "text-success"
+            : empty
+              ? "text-muted-foreground/70"
+              : "text-foreground",
+        )}
+      >
+        {empty ? "—" : value}
       </span>
     </div>
   );
@@ -48,21 +51,28 @@ function MetricsHoverCardShell({
   headerIcon: HeaderIcon,
   headerLabel,
   children,
+  footer,
 }: {
   trigger: ReactNode;
   headerIcon?: typeof Cpu;
   headerLabel: string;
   children: ReactNode;
+  footer?: ReactNode;
 }) {
   return (
     <HoverCard openDelay={150} closeDelay={80}>
       <HoverCardTrigger asChild>{trigger}</HoverCardTrigger>
-      <HoverCardContent className="w-64 px-2.5 py-2">
-        <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
-          {HeaderIcon ? <HeaderIcon className="size-3" /> : null}
-          {headerLabel}
+      <HoverCardContent className="w-[280px] p-0">
+        <div className="flex items-center gap-1.5 border-b border-layout-border px-3 py-2.5">
+          {HeaderIcon ? (
+            <HeaderIcon className="size-3 text-muted-foreground" />
+          ) : null}
+          <span className="truncate font-mono text-[11.5px] font-semibold">
+            {headerLabel}
+          </span>
         </div>
-        <div className="space-y-1.5 text-[10px]">{children}</div>
+        <div className="px-3 pb-2.5 pt-1.5">{children}</div>
+        {footer}
       </HoverCardContent>
     </HoverCard>
   );
@@ -81,72 +91,41 @@ export function ResponseMetricsHoverCard({
       trigger={
         <button
           type="button"
-          className="inline-flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus:bg-accent focus:text-foreground focus:outline-none"
+          className="inline-flex size-[22px] items-center justify-center rounded-md bg-secondary text-foreground ring-1 ring-border transition-colors hover:bg-secondary/80 focus-visible:outline-none focus-visible:ring-ring"
           aria-label="Response metrics"
         >
           <Cpu className="size-3" />
         </button>
       }
     >
-      <MetricRow icon={Hash} label="Total" value={metrics.totalTokens} />
+      <MetricRow label="Total" value={formatMetricNumber(metrics.totalTokens)} />
       {metrics.effectiveTokens !== undefined ? (
         <MetricRow
-          icon={Hash}
           label="Effective"
-          value={metrics.effectiveTokens}
+          value={formatMetricNumber(metrics.effectiveTokens)}
         />
       ) : null}
-      <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-        <div className="flex items-center gap-1.5">
-          <ArrowDownToLine className="size-3 text-muted-foreground" />
-          <span className="text-muted-foreground">In</span>
-          <span className="ml-auto whitespace-nowrap font-mono text-foreground">
-            {formatMetricNumber(metrics.inputTokens)}
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <ArrowUpFromLine className="size-3 text-muted-foreground" />
-          <span className="text-muted-foreground">Out</span>
-          <span className="ml-auto whitespace-nowrap font-mono text-foreground">
-            {formatMetricNumber(metrics.outputTokens)}
-          </span>
-        </div>
-      </div>
+      <MetricRow label="In" value={formatMetricNumber(metrics.inputTokens)} />
+      <MetricRow label="Out" value={formatMetricNumber(metrics.outputTokens)} />
       {metrics.cachedInputTokens !== undefined ||
       metrics.cacheWriteTokens !== undefined ? (
-        <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-          <div className="flex items-center gap-1.5">
-            <Hash className="size-3 text-muted-foreground" />
-            <span className="text-muted-foreground">Cached</span>
-            <span className="ml-auto whitespace-nowrap font-mono text-foreground">
-              {formatMetricNumber(metrics.cachedInputTokens)}
-            </span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Hash className="size-3 text-muted-foreground" />
-            <span className="text-muted-foreground">Write</span>
-            <span className="ml-auto whitespace-nowrap font-mono text-foreground">
-              {formatMetricNumber(metrics.cacheWriteTokens)}
-            </span>
-          </div>
-        </div>
+        <>
+          <MetricRow
+            label="Cached"
+            value={formatMetricNumber(metrics.cachedInputTokens)}
+            accent={(metrics.cachedInputTokens ?? 0) > 0}
+          />
+          <MetricRow
+            label="Write"
+            value={formatMetricNumber(metrics.cacheWriteTokens)}
+          />
+        </>
       ) : null}
-      <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-        <div className="flex items-center gap-1.5">
-          <DollarSign className="size-3 text-muted-foreground" />
-          <span className="text-muted-foreground">Cost</span>
-          <span className="ml-auto whitespace-nowrap font-mono text-foreground">
-            {formatMetricCost(metrics.costUsd)}
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <Clock className="size-3 text-muted-foreground" />
-          <span className="text-muted-foreground">Duration</span>
-          <span className="ml-auto whitespace-nowrap font-mono text-foreground">
-            {formatMetricDuration(metrics.durationMs)}
-          </span>
-        </div>
-      </div>
+      <MetricRow label="Cost" value={formatMetricCost(metrics.costUsd)} />
+      <MetricRow
+        label="Duration"
+        value={formatMetricDuration(metrics.durationMs)}
+      />
     </MetricsHoverCardShell>
   );
 }
@@ -162,56 +141,41 @@ export function SessionMetricsHoverCard({
       trigger={
         <button
           type="button"
-          className="inline-flex h-5 items-center gap-1 rounded-md bg-secondary px-1.5 text-[11px] font-mono text-muted-foreground transition-colors hover:bg-secondary/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="inline-flex h-[26px] items-center gap-1.5 rounded-md px-2 font-mono text-[11.5px] text-muted-foreground/80 ring-1 ring-border transition-colors hover:bg-secondary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-ring"
           aria-label="Session token usage"
         >
-          <span
-            className="size-1.5 rounded-full bg-muted-foreground/50"
-            aria-hidden
-          />
-          <span className="text-muted-foreground/70">session</span>
-          {formatCompactSessionTokens(tokenUsage.effectiveTokens)}
-          <span className="text-muted-foreground/70">tok</span>
+          <Coins className="size-[11px]" aria-hidden />
+          session · {formatCompactSessionTokens(tokenUsage.effectiveTokens)} tok
         </button>
       }
+      footer={
+        !tokenUsage.hasEffectiveMetrics ? (
+          <p className="border-t border-layout-border px-3 py-2 text-[10px] leading-snug text-muted-foreground/70">
+            Effective value falls back to raw tokens for older runs.
+          </p>
+        ) : undefined
+      }
     >
-      <MetricRow icon={Hash} label="Raw" value={tokenUsage.rawTokens} />
+      <MetricRow label="Raw" value={formatMetricNumber(tokenUsage.rawTokens)} />
       <MetricRow
-        icon={Hash}
         label="Effective"
-        value={tokenUsage.effectiveTokens}
+        value={formatMetricNumber(tokenUsage.effectiveTokens)}
       />
-      <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-        <div className="flex items-center gap-1.5">
-          <Hash className="size-3 text-muted-foreground" />
-          <span className="text-muted-foreground">Cached</span>
-          <span className="ml-auto whitespace-nowrap font-mono text-foreground">
-            {formatMetricNumber(tokenUsage.cachedInputTokens)}
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <Hash className="size-3 text-muted-foreground" />
-          <span className="text-muted-foreground">Write</span>
-          <span className="ml-auto whitespace-nowrap font-mono text-foreground">
-            {tokenUsage.cacheWriteTokens > 0
-              ? formatMetricNumber(tokenUsage.cacheWriteTokens)
-              : "-"}
-          </span>
-        </div>
-      </div>
+      <MetricRow
+        label="Cached"
+        value={formatMetricNumber(tokenUsage.cachedInputTokens)}
+        accent={(tokenUsage.cachedInputTokens ?? 0) > 0}
+      />
+      <MetricRow
+        label="Write"
+        value={
+          tokenUsage.cacheWriteTokens > 0
+            ? formatMetricNumber(tokenUsage.cacheWriteTokens)
+            : "—"
+        }
+      />
       {tokenUsage.costUsd !== undefined ? (
-        <div className="flex items-center gap-1.5 text-muted-foreground">
-          <DollarSign className="size-3" />
-          <span>Cost</span>
-          <span className="ml-auto whitespace-nowrap font-mono text-foreground">
-            {formatMetricCost(tokenUsage.costUsd)}
-          </span>
-        </div>
-      ) : null}
-      {!tokenUsage.hasEffectiveMetrics ? (
-        <p className="border-t border-border/40 pt-1.5 text-[9px] leading-snug text-muted-foreground/80">
-          Effective value falls back to raw tokens for older runs.
-        </p>
+        <MetricRow label="Cost" value={formatMetricCost(tokenUsage.costUsd)} />
       ) : null}
     </MetricsHoverCardShell>
   );
