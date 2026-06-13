@@ -290,7 +290,7 @@ export function BranchSwitcher({
           className={cn(
             iconOnly
               ? "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
-              : "inline-flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50",
+              : "inline-flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-[12.5px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50",
             triggerClassName,
           )}
           aria-label={
@@ -304,7 +304,7 @@ export function BranchSwitcher({
               : undefined
           }
         >
-          <GitBranch className="size-3.5 shrink-0" />
+          <GitBranch className={cn("shrink-0", iconOnly ? "size-3.5" : "size-[13px]")} />
           {!iconOnly && (
             <>
               <span className={cn("truncate", className)}>
@@ -314,7 +314,7 @@ export function BranchSwitcher({
                     : displayedBranch
                   : "branch"}
               </span>
-              <ChevronDown className="size-3 shrink-0" />
+              <ChevronDown className="size-3 shrink-0 text-muted-foreground/70" />
             </>
           )}
         </button>
@@ -322,35 +322,33 @@ export function BranchSwitcher({
       <PopoverContent
         align={contentAlign}
         side="top"
-        className="w-72 overflow-hidden p-0"
+        className="w-80 overflow-hidden p-0"
       >
-        <div className="border-b border-border p-1.5">
-          <div className="grid grid-cols-[0.75rem_1fr_auto] items-center gap-1.5 rounded-md bg-background/70 px-1.5 py-1 ring-1 ring-border">
-            <Search className="size-3 text-muted-foreground" />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search branches"
-              className="min-w-0 bg-transparent font-mono text-[11px] outline-none placeholder:text-muted-foreground"
-              aria-label="Search branches"
-            />
-            <button
-              type="button"
-              onClick={() => void loadBranches({ refresh: true })}
-              disabled={loading || switching !== null}
-              className="inline-flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-60"
-              aria-label="Refresh branches"
-              title="Refresh branches"
-            >
-              {loading ? (
-                <Loader2 className="size-3 animate-spin" />
-              ) : (
-                <RefreshCw className="size-3" />
-              )}
-            </button>
-          </div>
+        <div className="flex items-center gap-2 border-b border-layout-border px-3 py-2.5">
+          <Search className="size-[13px] shrink-0 text-muted-foreground/70" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search branches"
+            className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground/70"
+            aria-label="Search branches"
+          />
+          <button
+            type="button"
+            onClick={() => void loadBranches({ refresh: true })}
+            disabled={loading || switching !== null}
+            className="inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-60"
+            aria-label="Refresh branches"
+            title="Refresh branches"
+          >
+            {loading ? (
+              <Loader2 className="size-[13px] animate-spin" />
+            ) : (
+              <RefreshCw className="size-[13px]" />
+            )}
+          </button>
         </div>
-        <div className="max-h-72 overflow-y-auto p-0.5">
+        <div className="max-h-72 overflow-y-auto p-1.5">
           <PopupSectionHeader
             title="Branches"
             action={
@@ -378,26 +376,29 @@ export function BranchSwitcher({
                     type="button"
                     onClick={() => selectBranch(branch)}
                     disabled={switching !== null}
-                    className="grid w-full grid-cols-[0.75rem_minmax(0,1fr)_0.75rem] items-start gap-1.5 rounded-md px-1.5 py-1 text-left text-[11px] transition-colors hover:bg-accent disabled:opacity-60"
+                    className={cn(
+                      "grid w-full grid-cols-[0.8125rem_minmax(0,1fr)_0.875rem] items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent disabled:opacity-60",
+                      branch.current && "bg-accent",
+                    )}
                   >
                     {switching === branch.name ? (
-                      <Loader2 className="mt-0.5 size-3 animate-spin text-primary" />
+                      <Loader2 className="size-[13px] animate-spin text-primary" />
                     ) : (
                       <GitBranch
                         className={cn(
-                          "mt-0.5 size-3",
+                          "size-[13px]",
                           branch.kind === "remote"
-                            ? "text-sky-400"
+                            ? "text-(--accent-muted)"
                             : "text-muted-foreground",
                         )}
                         aria-label={branch.kind === "remote" ? "Remote branch" : "Local branch"}
                       />
                     )}
                     <span className="min-w-0">
-                      <span className="block truncate font-mono font-medium">
+                      <span className="block truncate font-mono text-[12.5px] font-medium leading-4">
                         {branch.name}
                       </span>
-                      <span className="block truncate font-mono text-[10px] text-muted-foreground">
+                      <span className="block truncate font-mono text-[10.5px] text-muted-foreground/80">
                         {branch.kind === "remote" ? "remote" : "local"}
                         {branch.lastCommitAt !== null
                           ? ` · ${relativeBranchTime(branch.lastCommitAt)}`
@@ -405,7 +406,7 @@ export function BranchSwitcher({
                       </span>
                     </span>
                     {branch.current ? (
-                      <Check className="size-3 text-primary" />
+                      <Check className="size-3.5 text-primary" />
                     ) : null}
                   </button>
                 </li>
@@ -414,7 +415,7 @@ export function BranchSwitcher({
           )}
           {project?.provider === "github" ? (
             <>
-              <div className="mt-1 border-t border-border px-1.5 py-1 text-[10px] font-medium uppercase text-muted-foreground">
+              <div className="mt-1 border-t border-layout-border px-1.5 py-1 text-[10.5px] font-medium uppercase tracking-[0.06em] text-muted-foreground/70">
                 Issues
               </div>
               {issueError ? (
@@ -456,7 +457,7 @@ export function BranchSwitcher({
             </>
           ) : null}
         </div>
-        <div className="border-t border-border p-0.5">
+        <div className="border-t border-layout-border p-1">
           {createMode ? (
             <div className="grid grid-cols-[1fr_auto_auto] items-center gap-1">
               <Input
@@ -505,9 +506,9 @@ export function BranchSwitcher({
             <button
               type="button"
               onClick={() => setCreateMode(true)}
-              className="flex h-6 w-full items-center gap-1.5 rounded-md px-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-[7px] text-left text-[12.5px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
-              <Plus className="size-3" />
+              <Plus className="size-[13px]" />
               Create and checkout new branch...
             </button>
           )}

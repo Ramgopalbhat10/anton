@@ -232,13 +232,13 @@ export function BackgroundCommandsPanel({
   };
 
   return (
-    <section className="border-b border-border px-3 py-2">
+    <section className="border-b border-layout-border px-3 py-2.5">
       <div className="mb-1.5 flex items-center justify-between gap-2">
-        <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <h3 className="text-[10px] font-semibold uppercase tracking-[0.07em] text-muted-foreground/65">
           Commands
         </h3>
         {runningCount > 0 ? (
-          <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400 ring-1 ring-emerald-400/30">
+          <span className="rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success ring-1 ring-success/30">
             {runningCount} running
           </span>
         ) : null}
@@ -287,11 +287,9 @@ export function BackgroundCommandsPanel({
                     scriptLaunchCommand(status.packageManager, script),
                   ) || pendingAction === `script:${script}`;
                 return (
-                  <Button
+                  <button
                     key={script}
                     type="button"
-                    size="xs"
-                    variant="secondary"
                     disabled={disabled}
                     onClick={() =>
                       void runCommand(
@@ -299,20 +297,20 @@ export function BackgroundCommandsPanel({
                         `script:${script}`,
                       )
                     }
-                    className="font-mono text-[10px]"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border bg-input px-2 py-1 font-mono text-[10.5px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
                   >
                     {pendingAction === `script:${script}` ? (
-                      <Loader2 className="size-3 animate-spin" />
+                      <Loader2 className="size-2 animate-spin text-muted-foreground/70" />
                     ) : (
-                      <Play className="size-3" />
+                      <Play className="size-2 text-muted-foreground/70" />
                     )}
                     {script}
-                  </Button>
+                  </button>
                 );
               })}
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground">No npm scripts detected.</p>
+            <p className="text-xs text-muted-foreground/65">No npm scripts detected.</p>
           )}
         </CommandGroup>
 
@@ -330,18 +328,19 @@ export function BackgroundCommandsPanel({
               value={customCommand}
               onChange={(event) => setCustomCommand(event.target.value)}
               placeholder="python -m http.server"
-              className="h-6 px-2 font-mono text-[11px]"
+              className="h-8 rounded-lg bg-input px-3 font-mono text-[11.5px]"
             />
             <Button
               type="submit"
               size="sm"
-              className="shrink-0 px-2.5"
+              className="h-8 shrink-0 gap-1.5 rounded-lg px-3 font-semibold"
               disabled={
                 !customCommand.trim() ||
                 activeCommands.has(customCommand.trim()) ||
                 pendingAction?.startsWith("custom:") === true
               }
             >
+              <Play className="size-2.5" />
               Run
             </Button>
           </form>
@@ -390,7 +389,7 @@ export function BackgroundCommandsPanel({
               ))}
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground">No recent commands.</p>
+            <p className="text-xs text-muted-foreground/65">No recent commands.</p>
           )}
         </CommandGroup>
       </div>
@@ -452,7 +451,7 @@ function CommandGroup({
   return (
     <div>
       <div className="mb-1.5 flex items-center justify-between gap-2">
-        <h4 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">
+        <h4 className="text-[10px] font-semibold uppercase tracking-[0.07em] text-muted-foreground/65">
           {title}
         </h4>
         {action}
@@ -500,7 +499,7 @@ function RunningCommandCard({
                 href={primaryUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1 text-sky-400 hover:underline"
+                className="inline-flex items-center gap-1 text-info hover:underline"
               >
                 Open
                 <ExternalLink className="size-3" />
@@ -736,19 +735,19 @@ function statusMeta(status: BackgroundCommandSessionSummary["status"]) {
       return {
         label: "Starting",
         spinner: true,
-        className: "text-amber-400 ring-amber-400/30 bg-amber-400/10",
+        className: "text-warning ring-warning/30 bg-warning/10",
       };
     case "running":
       return {
         label: "Running",
         spinner: true,
-        className: "text-emerald-400 ring-emerald-400/30 bg-emerald-400/10",
+        className: "text-success ring-success/30 bg-success/10",
       };
     case "stopping":
       return {
         label: "Stopping",
         spinner: true,
-        className: "text-amber-400 ring-amber-400/30 bg-amber-400/10",
+        className: "text-warning ring-warning/30 bg-warning/10",
       };
     case "exited":
       return {

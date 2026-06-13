@@ -1,22 +1,18 @@
 "use client";
 
-import { useMemo } from "react";
-import { Loader2 } from "lucide-react";
-
-import { cn } from "@/lib/utils";
-import { BashCommandBar } from "./bash-command-bar";
+import { BashTerminal } from "./bash-terminal";
 import { useBashStream } from "./use-bash-stream";
-import {
-  renderAnsiToHtml,
-  terminalStatus,
-  type BashOutput,
-} from "./terminal-utils";
+import { type BashOutput } from "./terminal-utils";
 
 interface LiveTerminalOutputProps {
   command?: string;
   streamId: string;
   streamToken?: string;
   initialOutput?: BashOutput;
+  step?: number | string;
+  variant?: "standalone" | "sections";
+  showCopyButton?: boolean;
+  includeFooter?: boolean;
   className?: string;
 }
 
@@ -25,6 +21,10 @@ export function LiveTerminalOutput({
   streamId,
   streamToken,
   initialOutput,
+  step,
+  variant = "standalone",
+  showCopyButton = true,
+  includeFooter = true,
   className,
 }: LiveTerminalOutputProps) {
   const streamState = useBashStream(streamId, streamToken, true);
@@ -38,101 +38,24 @@ export function LiveTerminalOutput({
   const commandPolicyMode = initialOutput?.commandPolicyMode;
   const boundary = initialOutput?.boundary;
   const isRunning = Boolean(streamToken) && !streamState.finished;
-  const status = terminalStatus({
-    exitCode,
-    timedOut,
-    killed,
-    failedReason,
-  });
-
-  const stdoutHtml = useMemo(
-    () => (stdout ? renderAnsiToHtml(stdout) : null),
-    [stdout],
-  );
-  const stderrHtml = useMemo(
-    () => (stderr ? renderAnsiToHtml(stderr) : null),
-    [stderr],
-  );
-
-  const hasOutput = stdoutHtml || stderrHtml;
 
   return (
-    <div
-      className={cn(
-        "rounded-md bg-panel ring-1 ring-border font-mono text-ui-mono leading-relaxed overflow-hidden",
-        className,
-      )}
-    >
-      {command ? (
-        <BashCommandBar
-          command={command}
-          trailing={
-            isRunning ? (
-              <Loader2 className="mt-0.5 size-3.5 shrink-0 animate-spin text-sky-400" />
-            ) : undefined
-          }
-        />
-      ) : null}
-      {hasOutput ? (
-        <div className="max-h-64 overflow-y-auto px-3 py-2 space-y-1">
-          {stdoutHtml && (
-            <pre
-              className="whitespace-pre-wrap wrap-break-word text-foreground/80"
-              dangerouslySetInnerHTML={{ __html: stdoutHtml }}
-            />
-          )}
-          {stderrHtml && (
-            <pre
-              className="whitespace-pre-wrap wrap-break-word text-amber-300/90"
-              dangerouslySetInnerHTML={{ __html: stderrHtml }}
-            />
-          )}
-        </div>
-      ) : isRunning ? (
-        <div className="px-3 py-2 text-muted-foreground/50 italic flex items-center gap-2">
-          <Loader2 className="size-3 animate-spin" />
-          Running...
-        </div>
-      ) : (
-        <div className="px-3 py-2 text-muted-foreground/50 italic">
-          (no output)
-        </div>
-      )}
-      {status || isRunning || commandPolicyMode || boundary ? (
-        <div className="flex flex-wrap items-center gap-2 border-t border-white/8 px-2 py-1">
-          {status ? (
-            <span
-              className={cn(
-                "text-[10px] font-medium",
-                status.tone === "error"
-                  ? "text-red-400"
-                  : "text-muted-foreground/60",
-              )}
-            >
-              {status.label}
-            </span>
-          ) : isRunning ? (
-            <span className="animate-pulse text-[10px] font-medium text-sky-400">
-              Running...
-            </span>
-          ) : null}
-          {commandPolicyMode ? (
-            <span className="text-[10px] text-muted-foreground/60">
-              Policy: {commandPolicyMode}
-            </span>
-          ) : null}
-          {boundary ? (
-            <span className="text-[10px] text-muted-foreground/60">
-              Boundary: {boundary.label}
-            </span>
-          ) : null}
-          {boundary ? (
-            <span className="text-[10px] text-muted-foreground/60">
-              Confinement: Unconfined
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
+    <BashTerminal
+      command={command}
+      stdout={stdout}
+      stderr={stderr}
+      exitCode={exitCode}
+      timedOut={timedOut}
+      killed={killed}
+      failedReason={failedReason}
+      commandPolicyMode={commandPolicyMode}
+      boundary={boundary}
+      step={step}
+      variant={variant}
+      showCopyButton={showCopyButton}
+      includeFooter={includeFooter}
+      isRunning={isRunning}
+      className={className}
+    />
   );
 }

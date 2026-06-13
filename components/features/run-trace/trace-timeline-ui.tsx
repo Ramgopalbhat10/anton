@@ -73,7 +73,6 @@ export function TraceThreadChildren({ children }: { children: ReactNode }) {
 export function TraceThreadHeaderRow({
   icon: Icon,
   iconClass,
-  dotClass,
   label,
   labelSuffix,
   durationMs,
@@ -82,7 +81,6 @@ export function TraceThreadHeaderRow({
 }: {
   icon: React.ComponentType<{ className?: string }>;
   iconClass: string;
-  dotClass: string;
   label: string;
   labelSuffix?: ReactNode;
   durationMs?: number | null;
@@ -95,34 +93,33 @@ export function TraceThreadHeaderRow({
       style={{ gridTemplateColumns: `${THREAD_ICON_COL} minmax(0, 1fr)` }}
     >
       <div className="flex justify-center">
-        <span
+        <Icon
           className={cn(
-            "flex size-3.5 shrink-0 items-center justify-center rounded-full ring-2 ring-background",
-            dotClass,
+            "shrink-0",
+            subdued ? "size-3" : "size-3.5",
+            iconClass,
           )}
-        >
-          <Icon className={cn("size-2.5", iconClass)} />
-        </span>
+        />
       </div>
       <div className="flex min-w-0 items-center gap-1.5">
         <span
           className={cn(
-            "inline-flex min-w-0 flex-1 items-center gap-1 truncate text-[11px]",
+            "inline-flex min-w-0 flex-1 items-center gap-1 truncate",
             subdued
-              ? "font-medium text-foreground/85"
-              : "font-semibold text-foreground/95",
+              ? "text-xs font-medium text-foreground/85"
+              : "text-[12.5px] font-semibold text-foreground/95",
           )}
         >
           <span className="truncate">{label}</span>
           {labelSuffix}
         </span>
         {status === "running" ? (
-          <Loader2 className="size-3 shrink-0 animate-spin text-sky-400" />
+          <Loader2 className="size-3 shrink-0 animate-spin text-info" />
         ) : status === "error" ? (
           <AlertCircle className="size-3 shrink-0 text-destructive/80" />
         ) : null}
         {durationMs != null ? (
-          <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
+          <span className="shrink-0 font-mono text-[10.5px] tabular-nums text-muted-foreground/70">
             {formatTimelineDuration(durationMs)}
           </span>
         ) : null}
@@ -165,7 +162,16 @@ export function TraceTimelineRow({
 
   const rowContent = (
     <>
-      <span className="min-w-0 flex-1 truncate text-[11px] text-foreground/90">
+      <span
+        className={cn(
+          "min-w-0 flex-1 truncate text-xs",
+          kind === "reasoning"
+            ? "text-muted-foreground/70"
+            : kind === "tool"
+              ? "text-muted-foreground"
+              : "text-foreground/90",
+        )}
+      >
         {label}
       </span>
       {status !== "completed" &&
@@ -174,7 +180,7 @@ export function TraceTimelineRow({
         <StatusPill status={status} />
       ) : null}
       {durationMs != null ? (
-        <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
+        <span className="shrink-0 font-mono text-[10.5px] tabular-nums text-muted-foreground/70">
           {formatTimelineDuration(durationMs)}
         </span>
       ) : null}
@@ -195,17 +201,13 @@ export function TraceTimelineRow({
         style={{ gridTemplateColumns: `${THREAD_ICON_COL} minmax(0, 1fr)` }}
       >
         <div className="relative z-10 flex justify-center pt-0.5">
-          <span
+          <meta.Icon
             className={cn(
-              "flex items-center justify-center rounded-full ring-2 ring-background",
+              "shrink-0",
               isCompact ? "size-3" : "size-3.5",
-              meta.dotClass,
+              meta.iconClass,
             )}
-          >
-            <meta.Icon
-              className={cn(isCompact ? "size-2" : "size-2.5", meta.iconClass)}
-            />
-          </span>
+          />
         </div>
         <div className="min-w-0 pb-0.5">
           {expandable ? (
@@ -246,21 +248,33 @@ export function TraceTimelineRow({
 export function TraceExpandPanel({
   errored,
   denied,
+  scrollable = false,
+  maxHeight = "max-h-48",
   children,
 }: {
   errored?: boolean;
   denied?: boolean;
+  scrollable?: boolean;
+  maxHeight?: string;
   children: ReactNode;
 }) {
   return (
     <div
       className={cn(
-        "rounded-md border border-border/50 bg-background/30 px-2 py-1.5 text-[10px]",
-        errored && "border-destructive/25 bg-destructive/[0.03]",
-        denied && "border-border/40 bg-secondary/15",
+        "rounded-lg border border-border bg-card text-[10px]",
+        !scrollable && "px-3 py-2.5",
+        scrollable && "overflow-hidden",
+        errored && "border-destructive/25",
+        denied && "border-border/60",
       )}
     >
-      {children}
+      {scrollable ? (
+        <div className={cn("overflow-y-auto", maxHeight)}>
+          <div className="px-3 py-2.5">{children}</div>
+        </div>
+      ) : (
+        children
+      )}
     </div>
   );
 }
@@ -278,15 +292,19 @@ export function TraceLogBlock({
     <div className="space-y-1">
       <div
         className={cn(
-          "text-[9px] font-medium uppercase tracking-wide text-muted-foreground",
+          "text-[10px] font-semibold uppercase tracking-[0.07em] text-muted-foreground/70",
           tone === "error" && "text-destructive/80",
         )}
       >
         {title}
       </div>
-      <pre className="max-h-40 overflow-auto rounded-md bg-background/70 px-2 py-1.5 font-mono text-[10px] leading-relaxed text-foreground/90 whitespace-pre-wrap break-words ring-1 ring-border/40">
-        {children}
-      </pre>
+      <div className="overflow-hidden rounded-md border border-layout-border bg-background">
+        <div className="max-h-40 overflow-y-auto">
+          <pre className="whitespace-pre-wrap break-words px-2.5 py-2 font-mono text-[10.5px] leading-[1.65] text-muted-foreground">
+            {children}
+          </pre>
+        </div>
+      </div>
     </div>
   );
 }
@@ -304,7 +322,7 @@ export function StatusPill({ status }: { status: string }) {
   return (
     <span
       className={cn(
-        "shrink-0 rounded px-1 py-px text-[9px] font-medium uppercase tracking-wide ring-1",
+        "shrink-0 rounded px-1.5 py-px text-[10px] font-semibold uppercase tracking-[0.05em] ring-1",
         status === "completed" &&
           "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
         status === "running" && "bg-sky-500/10 text-sky-400 ring-sky-500/20",
@@ -352,8 +370,8 @@ export function timelineEventMeta(
   if (running) {
     return {
       Icon: Loader2,
-      iconClass: "animate-spin text-sky-400",
-      dotClass: "bg-sky-400/15",
+      iconClass: "animate-spin text-info",
+      dotClass: "bg-info/15",
     };
   }
 
@@ -361,20 +379,20 @@ export function timelineEventMeta(
     case "reasoning":
       return {
         Icon: Brain,
-        iconClass: "text-violet-400/90",
+        iconClass: "text-violet-400",
         dotClass: "bg-violet-400/15",
       };
     case "tool":
       return {
         Icon: TerminalSquare,
-        iconClass: "text-amber-400/90",
-        dotClass: "bg-amber-400/15",
+        iconClass: "text-(--accent-muted)",
+        dotClass: "bg-(--accent-muted)/15",
       };
     case "approval":
       return {
         Icon: ShieldCheck,
-        iconClass: "text-sky-400/90",
-        dotClass: "bg-sky-400/15",
+        iconClass: "text-info",
+        dotClass: "bg-info/15",
       };
     case "step":
       return {
@@ -385,14 +403,14 @@ export function timelineEventMeta(
     case "todos":
       return {
         Icon: ListTodo,
-        iconClass: "text-sky-400/90",
-        dotClass: "bg-sky-400/15",
+        iconClass: "text-info",
+        dotClass: "bg-info/15",
       };
     default:
       return {
         Icon: Layers,
-        iconClass: "text-emerald-400/90",
-        dotClass: "bg-emerald-400/15",
+        iconClass: "text-success",
+        dotClass: "bg-success/15",
       };
   }
 }

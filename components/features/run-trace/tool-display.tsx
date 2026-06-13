@@ -256,6 +256,7 @@ export function traceToolStateMeta(state: ToolTraceEntry["state"]) {
   return {
     ...meta,
     Icon: iconForTool,
+    iconClass: "text-(--accent-muted)",
   };
 }
 

@@ -17,7 +17,7 @@ import {
   type ToolState,
 } from "@/src/lib/trace";
 
-import { formatDuration, toolTitle } from "./trace-data";
+import { formatDuration, harnessStepDisplayNumber, toolTitle } from "./trace-data";
 import {
   pickString,
   previewToolInput,
@@ -51,6 +51,13 @@ export function ToolTraceRow({
   const approvalMeta = needsApproval ? getApprovalMetadata(entry) : undefined;
   const showDetails = entry.name === "bash" || approvalMeta?.diffPreview !== undefined;
   const streamToken = pickString(entry.activity?.details, "streamToken");
+  const stepNumber =
+    entry.activity?.details &&
+    typeof entry.activity.details === "object" &&
+    "stepNumber" in entry.activity.details &&
+    typeof entry.activity.details.stepNumber === "number"
+      ? harnessStepDisplayNumber(entry.activity.details.stepNumber)
+      : undefined;
   const title = toolTitle(entry, runStatus);
   const preview = previewToolInput(entry.input);
   const showPreview = preview.length > 0 && preview !== title.target;
@@ -61,7 +68,7 @@ export function ToolTraceRow({
         disabled={!showDetails}
         trigger={({ open }) => (
           <span className="grid grid-cols-[0.875rem_minmax(0,1fr)] gap-2 rounded px-0 py-0">
-            <meta.Icon className={cn("mt-0.5 size-3.5", meta.iconClass)} />
+            <meta.Icon className={cn("mt-0.5 size-3", meta.iconClass)} />
             <span className="min-w-0">
               <span className="flex min-w-0 items-center gap-1.5">
                 <ToolTitle title={title} />
@@ -95,7 +102,7 @@ export function ToolTraceRow({
                   </span>
                 )}
                 {entry.activity?.durationMs !== undefined && (
-                  <span className="shrink-0 text-[10px]">
+                  <span className="shrink-0 text-[11px] text-muted-foreground/70">
                     {formatDuration(entry.activity.durationMs)}
                   </span>
                 )}
@@ -129,6 +136,7 @@ export function ToolTraceRow({
                   command={pickString(entry.input, "command")}
                   streamId={entry.activity.toolCallId}
                   streamToken={streamToken}
+                  step={stepNumber}
                   initialOutput={
                     typeof entry.output === "object" && entry.output !== null
                       ? (entry.output as {
@@ -145,6 +153,7 @@ export function ToolTraceRow({
               ) : (
                 <TerminalOutput
                   command={pickString(entry.input, "command") ?? safeStringify(entry.input)}
+                  step={stepNumber}
                   output={
                     entry.state === "output-error" && entry.errorText
                       ? { stderr: entry.errorText, exitCode: 1 }
@@ -184,12 +193,12 @@ function ToolTitle({
   title: { verb: string; target?: string };
 }) {
   return (
-    <span className="min-w-0 truncate text-foreground/85">
+    <span className="min-w-0 truncate text-[12.5px] leading-5 text-muted-foreground">
       {title.verb}
       {title.target && (
         <>
           {" "}
-          <code className="rounded bg-card px-1 py-0.5 font-mono text-[10px] text-foreground/90">
+          <code className="rounded border border-border bg-input px-1.5 py-px font-mono text-[10.5px] leading-4 text-muted-foreground">
             {title.target}
           </code>
         </>

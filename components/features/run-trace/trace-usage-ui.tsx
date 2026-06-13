@@ -1,7 +1,7 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { Database } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { ChevronDown, ChevronUp, Database } from "lucide-react";
 
 import {
   HoverCard,
@@ -104,7 +104,7 @@ export function StepCacheIndicator({
             "inline-flex shrink-0 items-center rounded p-0.5 transition-colors",
             "hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
             status === "hit"
-              ? "text-emerald-400/90"
+              ? "text-success"
               : "text-muted-foreground/55",
           )}
           aria-label={
@@ -116,48 +116,72 @@ export function StepCacheIndicator({
           <Database className="size-3" strokeWidth={2.25} />
         </button>
       </HoverCardTrigger>
-      <HoverCardContent align="start" className="w-52 space-y-1.5 p-2.5">
-        <p className="text-[10px] font-medium text-foreground/90">
-          Step {displayStepNumber} ·{" "}
+      <HoverCardContent align="start" className="w-[230px] p-0">
+        <p className="px-3 pb-[5px] pt-[9px] text-xs">
+          <span className="font-semibold text-foreground">
+            Step {displayStepNumber}
+          </span>{" "}
           <span
             className={cn(
-              status === "hit" ? "text-emerald-400" : "text-muted-foreground",
+              status === "hit" ? "text-success" : "text-muted-foreground/70",
             )}
           >
-            cache {status}
+            · cache {status}
           </span>
         </p>
-        <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 font-mono text-[10px] tabular-nums text-muted-foreground">
-          <dt>Input</dt>
-          <dd className="text-right text-foreground/85">
-            {formatCompactCount(inputTokens)}
-          </dd>
-          <dt>Cached</dt>
-          <dd className="text-right text-foreground/85">
-            {cachedTokens > 0 ? formatCompactCount(cachedTokens) : "—"}
-            {cachePercent !== undefined && cachedTokens > 0
-              ? ` (${cachePercent}%)`
-              : ""}
-          </dd>
+        <dl className="px-3 pb-2.5 pt-0.5">
+          <StepUsageStatRow label="Input" value={formatCompactCount(inputTokens)} />
+          <StepUsageStatRow
+            label="Cached"
+            value={
+              cachedTokens > 0
+                ? `${formatCompactCount(cachedTokens)}${
+                    cachePercent !== undefined ? ` (${cachePercent}%)` : ""
+                  }`
+                : "—"
+            }
+            accent={cachedTokens > 0}
+          />
           {step.outputTokens !== undefined ? (
-            <>
-              <dt>Output</dt>
-              <dd className="text-right text-foreground/85">
-                {formatCompactCount(step.outputTokens)}
-              </dd>
-            </>
+            <StepUsageStatRow
+              label="Output"
+              value={formatCompactCount(step.outputTokens)}
+            />
           ) : null}
           {step.toolCallCount !== undefined ? (
-            <>
-              <dt>Tools</dt>
-              <dd className="text-right text-foreground/85">
-                {step.toolCallCount}
-              </dd>
-            </>
+            <StepUsageStatRow label="Tools" value={String(step.toolCallCount)} />
           ) : null}
         </dl>
       </HoverCardContent>
     </HoverCard>
+  );
+}
+
+function StepUsageStatRow({
+  label,
+  value,
+  accent = false,
+}: {
+  label: string;
+  value: string;
+  accent?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-1">
+      <dt className="text-[11.5px] text-muted-foreground/70">{label}</dt>
+      <dd
+        className={cn(
+          "font-mono text-[11.5px] tabular-nums",
+          accent
+            ? "text-success"
+            : value === "—"
+              ? "text-muted-foreground/70"
+              : "text-foreground",
+        )}
+      >
+        {value}
+      </dd>
+    </div>
   );
 }
 
@@ -168,7 +192,11 @@ export function UsageStatGrid({
   run: ProjectRunDetailsRun;
   usage: ProjectRunDetailsRun["tokenUsage"];
 }) {
-  const stats = [
+  const stats: {
+    label: string;
+    value: string;
+    tone?: "success" | "thought";
+  }[] = [
     {
       label: "Raw total",
       value: formatCompactCount(run.rawTotalTokens ?? run.totalTokens),
@@ -180,46 +208,47 @@ export function UsageStatGrid({
     {
       label: "Cached read",
       value: formatCompactCount(usage?.cachedInputTokens),
-      accent: (usage?.cachedInputTokens ?? 0) > 0,
-    },
-    {
-      label: "Cache write",
-      value: formatCompactCount(usage?.cacheWriteTokens),
+      ...((usage?.cachedInputTokens ?? 0) > 0
+        ? { tone: "success" as const }
+        : {}),
     },
     {
       label: "Reasoning",
       value: formatCompactCount(usage?.reasoningTokens),
-    },
-    {
-      label: "Provider billed",
-      value: formatCompactCount(usage?.providerEffectiveTokens),
+      ...((usage?.reasoningTokens ?? 0) > 0
+        ? { tone: "thought" as const }
+        : {}),
     },
   ].filter((stat) => stat.value !== "—");
 
   if (stats.length === 0) return null;
 
   return (
-    <section className="rounded-md border border-border/40 bg-background/20 p-2">
-      <h4 className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+    <section className="space-y-2">
+      <h4 className="text-[10px] font-semibold uppercase tracking-[0.07em] text-muted-foreground/65">
         Token totals
       </h4>
-      <div className="flex gap-1.5">
+      <div className="grid grid-cols-2 gap-2">
         {stats.map((stat) => (
           <div
             key={stat.label}
-            className="min-w-0 flex-1 rounded bg-secondary/30 px-1.5 py-1 text-center ring-1 ring-border/30"
+            className="flex flex-col items-center gap-0.5 rounded-lg border border-border bg-card px-2.5 py-[9px]"
           >
-            <div
+            <span
               className={cn(
-                "font-mono text-[11px] font-medium tabular-nums",
-                stat.accent ? "text-emerald-400/90" : "text-foreground/90",
+                "font-mono text-sm font-semibold tabular-nums",
+                stat.tone === "success"
+                  ? "text-success"
+                  : stat.tone === "thought"
+                    ? "text-violet-400"
+                    : "text-foreground",
               )}
             >
               {stat.value}
-            </div>
-            <div className="truncate text-[9px] text-muted-foreground">
+            </span>
+            <span className="text-[10.5px] text-muted-foreground/70">
               {stat.label}
-            </div>
+            </span>
           </div>
         ))}
       </div>
@@ -240,52 +269,54 @@ export function PromptCacheSection({
   ] as const;
 
   return (
-    <section className="rounded-md border border-border/40 bg-background/20 p-2">
-      <div className="mb-1.5 flex items-baseline justify-between gap-2">
-        <h4 className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+    <section className="border-t border-layout-border pt-3">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <h4 className="text-[10px] font-semibold uppercase tracking-[0.07em] text-muted-foreground/65">
           Prompt cache
         </h4>
         {promptCache.cacheHitRate !== undefined ? (
-          <span className="font-mono text-[10px] tabular-nums text-emerald-400/85">
+          <span className="font-mono text-[11.5px] font-semibold tabular-nums text-success">
             {(promptCache.cacheHitRate * 100).toFixed(1)}% hit
           </span>
         ) : null}
       </div>
-      <div className="mb-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground">
-        <span className="truncate">{promptCache.modelId}</span>
-        <span className="text-muted-foreground/60">·</span>
-        <span>{promptCache.providerId}</span>
+      <div className="mb-2 truncate font-mono text-[10.5px] text-muted-foreground">
+        {promptCache.modelId}
+        <span className="text-muted-foreground/50"> · </span>
+        {promptCache.providerId}
         {promptCache.cachedInputTokens !== undefined ? (
           <>
-            <span className="text-muted-foreground/60">·</span>
-            <span>{formatCompactCount(promptCache.cachedInputTokens)} cached</span>
+            <span className="text-muted-foreground/50"> · </span>
+            {formatCompactCount(promptCache.cachedInputTokens)} cached
           </>
         ) : null}
       </div>
-      <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 font-mono text-[9px] text-muted-foreground/80">
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
         {hashRows.map(([label, hash]) => (
-          <div key={label} className="flex min-w-0 gap-1">
-            <span className="shrink-0 text-muted-foreground/60">{label}</span>
-            <span className="truncate">{hash}</span>
+          <div key={label} className="flex min-w-0 items-center gap-1.5">
+            <span className="shrink-0 text-muted-foreground/65">{label}</span>
+            <span className="truncate font-mono text-muted-foreground">
+              {hash}
+            </span>
           </div>
         ))}
       </div>
       {promptCache.intentionalSegmentTransition ? (
-        <div className="mt-1.5 border-t border-border/30 pt-1.5 text-[9px] leading-snug text-sky-200/80">
+        <p className="mt-2 text-[10.5px] leading-[1.5] text-(--accent-muted)">
           {promptCache.intentionalSegmentTransition}
-        </div>
+        </p>
       ) : null}
-          {promptCache.cacheBreakReasons.length > 0 ? (
-            <ul className="mt-1.5 space-y-0.5 border-t border-border/30 pt-1.5 text-[9px] leading-snug text-sky-200/75">
-              {promptCache.cacheBreakReasons.map((reason) => (
-                <li key={reason} className="line-clamp-2">
-                  {reason}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          {promptCache.likelyCacheMissReasons.length > 0 ? (
-        <ul className="mt-1.5 space-y-0.5 border-t border-border/30 pt-1.5 text-[9px] leading-snug text-amber-200/75">
+      {promptCache.cacheBreakReasons.length > 0 ? (
+        <ul className="mt-2 space-y-0.5 text-[10.5px] leading-[1.5] text-(--accent-muted)">
+          {promptCache.cacheBreakReasons.map((reason) => (
+            <li key={reason} className="line-clamp-2">
+              {reason}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {promptCache.likelyCacheMissReasons.length > 0 ? (
+        <ul className="mt-2 space-y-0.5 text-[10.5px] leading-[1.5] text-warning/80">
           {promptCache.likelyCacheMissReasons.map((reason) => (
             <li key={reason} className="line-clamp-2">
               {reason}
@@ -302,41 +333,44 @@ export function StepUsageTable({
 }: {
   stepUsage: readonly ProjectRunDetailsStepUsage[];
 }) {
+  const [expanded, setExpanded] = useState(false);
   if (stepUsage.length === 0) return null;
 
+  const visible = expanded
+    ? stepUsage
+    : stepUsage.slice(0, STEP_USAGE_PREVIEW_LIMIT);
+  const hidden = stepUsage.length - visible.length;
+
   return (
-    <section className="rounded-md border border-border/40 bg-background/20 p-2">
-      <h4 className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+    <section className="border-t border-layout-border pt-3">
+      <h4 className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.07em] text-muted-foreground/65">
         Per-step usage
       </h4>
       <div className="overflow-x-auto">
-        <table className="w-full text-[10px]">
+        <table className="w-full text-[11px]">
           <thead>
-            <tr className="text-left text-[9px] uppercase tracking-wide text-muted-foreground/70">
-              <th className="pb-0.5 pr-2 font-medium">Step</th>
-              <th className="pb-0.5 pr-2 text-right font-medium">In</th>
-              <th className="pb-0.5 pr-2 text-right font-medium">Cached</th>
-              <th className="pb-0.5 pr-2 text-right font-medium">Out</th>
-              <th className="pb-0.5 text-right font-medium">Tools</th>
+            <tr className="text-left text-[9.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground/65">
+              <th className="pb-1 pr-2 font-semibold">Step</th>
+              <th className="pb-1 pr-2 text-right font-semibold">In</th>
+              <th className="pb-1 pr-2 text-right font-semibold">Cached</th>
+              <th className="pb-1 pr-2 text-right font-semibold">Out</th>
+              <th className="pb-1 text-right font-semibold">Tools</th>
             </tr>
           </thead>
           <tbody className="font-mono tabular-nums text-muted-foreground">
-            {stepUsage.map((step) => {
+            {visible.map((step) => {
               const status = stepCacheStatus(step);
               return (
-                <tr
-                  key={step.stepNumber}
-                  className="border-t border-border/20 text-foreground/85"
-                >
-                  <td className="py-0.5 pr-2">
-                    <span className="inline-flex items-center gap-1">
+                <tr key={step.stepNumber}>
+                  <td className="py-[3px] pr-2">
+                    <span className="inline-flex items-center gap-1.5 text-foreground">
                       {step.stepNumber + 1}
                       {status !== undefined ? (
                         <Database
                           className={cn(
-                            "size-2.5",
+                            "size-[9px]",
                             status === "hit"
-                              ? "text-emerald-400/80"
+                              ? "text-success"
                               : "text-muted-foreground/40",
                           )}
                           strokeWidth={2.25}
@@ -344,23 +378,23 @@ export function StepUsageTable({
                       ) : null}
                     </span>
                   </td>
-                  <td className="py-0.5 pr-2 text-right">
+                  <td className="py-[3px] pr-2 text-right">
                     {formatCompactCount(step.inputTokens)}
                   </td>
                   <td
                     className={cn(
-                      "py-0.5 pr-2 text-right",
-                      (step.cachedInputTokens ?? 0) > 0 && "text-emerald-400/85",
+                      "py-[3px] pr-2 text-right",
+                      (step.cachedInputTokens ?? 0) > 0 && "text-success",
                     )}
                   >
                     {(step.cachedInputTokens ?? 0) > 0
                       ? formatCompactCount(step.cachedInputTokens)
                       : "—"}
                   </td>
-                  <td className="py-0.5 pr-2 text-right">
+                  <td className="py-[3px] pr-2 text-right">
                     {formatCompactCount(step.outputTokens)}
                   </td>
-                  <td className="py-0.5 text-right">
+                  <td className="py-[3px] text-right">
                     {step.toolCallCount ?? "—"}
                   </td>
                 </tr>
@@ -369,9 +403,25 @@ export function StepUsageTable({
           </tbody>
         </table>
       </div>
+      {stepUsage.length > STEP_USAGE_PREVIEW_LIMIT ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          className="mt-1 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+        >
+          {expanded ? (
+            <ChevronUp className="size-[11px] text-muted-foreground/65" />
+          ) : (
+            <ChevronDown className="size-[11px] text-muted-foreground/65" />
+          )}
+          {expanded ? "Show fewer steps" : `Show ${hidden} more steps`}
+        </button>
+      ) : null}
     </section>
   );
 }
+
+const STEP_USAGE_PREVIEW_LIMIT = 8;
 
 export function UsageSectionShell({
   title,
@@ -386,13 +436,10 @@ export function UsageSectionShell({
 }) {
   return (
     <section
-      className={cn(
-        "rounded-md border border-border/40 bg-background/20 p-2",
-        className,
-      )}
+      className={cn("border-t border-layout-border pt-3", className)}
     >
-      <div className="mb-1.5 flex items-baseline justify-between gap-2">
-        <h4 className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h4 className="text-[10px] font-semibold uppercase tracking-[0.07em] text-muted-foreground/65">
           {title}
         </h4>
         {trailing}

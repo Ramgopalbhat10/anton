@@ -141,7 +141,7 @@ export function Worklog({
     return (
       <aside
         className={cn(
-          "flex min-h-0 flex-col border-l border-layout-border bg-panel/80",
+          "flex min-h-0 flex-col border-l border-border bg-sidebar",
           className,
         )}
         aria-label="Trace workspace"
@@ -153,7 +153,7 @@ export function Worklog({
   return (
     <aside
       className={cn(
-        "flex min-h-0 flex-col border-l border-layout-border bg-panel/80",
+        "flex min-h-0 flex-col border-l border-border bg-sidebar",
         className,
       )}
       aria-label="Trace workspace"

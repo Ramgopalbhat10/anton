@@ -1,12 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
+  Check,
+  Cpu,
+  Loader2,
   Plus,
+  Route,
+  Settings2,
   ShieldCheck,
   ShieldOff,
   ShieldQuestion,
-  SlidersHorizontal,
   X,
 } from "lucide-react";
 
@@ -43,16 +47,14 @@ import {
   jsonHeaders,
   requestJson,
 } from "@/src/lib/client-fetch";
+import { cn } from "@/lib/utils";
 import { notifyWorkspaceAgentDefaultsChanged } from "@/src/lib/client-state/workspace-agent-defaults";
 
 import { ModelPicker } from "@/components/features/chat/model-picker";
-import { SettingsCard, SettingsPageShell } from "./settings-shell";
+import { SettingsPageShell } from "./settings-shell";
 
-const COMPACT_SELECT_TRIGGER_CLASS =
-  "h-5 w-44 px-1.5 text-[11px] font-medium text-foreground hover:bg-primary/10";
-const COMPACT_SELECT_CONTENT_CLASS = "min-w-36";
-const COMPACT_SELECT_VIEWPORT_CLASS = "p-0.5";
-const COMPACT_SELECT_ITEM_CLASS = "py-1 pr-7 pl-1.5";
+const ROW_SELECT_TRIGGER_CLASS =
+  "h-[34px] rounded-lg bg-input px-3 text-[13px] text-foreground";
 const DEFAULT_ROUTING: OpenRouterRoutingPreference = {
   order: [],
   allowFallbacks: true,
@@ -69,7 +71,6 @@ const PERMISSION_MODE_ITEMS = [
 }[];
 
 export function AgentSettingsPanel() {
-  const [settings, setSettings] = useState<WorkspaceSettingsSummary | null>(null);
   const [model, setModel] = useState<ModelId>(DEFAULT_MODEL_ID);
   const [permissionMode, setPermissionMode] = useState<PermissionMode>("auto-review");
   const [routingPreferences, setRoutingPreferences] =
@@ -78,6 +79,7 @@ export function AgentSettingsPanel() {
     useState<OpenRouterModelEndpointsSummary | null>(null);
   const [endpointLoading, setEndpointLoading] = useState(false);
   const [customProviderTag, setCustomProviderTag] = useState("");
+  const [forceCustomRouting, setForceCustomRouting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -91,7 +93,6 @@ export function AgentSettingsPanel() {
           "/api/workspace-settings",
         );
         if (cancelled) return;
-        setSettings(data.settings);
         setModel(
           data.settings.defaultModel &&
             isSupportedModelId(data.settings.defaultModel)
@@ -120,6 +121,11 @@ export function AgentSettingsPanel() {
   const routingForSelectedModel = openRouterModelId
     ? routingPreferences[openRouterModelId] ?? DEFAULT_ROUTING
     : DEFAULT_ROUTING;
+  const hasCustomRouting =
+    routingForSelectedModel.order.length > 0 ||
+    !routingForSelectedModel.allowFallbacks;
+  const routingMode: "auto" | "custom" =
+    hasCustomRouting || forceCustomRouting ? "custom" : "auto";
 
   const selectedEndpointTags = useMemo(
     () => new Set(routingForSelectedModel.order),
@@ -201,7 +207,6 @@ export function AgentSettingsPanel() {
           }),
         },
       );
-      setSettings(data.settings);
       setRoutingPreferences(data.settings.openRouterRoutingPreferences);
       notifyWorkspaceAgentDefaultsChanged(data.settings);
       setError(null);
@@ -216,185 +221,259 @@ export function AgentSettingsPanel() {
     <SettingsPageShell
       title="Agent defaults"
       description="Set the default model, provider routing, and approval strictness for new chat sessions."
+      contentClassName="space-y-7"
     >
-      {error ? (
-        <div className="mb-3">
-          <ErrorBanner message={error} />
-        </div>
-      ) : null}
+      {error ? <ErrorBanner message={error} /> : null}
       {loading ? (
         <LoadingState label="Loading agent defaults..." />
       ) : (
-        <div className="space-y-3">
-          <SettingsCard title="Default model" icon={<SlidersHorizontal />}>
-            <div className="max-w-sm">
-              <ModelPicker
-                value={model}
-                onChange={setModel}
-                showThinking={false}
-                triggerClassName={COMPACT_SELECT_TRIGGER_CLASS}
-              />
-            </div>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Used when a session has no saved composer override.
-            </p>
-          </SettingsCard>
+        <div className="overflow-hidden rounded-[10px] border border-border bg-card">
+          <SettingRow
+            title="Default model"
+            description="Used when a session has no saved composer override."
+          >
+            <ModelPicker
+              value={model}
+              onChange={(next) => {
+                setModel(next);
+                setForceCustomRouting(false);
+              }}
+              showThinking={false}
+              triggerIcon={<Cpu className="size-3.5 text-muted-foreground/80" />}
+              triggerClassName="h-[34px] max-w-64 rounded-lg border-border bg-input px-3 text-[13px] font-normal text-foreground hover:bg-input/80"
+            />
+          </SettingRow>
 
-          {openRouterModelId ? (
-            <SettingsCard title="OpenRouter routing">
-              <div className="space-y-3">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {routingForSelectedModel.order.length > 0 ? (
-                    routingForSelectedModel.order.map((tag) => (
-                      <button
-                        key={tag}
-                        type="button"
-                        onClick={() => removeProviderTag(tag)}
-                        className="inline-flex h-6 max-w-full items-center gap-1 rounded border border-primary/40 bg-primary/10 px-2 text-[11px] font-medium text-foreground"
-                        aria-label={`Remove ${tag} from provider order`}
-                      >
-                        <span className="truncate">{tag}</span>
-                        <X className="size-3 shrink-0" />
-                      </button>
-                    ))
-                  ) : (
-                    <span className="text-xs text-muted-foreground">
-                      No pinned provider order.
+          <SettingRow
+            title="Provider routing"
+            description="How requests are routed across configured providers."
+            divider
+          >
+            <Select
+              value={routingMode}
+              onValueChange={(value) => {
+                if (value === "auto") {
+                  updateSelectedRouting(() => DEFAULT_ROUTING);
+                  setForceCustomRouting(false);
+                } else {
+                  setForceCustomRouting(true);
+                }
+              }}
+              disabled={!openRouterModelId}
+            >
+              <SelectTrigger
+                className={ROW_SELECT_TRIGGER_CLASS}
+                aria-label="Provider routing mode"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectViewport>
+                  <SelectItem value="auto">
+                    <span className="inline-flex items-center gap-1.5 leading-4">
+                      <Route className="size-3.5 text-muted-foreground/80" />
+                      Auto
                     </span>
-                  )}
-                </div>
+                  </SelectItem>
+                  <SelectItem value="custom">
+                    <span className="inline-flex items-center gap-1.5 leading-4">
+                      <Settings2 className="size-3.5 text-muted-foreground/80" />
+                      Custom
+                    </span>
+                  </SelectItem>
+                </SelectViewport>
+              </SelectContent>
+            </Select>
+          </SettingRow>
 
-                <div className="flex max-w-sm items-center gap-1.5">
-                  <Input
-                    value={customProviderTag}
-                    onChange={(event) => setCustomProviderTag(event.target.value)}
-                    placeholder="provider/tag"
-                    className="h-7 px-2 text-[11px]"
-                    aria-label="Custom OpenRouter provider tag"
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        addProviderTag(customProviderTag);
-                      }
-                    }}
-                  />
-                  <Button
-                    type="button"
-                    size="icon-xs"
-                    variant="secondary"
-                    onClick={() => addProviderTag(customProviderTag)}
-                    disabled={!customProviderTag.trim()}
-                    aria-label="Add provider tag"
-                  >
-                    <Plus className="size-3.5" />
-                  </Button>
-                </div>
+          {openRouterModelId && routingMode === "custom" ? (
+            <div className="space-y-3 px-5 pb-4">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {routingForSelectedModel.order.length > 0 ? (
+                  routingForSelectedModel.order.map((tag) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => removeProviderTag(tag)}
+                      className="inline-flex h-6 max-w-full items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2 text-[11px] font-medium text-foreground"
+                      aria-label={`Remove ${tag} from provider order`}
+                    >
+                      <span className="truncate">{tag}</span>
+                      <X className="size-3 shrink-0" />
+                    </button>
+                  ))
+                ) : (
+                  <span className="text-xs text-muted-foreground">
+                    No pinned provider order.
+                  </span>
+                )}
+              </div>
 
-                <div className="flex items-center justify-between gap-4 rounded border border-border px-2 py-1.5">
-                  <span className="text-xs font-medium">Allow fallbacks</span>
-                  <Switch
-                    checked={routingForSelectedModel.allowFallbacks}
-                    onCheckedChange={(checked) =>
-                      updateSelectedRouting((current) => ({
-                        ...current,
-                        allowFallbacks: checked,
-                      }))
+              <div className="flex max-w-sm items-center gap-1.5">
+                <Input
+                  value={customProviderTag}
+                  onChange={(event) => setCustomProviderTag(event.target.value)}
+                  placeholder="provider/tag"
+                  className="h-7 px-2 text-[11px]"
+                  aria-label="Custom OpenRouter provider tag"
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      addProviderTag(customProviderTag);
                     }
-                    className="h-4 w-7 ring-0 data-[state=checked]:ring-0"
-                    thumbClassName="size-3 data-[state=checked]:translate-x-3.5 data-[state=unchecked]:translate-x-0.5"
-                    aria-label="Allow OpenRouter fallbacks"
-                  />
-                </div>
+                  }}
+                />
+                <Button
+                  type="button"
+                  size="icon-xs"
+                  variant="secondary"
+                  onClick={() => addProviderTag(customProviderTag)}
+                  disabled={!customProviderTag.trim()}
+                  aria-label="Add provider tag"
+                >
+                  <Plus className="size-3.5" />
+                </Button>
+              </div>
 
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-xs font-medium text-muted-foreground">
-                      Endpoint recommendations
+              <div className="flex items-center justify-between gap-4 rounded-lg border border-border px-2.5 py-2">
+                <span className="text-xs font-medium">Allow fallbacks</span>
+                <Switch
+                  checked={routingForSelectedModel.allowFallbacks}
+                  onCheckedChange={(checked) =>
+                    updateSelectedRouting((current) => ({
+                      ...current,
+                      allowFallbacks: checked,
+                    }))
+                  }
+                  className="h-4 w-7 ring-0 data-[state=checked]:ring-0"
+                  thumbClassName="size-3 data-[state=checked]:translate-x-3.5 data-[state=unchecked]:translate-x-0.5"
+                  aria-label="Allow OpenRouter fallbacks"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Endpoint recommendations
+                  </span>
+                  {endpointLoading ? (
+                    <span className="text-[11px] text-muted-foreground">
+                      Loading...
                     </span>
-                    {endpointLoading ? (
-                      <span className="text-[11px] text-muted-foreground">
-                        Loading...
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {(endpointData?.endpoints ?? []).slice(0, 10).map((endpoint) => {
-                      const selected = selectedEndpointTags.has(endpoint.tag);
-                      return (
-                        <button
-                          key={endpoint.tag}
-                          type="button"
-                          onClick={() => addProviderTag(endpoint.tag)}
-                          disabled={selected}
-                          className="max-w-full rounded border border-border px-2 py-1 text-left text-[11px] leading-4 hover:bg-accent disabled:cursor-default disabled:border-primary/40 disabled:bg-primary/10"
-                          title={endpointSummary(endpoint)}
-                        >
-                          <span className="block truncate font-medium text-foreground">
-                            {endpoint.providerName} / {endpoint.tag}
-                          </span>
-                          <span className="block truncate text-muted-foreground">
-                            {endpointMeta(endpoint)}
-                          </span>
-                        </button>
-                      );
-                    })}
-                    {!endpointLoading && (endpointData?.endpoints.length ?? 0) === 0 ? (
-                      <span className="text-xs text-muted-foreground">
-                        No endpoint details available.
-                      </span>
-                    ) : null}
-                  </div>
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {(endpointData?.endpoints ?? []).slice(0, 10).map((endpoint) => {
+                    const selected = selectedEndpointTags.has(endpoint.tag);
+                    return (
+                      <button
+                        key={endpoint.tag}
+                        type="button"
+                        onClick={() => addProviderTag(endpoint.tag)}
+                        disabled={selected}
+                        className="max-w-full rounded-md border border-border px-2 py-1 text-left text-[11px] leading-4 hover:bg-accent disabled:cursor-default disabled:border-primary/40 disabled:bg-primary/10"
+                        title={endpointSummary(endpoint)}
+                      >
+                        <span className="block truncate font-medium text-foreground">
+                          {endpoint.providerName} / {endpoint.tag}
+                        </span>
+                        <span className="block truncate text-muted-foreground">
+                          {endpointMeta(endpoint)}
+                        </span>
+                      </button>
+                    );
+                  })}
+                  {!endpointLoading && (endpointData?.endpoints.length ?? 0) === 0 ? (
+                    <span className="text-xs text-muted-foreground">
+                      No endpoint details available.
+                    </span>
+                  ) : null}
                 </div>
               </div>
-            </SettingsCard>
+            </div>
           ) : null}
 
-          <SettingsCard title="Approval strictness">
-            <div className="max-w-sm">
-              <Select
-                value={permissionMode}
-                onValueChange={(value) => setPermissionMode(value as PermissionMode)}
+          <SettingRow
+            title="Approval strictness"
+            description="Default permission mode for new sessions. Composer controls still override per session."
+            divider
+          >
+            <Select
+              value={permissionMode}
+              onValueChange={(value) => setPermissionMode(value as PermissionMode)}
+            >
+              <SelectTrigger
+                className={ROW_SELECT_TRIGGER_CLASS}
+                aria-label="Approval strictness"
               >
-                <SelectTrigger className={COMPACT_SELECT_TRIGGER_CLASS}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className={COMPACT_SELECT_CONTENT_CLASS}>
-                  <SelectViewport className={COMPACT_SELECT_VIEWPORT_CLASS}>
-                    {PERMISSION_MODE_ITEMS.map((item) => (
-                      <SelectItem
-                        key={item.value}
-                        value={item.value}
-                        className={COMPACT_SELECT_ITEM_CLASS}
-                      >
-                        <span className="inline-flex items-center gap-1.5 text-xs leading-4">
-                          <item.Icon className="size-3.5" />
-                          {item.label}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectViewport>
-                </SelectContent>
-              </Select>
-            </div>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Default permission mode for new sessions. Composer controls still
-              override per session.
-            </p>
-          </SettingsCard>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectViewport>
+                  {PERMISSION_MODE_ITEMS.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      <span className="inline-flex items-center gap-1.5 leading-4">
+                        <item.Icon className="size-3.5 text-muted-foreground/80" />
+                        {item.label}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectViewport>
+              </SelectContent>
+            </Select>
+          </SettingRow>
 
-          <div className="flex items-center gap-2">
-            <Button type="button" onClick={() => void save()} disabled={saving}>
-              {saving ? "Saving..." : "Save defaults"}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-layout-border px-5 py-3">
+            <p className="text-[12.5px] text-muted-foreground/80">
+              Defaults apply to new sessions. Workspace root remains in
+              Workspaces settings.
+            </p>
+            <Button
+              type="button"
+              onClick={() => void save()}
+              disabled={saving}
+              className="h-[33px] rounded-lg px-4 text-[13px] font-semibold"
+            >
+              {saving ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Check className="size-3.5" />
+              )}
+              Save defaults
             </Button>
-            {settings ? (
-              <span className="text-xs text-muted-foreground">
-                Workspace root remains in Workspaces settings.
-              </span>
-            ) : null}
           </div>
         </div>
       )}
     </SettingsPageShell>
+  );
+}
+
+function SettingRow({
+  title,
+  description,
+  divider,
+  children,
+}: {
+  title: string;
+  description: string;
+  divider?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex flex-wrap items-center justify-between gap-x-8 gap-y-3 px-5 py-4",
+        divider && "border-t border-layout-border",
+      )}
+    >
+      <div className="min-w-0 flex-1 basis-60 space-y-1">
+        <h3 className="text-[13.5px] font-semibold">{title}</h3>
+        <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+          {description}
+        </p>
+      </div>
+      <div className="shrink-0">{children}</div>
+    </div>
   );
 }
 

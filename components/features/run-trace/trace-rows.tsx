@@ -104,13 +104,13 @@ export function InlineReasoningRow({
   const displayEvent = event ? displayEventForRun(event, runStatus) : undefined;
   const running = displayEvent?.status === "running";
   return (
-    <div className="flex gap-2 py-1 text-xs text-foreground/70">
+    <div className="flex gap-2 py-1 text-xs">
       {running ? (
-        <Loader2 className="mt-0.5 size-3.5 shrink-0 animate-spin text-sky-400" />
+        <Loader2 className="mt-0.5 size-3 shrink-0 animate-spin text-info" />
       ) : (
-        <Brain className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/60" />
+        <Brain className="mt-0.5 size-3 shrink-0 text-violet-400" />
       )}
-      <p className="whitespace-pre-wrap leading-relaxed text-foreground/70 italic font-mono text-[10px]">
+      <p className="whitespace-pre-wrap text-[12.5px] leading-[1.6] text-muted-foreground/70">
         {text}
       </p>
     </div>
@@ -135,11 +135,11 @@ function ReasoningRow({
       trigger={({ open }) => (
         <span className="inline-grid max-w-full grid-cols-[0.875rem_auto_0.75rem] items-start gap-2 rounded px-0 py-0">
           {running ? (
-            <Loader2 className="mt-0.5 size-3.5 animate-spin text-sky-400" />
+            <Loader2 className="mt-0.5 size-3 animate-spin text-info" />
           ) : (
-            <Brain className="mt-0.5 size-3.5 text-muted-foreground" />
+            <Brain className="mt-0.5 size-3 text-violet-400" />
           )}
-          <span className="truncate text-foreground/85">
+          <span className="truncate text-xs font-medium text-muted-foreground/70">
             {displayEvent?.durationMs !== undefined
               ? `Thought for ${formatDuration(displayEvent.durationMs)}`
               : running
@@ -147,19 +147,17 @@ function ReasoningRow({
                 : "Thought"}
           </span>
           {open ? (
-            <ChevronDown className="mt-0.5 size-3" />
+            <ChevronDown className="mt-0.5 size-3 text-muted-foreground/70" />
           ) : (
-            <ChevronRight className="mt-0.5 size-3" />
+            <ChevronRight className="mt-0.5 size-3 text-muted-foreground/70" />
           )}
         </span>
       )}
     >
       {text.trim().length > 0 ? (
-        <div className="min-h-0 overflow-hidden">
-          <pre className="ml-5 mt-1 max-h-40 overflow-y-auto pr-2 font-mono text-[10px] leading-relaxed text-foreground/80 whitespace-pre-wrap">
-            {text}
-          </pre>
-        </div>
+        <p className="ml-5 mt-1.5 max-h-40 overflow-y-auto text-[12.5px] leading-[1.6] text-muted-foreground/70 whitespace-pre-wrap">
+          {text}
+        </p>
       ) : null}
     </Disclosure>
   );
@@ -194,7 +192,7 @@ export function StepGroupView({
       forceOpen={hasPendingApproval}
       lazyMount
       trigger={({ open }) => (
-        <span className="inline-flex max-w-full items-center gap-1.5 rounded px-0 py-0 text-[11px] text-muted-foreground/80 hover:text-foreground/80">
+        <span className="inline-flex max-w-full items-center gap-1.5 rounded px-0 py-0 text-[11.5px] text-muted-foreground/70 hover:text-foreground/80">
           <span className="truncate">{group.summary}</span>
           {open ? (
             <ChevronDown className="size-3 shrink-0" />

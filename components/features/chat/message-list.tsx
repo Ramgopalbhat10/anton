@@ -7,6 +7,7 @@ import {
   Copy,
   Pencil,
   Play,
+  Sparkles,
 } from "lucide-react";
 
 import {
@@ -84,9 +85,25 @@ export function MessageList({
   }, [messages.length, status]);
 
   if (messages.length === 0) {
+    if (recovering) {
+      return (
+        <div className="flex flex-1 items-center justify-center px-6 text-center text-xs text-muted-foreground">
+          {emptyMessageListText(recovering)}
+        </div>
+      );
+    }
     return (
-      <div className="flex flex-1 items-center justify-center px-6 text-center text-xs text-muted-foreground">
-        {emptyMessageListText(recovering)}
+      <div className="flex flex-1 flex-col items-center justify-center gap-3.5 px-6 text-center">
+        <div className="grid size-11 place-items-center rounded-xl border border-border bg-card">
+          <Sparkles className="size-[18px] text-primary" />
+        </div>
+        <div className="space-y-1.5">
+          <h2 className="text-[15px] font-semibold">Start a new session</h2>
+          <p className="mx-auto max-w-[340px] text-[13px] leading-[1.55] text-muted-foreground/80">
+            Ask Anton to inspect or change the selected workspace. Pick a
+            project and branch below to get started.
+          </p>
+        </div>
       </div>
     );
   }
@@ -98,9 +115,9 @@ export function MessageList({
   return (
     <div
       ref={scrollRef}
-      className="flex-1 overflow-y-auto px-3 py-3 sm:px-4 lg:px-6"
+      className="flex-1 overflow-y-auto px-3 pt-7 pb-4 sm:px-4 lg:px-6"
     >
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 pb-8">
+      <div className="mx-auto flex w-full max-w-[720px] flex-col gap-5 pb-8">
         {messages.map((message) => (
           <MessageEvent
             key={message.id}
@@ -216,7 +233,7 @@ function MessageEvent({
         )}
       >
         {isUser ? (
-          <Surface variant="elevated" className="px-2 py-1 text-xs">
+          <div className="rounded-[10px] border border-border bg-secondary px-3.5 py-[9px] text-[13px]">
             {message.parts.map((part, i) => {
               if (part.type !== "text") return null;
               return (
@@ -225,7 +242,7 @@ function MessageEvent({
                 </div>
               );
             })}
-          </Surface>
+          </div>
         ) : (
           <div>
             <RunTraceAccordion
@@ -268,7 +285,9 @@ function MessageEvent({
               </div>
             ) : responseKind === "plan" ? null
             : responseText.length > 0 ? (
-              <Markdown className="text-xs leading-relaxed">{responseText}</Markdown>
+              <Markdown className="text-[13.5px] leading-[1.65]">
+                {responseText}
+              </Markdown>
             ) : null}
           </div>
         )}
@@ -415,11 +434,11 @@ function MessageActions({
   metrics?: ResponseMetrics;
 }) {
   return (
-    <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover/msg:opacity-100 focus-within:opacity-100">
+    <div className="flex items-center gap-2 opacity-0 transition-opacity group-hover/msg:opacity-100 focus-within:opacity-100">
       <CopyMessageButton text={text} />
       {metrics && <ResponseMetricsHoverCard metrics={metrics} />}
       {responseTime && (
-        <span className="px-1 py-0.5 font-mono text-ui-label normal-case tracking-normal">
+        <span className="px-1 py-0.5 font-mono text-[11px] text-muted-foreground/70">
           {responseTime}
         </span>
       )}
@@ -444,16 +463,16 @@ function CopyMessageButton({ text }: { text: string }) {
       variant="ghost"
       size="xs"
       onClick={onClick}
-      className="h-5 px-1.5 text-[10px] normal-case tracking-normal text-muted-foreground"
+      className="h-5 px-1.5 text-[11.5px] normal-case tracking-normal text-muted-foreground/70 hover:text-foreground"
       aria-label={copied ? "Copied" : "Copy message"}
     >
       {copied ? (
         <>
-          <Check className="size-3" /> copied
+          <Check className="size-3" /> Copied
         </>
       ) : (
         <>
-          <Copy className="size-3" /> copy
+          <Copy className="size-3" /> Copy
         </>
       )}
     </Button>

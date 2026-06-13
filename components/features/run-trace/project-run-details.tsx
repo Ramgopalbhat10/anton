@@ -6,7 +6,6 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
-  FileText,
   Hash,
   Layers,
   Loader2,
@@ -16,10 +15,15 @@ import {
 
 import { Markdown } from "@/components/features/chat/markdown";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Disclosure } from "@/components/shared/disclosure";
 import { ErrorBanner } from "@/components/shared/feedback-states";
 import { TerminalOutput } from "@/components/features/run-trace/terminal-output";
+import { BashTerminalFooter } from "@/components/features/run-trace/bash-terminal";
+import {
+  ToolDetailCard,
+  ToolDetailFooter,
+  ToolDetailSection,
+} from "@/components/features/run-trace/tool-detail-card";
 import type { BashOutput } from "@/components/features/run-trace/terminal-utils";
 import {
   formatDuration,
@@ -31,7 +35,6 @@ import {
 import {
   StatusPill,
   TraceExpandPanel,
-  TraceLogBlock,
   TraceThreadChildren,
   TraceThreadHeaderRow,
   TraceThreadNode,
@@ -62,6 +65,12 @@ import type {
   ProjectRunDetailsToolCall,
 } from "@/src/lib/api-types";
 import { getJson } from "@/src/lib/client-fetch";
+
+const RUN_TABS = [
+  { value: "usage", label: "Usage" },
+  { value: "trace", label: "Trace" },
+  { value: "context", label: "Context" },
+] as const;
 
 export function ProjectRunDetails({
   projectId,
@@ -105,7 +114,7 @@ export function ProjectRunDetails({
   if (loading && !details) {
     return (
       <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-        <Loader2 className="size-3.5 animate-spin text-sky-400" />
+        <Loader2 className="size-3.5 animate-spin text-info" />
         Loading run details...
       </div>
     );
@@ -168,26 +177,37 @@ export function ProjectRunDetails({
         onCopy={() => void copyRunSummary()}
       />
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="min-w-0 gap-2">
-        <TabsList size="md" className="w-full">
-          <TabsTrigger value="usage">Usage</TabsTrigger>
-          <TabsTrigger value="trace">
-            Trace
-            {traceEventCount > 0 ? (
-              <span className="font-mono text-[10px] text-muted-foreground tabular-nums">
-                {traceEventCount}
-              </span>
-            ) : null}
-          </TabsTrigger>
-          <TabsTrigger value="context">Context</TabsTrigger>
-        </TabsList>
+      <div className="min-w-0 space-y-3">
+        <div className="flex w-full gap-0.5 rounded-lg bg-input p-[3px]">
+          {RUN_TABS.map((tab) => {
+            const active = activeTab === tab.value;
+            return (
+              <button
+                key={tab.value}
+                type="button"
+                onClick={() => setActiveTab(tab.value)}
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-1 rounded-md py-[5px] text-xs transition-colors",
+                  active
+                    ? "border border-border bg-secondary font-semibold text-foreground"
+                    : "border border-transparent font-medium text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {tab.label}
+                {tab.value === "trace" && traceEventCount > 0 ? (
+                  <span className="tabular-nums opacity-70">
+                    {traceEventCount}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
 
-        <TabsContent value="usage" className="m-0">
+        {activeTab === "usage" ? (
           <TokenUsagePanel run={run} />
-        </TabsContent>
-
-        <TabsContent value="trace" className="m-0">
-          {traceEventCount === 0 ? (
+        ) : activeTab === "trace" ? (
+          traceEventCount === 0 ? (
             <EmptyHint>No events recorded.</EmptyHint>
           ) : (
             <TraceTimeline
@@ -198,21 +218,13 @@ export function ProjectRunDetails({
               approvals={approvals}
               stepUsage={run.stepUsage ?? []}
             />
-          )}
-        </TabsContent>
-
-        <TabsContent value="context" className="m-0">
-          {context ? (
-            <ContextPanel
-              context={context}
-              toolCalls={toolCalls}
-              hideTools={toolCalls.length > 0}
-            />
-          ) : (
-            <EmptyHint>No context summary persisted for this run.</EmptyHint>
-          )}
-        </TabsContent>
-      </Tabs>
+          )
+        ) : context ? (
+          <ContextPanel context={context} />
+        ) : (
+          <EmptyHint>No context summary persisted for this run.</EmptyHint>
+        )}
+      </div>
 
       {loading ? (
         <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
@@ -238,7 +250,7 @@ function RunMetaStrip({
   return (
     <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
       {run.provider ? (
-        <MetaChip>{run.provider}</MetaChip>
+        <MetaChip accent="primary">{run.provider}</MetaChip>
       ) : null}
       {run.finishReason ? (
         <MetaChip accent="muted">finish: {run.finishReason}</MetaChip>
@@ -268,7 +280,7 @@ function RunMetaStrip({
         onClick={onCopy}
       >
         {copied ? (
-          <Check className="size-3 text-emerald-400" />
+          <Check className="size-3 text-success" />
         ) : (
           <Copy className="size-3" />
         )}
@@ -283,15 +295,17 @@ function MetaChip({
   accent = "default",
 }: {
   children: ReactNode;
-  accent?: "default" | "muted";
+  accent?: "default" | "muted" | "primary";
 }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full px-2 py-0.5 font-mono ring-1",
-        accent === "default"
-          ? "bg-secondary/60 text-foreground/85 ring-border/70"
-          : "bg-background/40 text-muted-foreground ring-border/50",
+        "inline-flex items-center rounded-full border px-2 py-0.5 font-mono text-[10px]",
+        accent === "primary"
+          ? "border-primary/40 bg-primary/10 text-primary"
+          : accent === "default"
+            ? "border-border bg-secondary text-foreground/85"
+            : "border-border bg-input text-muted-foreground",
       )}
     >
       {children}
@@ -332,7 +346,6 @@ function TraceTimeline({
           <TraceThreadHeaderRow
             icon={Layers}
             iconClass={runMeta.iconClass}
-            dotClass={runMeta.dotClass}
             label={group.label}
             durationMs={group.durationMs}
             status={run.status === "error" ? "error" : "completed"}
@@ -354,7 +367,6 @@ function TraceTimeline({
                 <TraceThreadHeaderRow
                   icon={Hash}
                   iconClass={stepMeta.iconClass}
-                  dotClass={stepMeta.dotClass}
                   label={step.label}
                   labelSuffix={
                     displayStepNumber !== undefined ? (
@@ -414,8 +426,8 @@ function TraceTimeline({
                               expanded &&
                               event.kind === "reasoning" &&
                               event.summary ? (
-                              <TraceExpandPanel>
-                                <pre className="max-h-48 overflow-y-auto font-mono text-[10px] leading-relaxed text-foreground/80 whitespace-pre-wrap">
+                              <TraceExpandPanel scrollable>
+                                <pre className="font-mono text-[10px] leading-relaxed text-foreground/80 whitespace-pre-wrap">
                                   {event.summary}
                                 </pre>
                               </TraceExpandPanel>
@@ -515,120 +527,158 @@ function ToolCallExpandPanel({
 }) {
   const errored = toolCall.status === "error";
   const denied = toolCall.status === "denied";
-  const showApproval = approval !== undefined;
-  const showIo = Boolean(
-    toolCall.inputSummary || toolCall.outputSummary || toolCall.error,
-  );
+  const stepNumber =
+    toolCall.stepNumber !== null
+      ? harnessStepDisplayNumber(toolCall.stepNumber)
+      : undefined;
+  const bashParsed =
+    toolCall.toolName === "bash" ? bashOutputFromToolCall(toolCall) : undefined;
+  const showStatusRow =
+    Boolean(toolCall.permissionLabel) ||
+    toolCall.status !== "completed" ||
+    toolCall.approvalDecision === "pending" ||
+    toolCall.approvalDecision === "denied";
+  const extraRiskCategories =
+    approval?.riskCategories.filter(
+      (category) => category !== toolCall.permissionLabel,
+    ) ?? [];
 
   return (
-    <div
-      className={cn(
-        "rounded-md border border-border/50 bg-background/30 px-2 py-1.5 text-[10px]",
-        errored && "border-destructive/25 bg-destructive/[0.03]",
-        denied && "border-border/40 bg-secondary/15",
-      )}
+    <ToolDetailCard
+      toolName={toolCall.toolName}
+      step={stepNumber}
+      failed={errored}
+      denied={denied}
+      copyText={toolCallCopyText(toolCall, bashParsed)}
+      footer={toolCallFooter(toolCall, bashParsed)}
     >
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-        <span className="inline-flex min-w-0 items-center gap-1.5 font-mono text-[10px] font-medium text-foreground/90">
-          {toolCall.toolName}
+      {showStatusRow ? (
+        <div className="flex flex-wrap items-center gap-1.5">
           {toolCall.permissionLabel ? (
             <PermissionLabel label={toolCall.permissionLabel} />
           ) : null}
-        </span>
-        {toolCall.status !== "completed" ? (
-          <StatusPill status={toolCall.status} />
-        ) : null}
-        {toolCall.stepNumber !== null ? (
-          <span className="text-[10px] text-muted-foreground">
-            step {harnessStepDisplayNumber(toolCall.stepNumber)}
-          </span>
-        ) : null}
-        {toolCall.approvalDecision &&
-        (toolCall.approvalDecision === "pending" ||
-          toolCall.approvalDecision === "denied") ? (
-          <StatusPill status={toolCall.approvalDecision} />
-        ) : null}
-        {toolCall.exitCode !== null && toolCall.exitCode !== 0 ? (
-          <span className="font-mono text-[10px] text-muted-foreground">
-            exit {toolCall.exitCode}
-          </span>
-        ) : null}
-      </div>
+          {toolCall.status !== "completed" ? (
+            <StatusPill status={toolCall.status} />
+          ) : null}
+          {toolCall.approvalDecision === "pending" ||
+          toolCall.approvalDecision === "denied" ? (
+            <StatusPill status={toolCall.approvalDecision} />
+          ) : null}
+        </div>
+      ) : null}
 
-      {showApproval && approval ? (
-        <div className="mt-1.5 space-y-1 border-t border-border/30 pt-1.5">
+      {approval ? (
+        <div className="space-y-1">
           <div className="flex min-w-0 items-center gap-1.5">
-            <ShieldCheck className="size-3 shrink-0 text-sky-400/90" />
-            <span className="min-w-0 flex-1 truncate text-[10px] font-medium text-foreground/85">
+            <ShieldCheck className="size-3 shrink-0 text-info" />
+            <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground/85">
               {approval.title}
             </span>
             {approval.decision === "pending" || approval.decision === "denied" ? (
               <StatusPill status={approval.decision} />
             ) : null}
           </div>
-          <p className="break-words text-[10px] leading-snug text-muted-foreground">
+          <p className="break-words text-[10.5px] leading-snug text-muted-foreground">
             {approval.summary}
           </p>
-          {approval.riskCategories.filter(
-            (category) => category !== toolCall.permissionLabel,
-          ).length > 0 ? (
+          {extraRiskCategories.length > 0 ? (
             <div className="flex flex-wrap gap-1">
-              {approval.riskCategories
-                .filter((category) => category !== toolCall.permissionLabel)
-                .map((category) => (
-                  <span
-                    key={category}
-                    className="rounded bg-amber-400/10 px-1.5 py-px font-mono text-[9px] text-amber-400 ring-1 ring-amber-400/20"
-                  >
-                    {category}
-                  </span>
-                ))}
+              {extraRiskCategories.map((category) => (
+                <span
+                  key={category}
+                  className="rounded bg-warning/10 px-1.5 py-px font-mono text-[9px] text-warning ring-1 ring-warning/20"
+                >
+                  {category}
+                </span>
+              ))}
             </div>
           ) : null}
         </div>
       ) : null}
 
-      {showIo ? (
-        <div className="mt-1.5 border-t border-border/30 pt-1.5">
-          <ToolCallIoPanel toolCall={toolCall} />
-        </div>
-      ) : null}
-    </div>
+      {toolCall.toolName === "bash" && toolCall.inputSummary ? (
+        <TerminalOutput
+          command={toolCall.inputSummary}
+          output={bashParsed ?? {}}
+          variant="sections"
+          includeFooter={false}
+        />
+      ) : (
+        <ToolCallIoBlocks toolCall={toolCall} />
+      )}
+    </ToolDetailCard>
   );
 }
 
-function ToolCallIoPanel({ toolCall }: { toolCall: ProjectRunDetailsToolCall }) {
-  if (toolCall.toolName === "bash" && toolCall.inputSummary) {
-    return (
-      <TerminalOutput
-        command={toolCall.inputSummary}
-        output={bashOutputFromToolCall(toolCall)}
-        className="text-[10px]"
-      />
-    );
-  }
-
+function ToolCallIoBlocks({ toolCall }: { toolCall: ProjectRunDetailsToolCall }) {
   const outputText =
-    toolCall.outputSummary &&
-    toolCall.outputSummary !== toolCall.error
+    toolCall.outputSummary && toolCall.outputSummary !== toolCall.error
       ? toolCall.outputSummary
       : undefined;
 
   return (
-    <div className="space-y-1.5">
+    <>
       {toolCall.inputSummary ? (
-        <TraceLogBlock title="Input">{toolCall.inputSummary}</TraceLogBlock>
+        <ToolDetailSection label="Input" scrollable>
+          <pre className="whitespace-pre-wrap break-words font-mono text-[10.5px] leading-[1.65] text-muted-foreground">
+            {toolCall.inputSummary}
+          </pre>
+        </ToolDetailSection>
       ) : null}
       {outputText ? (
-        <TraceLogBlock title="Output">{outputText}</TraceLogBlock>
+        <ToolDetailSection label="Output" scrollable>
+          <pre className="whitespace-pre-wrap break-words font-mono text-[10.5px] leading-[1.65] text-muted-foreground">
+            {outputText}
+          </pre>
+        </ToolDetailSection>
       ) : null}
       {toolCall.error ? (
-        <TraceLogBlock title="Error" tone="error">
-          {toolCall.error}
-        </TraceLogBlock>
+        <ToolDetailSection label="Error" tone="error" scrollable>
+          <pre className="whitespace-pre-wrap break-words font-mono text-[10.5px] leading-[1.65] text-destructive/90">
+            {toolCall.error}
+          </pre>
+        </ToolDetailSection>
       ) : null}
-    </div>
+    </>
   );
+}
+
+function toolCallCopyText(
+  toolCall: ProjectRunDetailsToolCall,
+  bashParsed: BashOutput | undefined,
+): string | undefined {
+  if (toolCall.toolName === "bash") {
+    const parts: string[] = [];
+    if (toolCall.inputSummary) parts.push(`$ ${toolCall.inputSummary}`);
+    if (bashParsed?.stdout) parts.push(bashParsed.stdout);
+    if (bashParsed?.stderr) parts.push(bashParsed.stderr);
+    return parts.length > 0 ? parts.join("\n\n") : undefined;
+  }
+  const parts = [
+    toolCall.inputSummary,
+    toolCall.outputSummary,
+    toolCall.error,
+  ].filter((part): part is string => Boolean(part));
+  return parts.length > 0 ? parts.join("\n\n") : undefined;
+}
+
+function toolCallFooter(
+  toolCall: ProjectRunDetailsToolCall,
+  bashParsed: BashOutput | undefined,
+): ReactNode {
+  if (toolCall.toolName === "bash") {
+    return <BashTerminalFooter {...bashParsed} />;
+  }
+  if (toolCall.status === "error" && toolCall.error) {
+    return (
+      <ToolDetailFooter>
+        <span className="font-mono text-[11px] font-semibold text-destructive">
+          {toolCall.error}
+        </span>
+      </ToolDetailFooter>
+    );
+  }
+  return null;
 }
 
 function bashOutputFromToolCall(
@@ -725,7 +775,7 @@ function TokenUsagePanel({
   const providerInput = run.inputTokens ?? usage?.rawInputTokens;
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <UsageStatGrid run={run} usage={usage} />
 
       {promptCache ? <PromptCacheSection promptCache={promptCache} /> : null}
@@ -734,19 +784,22 @@ function TokenUsagePanel({
 
       {sections.length > 0 ? (
         <UsageSectionShell
-          title="Context"
+          title="Context breakdown"
           trailing={
-            <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+            <span className="font-mono text-[11.5px] font-semibold tabular-nums text-foreground">
               ~{formatCompactCount(compositionTotal)}
             </span>
           }
         >
           {compositionTotal > 0 ? (
-            <div className="mb-1.5 flex h-2 overflow-hidden rounded-full bg-muted/30">
+            <div className="mb-2.5 flex gap-0.5">
               {sections.map((section) => (
                 <div
                   key={section.key}
-                  className={contextSectionColor(section.key)}
+                  className={cn(
+                    "h-2 rounded-sm",
+                    contextSectionColor(section.key),
+                  )}
                   style={{
                     width: `${(section.tokens / compositionTotal) * 100}%`,
                   }}
@@ -756,29 +809,29 @@ function TokenUsagePanel({
             </div>
           ) : null}
 
-          <ul className="space-y-0.5">
+          <ul className="space-y-[5px]">
             {sections.map((section) => (
               <li
                 key={section.key}
-                className="flex min-w-0 items-center gap-2 text-[10px]"
+                className="flex min-w-0 items-center gap-2 text-[11.5px]"
               >
                 <span
                   className={cn(
-                    "size-2 shrink-0 rounded-sm",
+                    "size-[7px] shrink-0 rounded-full",
                     contextSectionColor(section.key),
                   )}
                 />
-                <span className="min-w-0 flex-1 truncate text-foreground/85">
+                <span className="min-w-0 flex-1 truncate text-muted-foreground">
                   {section.label}
                 </span>
-                <span className="shrink-0 font-mono tabular-nums text-muted-foreground">
+                <span className="shrink-0 font-mono text-[11px] tabular-nums text-foreground">
                   {formatCompactCount(section.tokens)}
                 </span>
               </li>
             ))}
           </ul>
 
-          <p className="mt-1.5 text-[9px] leading-snug text-muted-foreground/80">
+          <p className="mt-2.5 text-[10px] leading-[1.5] text-muted-foreground/65">
             Estimated at run start · provider input{" "}
             {formatCount(providerInput)}
             {run.stepCount !== null ? ` · ${run.stepCount} steps` : ""}
@@ -797,21 +850,21 @@ function TokenUsagePanel({
 function contextSectionColor(key: string): string {
   switch (key) {
     case "system":
-      return "bg-zinc-400/80";
+      return "bg-zinc-400";
     case "tools":
-      return "bg-violet-500/75";
+      return "bg-violet-400";
     case "memory":
-      return "bg-emerald-500/70";
+      return "bg-success";
     case "skills":
-      return "bg-orange-400/75";
+      return "bg-warning";
     case "mcp":
-      return "bg-fuchsia-400/70";
+      return "bg-pink-500";
     case "profile":
-      return "bg-sky-500/70";
+      return "bg-info";
     case "prior-context":
-      return "bg-pink-400/70";
+      return "bg-fuchsia-400";
     case "conversation":
-      return "bg-amber-600/65";
+      return "bg-primary";
     default:
       return "bg-muted-foreground/50";
   }
@@ -819,43 +872,35 @@ function contextSectionColor(key: string): string {
 
 function ContextPanel({
   context,
-  toolCalls,
-  hideTools = false,
 }: {
   context: NonNullable<ProjectRunDetailsSummary["context"]>;
-  toolCalls: ProjectRunDetailsToolCall[];
-  hideTools?: boolean;
 }) {
   const parsed = parseContextSummary(context.summary);
-  const toolPaths = collectToolCallPaths(toolCalls);
-  const visibleFiles = context.files.filter(
-    (file) => !isPathCoveredByToolCalls(file.path, toolPaths),
-  );
   const visibleFacts = dedupeContextFacts(
     context.facts,
     context.summary,
     parsed.finalAnswer,
   );
-  const commandItems = context.commands
-    .map((command) => {
-      const status = command.ok
-        ? "ok"
-        : command.timedOut
-          ? "timeout"
-          : "failed";
-      const exit =
-        command.exitCode !== null ? ` · exit ${command.exitCode}` : "";
-      return `${command.command} (${status}${exit})`;
-    })
-    .filter((item) => !isCommandCoveredByToolCalls(item, toolCalls));
+  const statusLine =
+    parsed.metaLines.find((line) => line.startsWith("Run status:")) ??
+    parsed.metaLines[0];
+  const errored = statusLine?.toLowerCase().includes("error") ?? false;
+
+  if (!statusLine && !parsed.finalAnswer && visibleFacts.length === 0) {
+    return <EmptyHint>No context summary persisted for this run.</EmptyHint>;
+  }
 
   return (
-    <div className="space-y-2.5">
-      {parsed.metaLines.length > 0 ? (
-        <div className="space-y-0.5 text-[10px] text-muted-foreground">
-          {parsed.metaLines.map((line) => (
-            <p key={line}>{line}</p>
-          ))}
+    <div className="space-y-3">
+      {statusLine ? (
+        <div className="flex items-center gap-2 text-[11.5px] text-muted-foreground">
+          <span
+            className={cn(
+              "size-1.5 shrink-0 rounded-full",
+              errored ? "bg-destructive" : "bg-success",
+            )}
+          />
+          {statusLine}
         </div>
       ) : null}
 
@@ -863,161 +908,50 @@ function ContextPanel({
         <Disclosure
           defaultOpen={false}
           trigger={({ open }) => (
-            <span className="inline-flex max-w-full items-center gap-1 text-[10px] font-medium text-foreground/85 hover:text-foreground">
+            <span className="inline-flex max-w-full items-center gap-1 text-[12px] font-medium text-primary hover:text-primary/80">
               Final answer
               {open ? (
-                <ChevronDown className="size-3 text-muted-foreground" />
+                <ChevronDown className="size-3" />
               ) : (
-                <ChevronRight className="size-3 text-muted-foreground" />
+                <ChevronRight className="size-3" />
               )}
             </span>
           )}
         >
-          <div className="mt-1.5 rounded-md border border-border/50 bg-background/25 px-2.5 py-2">
-            <Markdown className="text-[10px] leading-relaxed text-foreground/85 [&_p]:text-[10px] [&_li]:text-[10px] [&_h1]:text-xs [&_h2]:text-[11px] [&_h3]:text-[11px] [&_code]:text-[9px] [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto">
+          <div className="mt-2 rounded-lg border border-border bg-card px-3 py-2.5">
+            <Markdown className="text-[11.5px] leading-relaxed text-foreground/85 [&_p]:text-[11.5px] [&_li]:text-[11.5px] [&_h1]:text-[13px] [&_h2]:text-xs [&_h3]:text-xs [&_code]:text-[10px] [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto">
               {parsed.finalAnswer}
             </Markdown>
           </div>
         </Disclosure>
       ) : null}
 
-      {visibleFiles.length > 0 ? (
-        <ContextGroup title="Files touched" count={visibleFiles.length}>
-          <ul className="space-y-0.5 border-l border-border/50 pl-2.5">
-            {visibleFiles.map((file) => (
-              <li
-                key={`${file.action}-${file.path}`}
-                className="flex min-w-0 items-start gap-1.5 break-words font-mono text-[10px] leading-snug text-foreground/80"
-              >
-                <FileText className="mt-0.5 size-2.5 shrink-0 text-muted-foreground" />
-                <span>
-                  <span className="text-muted-foreground">{file.action}</span>{" "}
-                  {file.path}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </ContextGroup>
-      ) : null}
-
-      {visibleFacts.length > 0 ? (
-        <CollapsibleContextGroup title="Facts" items={visibleFacts} structured />
-      ) : null}
-
-      {commandItems.length > 0 ? (
-        <CollapsibleContextGroup title="Commands" items={commandItems} />
-      ) : null}
-
-      {!hideTools && context.tools.length > 0 ? (
-        <CollapsibleContextGroup
-          title="Tools"
-          items={context.tools.map((tool) => {
-            const parts = [tool.name, tool.status];
-            if (tool.input) parts.push(`in: ${tool.input}`);
-            if (tool.output) parts.push(`out: ${tool.output}`);
-            if (tool.error) parts.push(tool.error);
-            return parts.join(" · ");
-          })}
-        />
-      ) : null}
+      {visibleFacts.length > 0 ? <FactsSection facts={visibleFacts} /> : null}
     </div>
   );
 }
 
-function CollapsibleContextGroup({
-  title,
-  items,
-  structured = false,
-}: {
-  title: string;
-  items: string[];
-  structured?: boolean;
-}) {
-  if (items.length <= 3) {
-    return (
-      <ContextGroup title={title} count={items.length}>
-        {structured ? (
-          <StructuredFactList facts={items} />
-        ) : (
-          <ContextItemList items={items} />
-        )}
-      </ContextGroup>
-    );
-  }
-
+function FactsSection({ facts }: { facts: string[] }) {
   return (
-    <Disclosure
-      trigger={({ open }) => (
-        <span className="inline-flex max-w-full items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground hover:text-foreground/80">
-          {title}
-          <span className="rounded-full bg-secondary px-1.5 py-px font-mono text-[9px] normal-case">
-            {items.length}
-          </span>
-          {open ? (
-            <ChevronDown className="size-3" />
-          ) : (
-            <ChevronRight className="size-3" />
-          )}
+    <div className="space-y-2">
+      <div className="flex items-center gap-1.5">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.07em] text-muted-foreground/65">
+          Facts
         </span>
-      )}
-    >
-      {structured ? (
-        <StructuredFactList facts={items} />
-      ) : (
-        <ContextItemList items={items} />
-      )}
-    </Disclosure>
-  );
-}
-
-function ContextGroup({
-  title,
-  count,
-  children,
-}: {
-  title: string;
-  count?: number;
-  children: ReactNode;
-}) {
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-        {title}
-        {count !== undefined ? (
-          <span className="rounded-full bg-secondary px-1.5 py-px font-mono text-[9px] normal-case">
-            {count}
-          </span>
-        ) : null}
+        <span className="rounded-full border border-border bg-secondary px-1.5 py-px text-[9.5px] font-semibold text-muted-foreground">
+          {facts.length}
+        </span>
       </div>
-      {children}
+      <ul className="space-y-2">
+        {facts.map((fact, index) => (
+          <StructuredFactRow key={`${index}-${fact.slice(0, 24)}`} fact={fact} />
+        ))}
+      </ul>
     </div>
   );
 }
 
-function ContextItemList({ items }: { items: string[] }) {
-  return (
-    <ul className="space-y-1 border-l border-border/50 pl-2.5">
-      {items.map((item, index) => (
-        <li
-          key={`${index}-${item.slice(0, 24)}`}
-          className="break-words font-mono text-[10px] leading-snug text-muted-foreground/90"
-        >
-          {item}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function StructuredFactList({ facts }: { facts: string[] }) {
-  return (
-    <ul className="space-y-1.5 border-l border-border/50 pl-2.5">
-      {facts.map((fact, index) => (
-        <StructuredFactRow key={`${index}-${fact.slice(0, 24)}`} fact={fact} />
-      ))}
-    </ul>
-  );
-}
+const FACT_CHIP_LIMIT = 8;
 
 function StructuredFactRow({ fact }: { fact: string }) {
   const colonIndex = fact.indexOf(":");
@@ -1026,28 +960,12 @@ function StructuredFactRow({ fact }: { fact: string }) {
     const value = fact.slice(colonIndex + 1).trim();
     const chips = value.split(",").map((part) => part.trim()).filter(Boolean);
 
-    if (chips.length > 1 && chips.length <= 24) {
-      return (
-        <li className="space-y-1">
-          <div className="text-[10px] font-medium text-muted-foreground">
-            {label}
-          </div>
-          <div className="flex flex-wrap gap-1">
-            {chips.map((chip) => (
-              <span
-                key={`${label}-${chip}`}
-                className="rounded bg-secondary/60 px-1.5 py-px font-mono text-[9px] text-foreground/80 ring-1 ring-border/40"
-              >
-                {chip}
-              </span>
-            ))}
-          </div>
-        </li>
-      );
+    if (chips.length > 1) {
+      return <FactChipGroup label={label} chips={chips} />;
     }
 
     return (
-      <li className="break-words text-[10px] leading-snug">
+      <li className="break-words text-[11px] leading-snug">
         <span className="font-medium text-muted-foreground">{label}:</span>{" "}
         <span className="font-mono text-foreground/85">{value}</span>
       </li>
@@ -1055,8 +973,44 @@ function StructuredFactRow({ fact }: { fact: string }) {
   }
 
   return (
-    <li className="break-words font-mono text-[10px] leading-snug text-muted-foreground/90">
+    <li className="break-words font-mono text-[10.5px] leading-snug text-muted-foreground/90">
       {fact}
+    </li>
+  );
+}
+
+function FactChipGroup({ label, chips }: { label: string; chips: string[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded ? chips : chips.slice(0, FACT_CHIP_LIMIT);
+  const hidden = chips.length - visible.length;
+  const chipClass =
+    "rounded-[5px] border border-border bg-input px-[7px] py-[3px] font-mono text-[9.5px] text-muted-foreground";
+  const moreClass =
+    "rounded-[5px] border border-border px-[7px] py-[3px] font-mono text-[9.5px] text-muted-foreground/70 transition-colors hover:text-foreground";
+
+  return (
+    <li className="space-y-1.5">
+      <div className="text-[11px] font-medium text-muted-foreground">{label}</div>
+      <div className="flex flex-wrap gap-1.5">
+        {visible.map((chip) => (
+          <span key={`${label}-${chip}`} className={chipClass}>
+            {chip}
+          </span>
+        ))}
+        {hidden > 0 ? (
+          <button type="button" onClick={() => setExpanded(true)} className={moreClass}>
+            + {hidden} more
+          </button>
+        ) : expanded && chips.length > FACT_CHIP_LIMIT ? (
+          <button
+            type="button"
+            onClick={() => setExpanded(false)}
+            className={moreClass}
+          >
+            show less
+          </button>
+        ) : null}
+      </div>
     </li>
   );
 }
@@ -1133,59 +1087,6 @@ function dedupeContextFacts(
     }
 
     return true;
-  });
-}
-
-function collectToolCallPaths(
-  toolCalls: ProjectRunDetailsToolCall[],
-): Set<string> {
-  const paths = new Set<string>();
-  for (const toolCall of toolCalls) {
-    if (toolCall.inputSummary) {
-      paths.add(normalizeContextPath(toolCall.inputSummary));
-    }
-    if (toolCall.outputSummary) {
-      paths.add(normalizeContextPath(toolCall.outputSummary));
-    }
-  }
-  return paths;
-}
-
-function normalizeContextPath(value: string): string {
-  return value.trim().toLowerCase().replace(/\\/g, "/");
-}
-
-function isPathCoveredByToolCalls(
-  path: string,
-  toolPaths: Set<string>,
-): boolean {
-  const normalized = normalizeContextPath(path);
-  if (toolPaths.has(normalized)) return true;
-  for (const toolPath of toolPaths) {
-    if (
-      toolPath.endsWith(normalized) ||
-      normalized.endsWith(toolPath) ||
-      toolPath.includes(normalized) ||
-      normalized.includes(toolPath)
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function isCommandCoveredByToolCalls(
-  commandItem: string,
-  toolCalls: ProjectRunDetailsToolCall[],
-): boolean {
-  const command = commandItem.replace(/\s+\([^)]*\)$/, "").trim().toLowerCase();
-  if (!command) return false;
-  return toolCalls.some((toolCall) => {
-    const input = toolCall.inputSummary?.toLowerCase() ?? "";
-    return (
-      toolCall.toolName === "bash" &&
-      (input === command || input.includes(command) || command.includes(input))
-    );
   });
 }
 

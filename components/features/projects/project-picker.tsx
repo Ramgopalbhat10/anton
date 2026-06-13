@@ -9,6 +9,7 @@ import {
   Lock,
   RefreshCw,
   Search,
+  Settings,
 } from "lucide-react";
 
 import {
@@ -94,7 +95,7 @@ export function ProjectPicker({
           type="button"
           disabled={disabled}
           className={cn(
-            "inline-flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50",
+            "inline-flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-[12.5px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50",
             className,
           )}
           aria-label={
@@ -104,43 +105,44 @@ export function ProjectPicker({
           }
           title={displayProject?.localPath}
         >
-          <FolderGit2 className="size-3.5 shrink-0" />
+          <FolderGit2 className="size-[13px] shrink-0" />
           <span className="truncate">{label}</span>
-          <ChevronDown className="size-3 shrink-0" />
+          <ChevronDown className="size-3 shrink-0 text-muted-foreground/70" />
         </button>
       </PopoverTrigger>
       <PopoverContent
         align={contentAlign}
         side="top"
-        className="w-72 overflow-hidden p-0"
+        className="w-80 overflow-hidden p-0"
       >
-        <div className="border-b border-border p-1.5">
-          <div className="grid grid-cols-[0.75rem_1fr_auto] items-center gap-1.5 rounded-md bg-background/70 px-1.5 py-1 ring-1 ring-border">
-            <Search className="size-3 text-muted-foreground" />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search projects"
-              className="min-w-0 bg-transparent font-mono text-[11px] outline-none placeholder:text-muted-foreground"
-              aria-label="Search projects"
-            />
-            <button
-              type="button"
-              onClick={() => void onRefresh()}
-              disabled={loading}
-              className="inline-flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-60"
-              aria-label="Refresh projects"
-              title="Refresh projects"
-            >
-              {loading ? (
-                <Loader2 className="size-3 animate-spin" />
-              ) : (
-                <RefreshCw className="size-3" />
-              )}
-            </button>
-          </div>
+        <div className="flex items-center gap-2 border-b border-layout-border px-3 py-2.5">
+          <Search className="size-[13px] shrink-0 text-muted-foreground/70" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search projects"
+            className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground/70"
+            aria-label="Search projects"
+          />
+          <button
+            type="button"
+            onClick={() => void onRefresh()}
+            disabled={loading}
+            className="inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-60"
+            aria-label="Refresh projects"
+            title="Refresh projects"
+          >
+            {loading ? (
+              <Loader2 className="size-[13px] animate-spin" />
+            ) : (
+              <RefreshCw className="size-[13px]" />
+            )}
+          </button>
         </div>
-        <div className="max-h-72 overflow-y-auto p-0.5">
+        <div className="max-h-72 overflow-y-auto p-1.5">
+          <div className="px-1.5 pb-1 pt-0.5 text-[10.5px] font-medium uppercase tracking-[0.06em] text-muted-foreground/70">
+            Projects
+          </div>
           {error ? (
             <div className="mx-1 rounded-md bg-destructive/10 px-1.5 py-1 text-[11px] text-destructive">
               {error}
@@ -168,23 +170,32 @@ export function ProjectPicker({
                         setOpen(false);
                         setQuery("");
                       }}
-                      className="grid w-full grid-cols-[minmax(0,1fr)_0.75rem] items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[11px] transition-colors hover:bg-accent"
+                      className={cn(
+                        "grid w-full grid-cols-[minmax(0,1fr)_0.875rem] items-center gap-2 rounded-md px-2 py-[7px] text-left transition-colors hover:bg-accent",
+                        selected && "bg-accent",
+                      )}
                     >
                       <span className="min-w-0">
-                        <span className="block truncate font-medium">
+                        <span className="block truncate text-[12.5px] font-medium leading-4">
                           {project.fullName}
                         </span>
-                        <span className="block truncate font-mono text-[10px] text-muted-foreground">
+                        <span className="block truncate font-mono text-[10.5px] text-muted-foreground/80">
                           {project.provider === "local" ? "Local" : "GitHub"}
                         </span>
                       </span>
-                      {selected ? <Check className="size-3 text-primary" /> : null}
+                      {selected ? (
+                        <Check className="size-3.5 text-primary" />
+                      ) : null}
                     </button>
                   </li>
                 );
               })}
             </ul>
           )}
+        </div>
+        <div className="flex items-center gap-2 border-t border-layout-border px-3 py-2 text-[12.5px] text-muted-foreground/70">
+          <Settings className="size-3" />
+          Manage projects in settings
         </div>
       </PopoverContent>
     </Popover>
