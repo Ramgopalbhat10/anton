@@ -158,6 +158,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Replace duplicate workspace/settings UI paths with one canonical Settings implementation.
 - [✔️] Clean up layout formatting and UI polish issues that are not core behavior.
 - [✔️] Adopted the `design/mockups.pen` design-system theme: layered neutral surface tokens, orange accent, Inter + JetBrains Mono fonts, and the redesigned Settings shell and Workspaces screen (#166).
+- [✔️] Redesigned the PR right-sidebar (header, sub-tabs, Changes/Description/Discussion/Commits/Checks, and the PR switcher) against `design/mockups.pen`, including `@pierre/diffs` diff-body theming (#169).
 - [] Fix project file code view scrollbar corner styling when both scrollbars are visible.
 
 ## Phase 7: Evaluation

@@ -1,17 +1,20 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import {
   AlertCircle,
+  ArrowLeft,
+  Bot,
   Check,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
   Clock,
   ExternalLink,
+  FileCode,
   FileText,
-  GitBranch,
-  GitCommit,
+  GitCommitHorizontal,
+  GitMerge,
   GitPullRequest,
   Loader2,
   MessageSquare,
@@ -27,12 +30,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import type {
   ProjectGitStatusSummary,
@@ -46,13 +43,24 @@ import type {
 } from "@/src/lib/api-types";
 import { errorMessage, getJson } from "@/src/lib/client-fetch";
 import { Markdown } from "@/components/features/chat/markdown";
-import { PopupSectionHeader } from "@/components/shared/popup-section-header";
-import { MetricTile } from "@/components/shared/metric-tile";
 import {
   PopupSortSelect,
   type PopupSortOption,
 } from "@/components/shared/popup-sort-select";
 import { PatchDiffView } from "./diff-view";
+
+type PrTabId = "changes" | "description" | "discussion" | "commits" | "checks";
+
+const PR_META_SECTION = "flex flex-col gap-[9px] px-3.5 py-3";
+const PR_TABS_ROW = "flex shrink-0 items-center gap-1 px-3.5 pb-2.5";
+const PR_CONTENT_SCROLL = "min-h-0 flex-1 overflow-y-auto border-t border-layout-border";
+const PR_BODY_PAD = "px-3.5 pt-3 pb-3.5";
+
+const PR_ICON_BUTTON =
+  "inline-flex size-6 shrink-0 items-center justify-center rounded-md text-(--text-tertiary) transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60";
+
+const PR_MARKDOWN_CLASSNAME =
+  "min-w-0 space-y-2.5 text-[12.5px] leading-[1.55] text-muted-foreground wrap-break-word [&_a]:text-primary [&_a]:no-underline hover:[&_a]:underline [&_code]:rounded [&_code]:bg-input [&_code]:px-1.5 [&_code]:py-px [&_code]:font-mono [&_code]:text-[11px] [&_code]:text-muted-foreground [&_h1]:text-[12.5px] [&_h1]:font-bold [&_h1]:leading-tight [&_h1]:text-foreground [&_h2]:text-[12.5px] [&_h2]:font-bold [&_h2]:leading-tight [&_h2]:text-foreground [&_h3]:text-[12.5px] [&_h3]:font-bold [&_h3]:leading-tight [&_h3]:text-foreground [&_li]:leading-[1.55] [&_ol]:space-y-2 [&_p]:leading-[1.55] [&_strong]:text-foreground [&_table]:w-full [&_table]:border-separate [&_table]:border-spacing-0 [&_table]:overflow-hidden [&_table]:rounded-md [&_table]:border [&_table]:border-border [&_table]:text-[11.5px] [&_th]:border-b [&_th]:border-layout-border [&_th]:bg-input [&_th]:px-2.5 [&_th]:py-1.5 [&_th]:text-left [&_th]:text-[10.5px] [&_th]:font-semibold [&_th]:text-(--text-tertiary) [&_td]:px-2.5 [&_td]:py-1.5 [&_td]:align-top [&_tbody_tr+tr_td]:border-t [&_tbody_tr+tr_td]:border-layout-border [&_ul]:space-y-2";
 
 export function PullRequestPanel({
   pullRequest,
@@ -72,110 +80,147 @@ export function PullRequestPanel({
   onRefresh: () => void;
   onSelectPullRequest: (number: number) => void;
 }) {
+  const [activeTab, setActiveTab] = useState<PrTabId>("changes");
+
+  const tabs: { id: PrTabId; label: string; count?: number }[] = [
+    { id: "changes", label: "Changes" },
+    { id: "description", label: "Description" },
+    { id: "discussion", label: "Discussion", count: pullRequest.discussion.length },
+    { id: "commits", label: "Commits", count: pullRequest.commitItems.length },
+    { id: "checks", label: "Checks" },
+  ];
+
   return (
-    <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-      <section className="border-b border-layout-border px-3 py-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-              <StateBadge pullRequest={pullRequest} />
-              <PullRequestSelector
-                project={project}
-                pullRequest={pullRequest}
-                onSelect={onSelectPullRequest}
-              />
-            </div>
-            <h2 className="mt-1 line-clamp-2 text-sm font-semibold leading-5">
-              {pullRequest.title}
-            </h2>
-            <div className="mt-2 flex flex-wrap items-center gap-1.5 font-mono text-[10px] text-muted-foreground">
-              <span className="inline-flex items-center gap-1">
-                <span className="rounded bg-secondary px-1.5 py-0.5">
-                  {pullRequest.baseBranch}
-                </span>
-                <span
-                  aria-hidden
-                  className="inline-flex w-3.5 ml-1 shrink-0 items-center justify-center"
-                >
-                  &lt;-
-                </span>
-                <span className="rounded bg-secondary px-1.5 py-0.5">
-                  {pullRequest.headBranch}
-                </span>
-              </span>
-              <span className="text-muted-foreground/50">|</span>
-              <InlineStat value={pullRequest.changedFiles} label="files" />
-              <InlineStat value={`+${pullRequest.additions}`} tone="add" />
-              <InlineStat value={`-${pullRequest.deletions}`} tone="delete" />
-            </div>
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className={PR_META_SECTION}>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <StateBadge pullRequest={pullRequest} />
+            <PullRequestSelector
+              project={project}
+              pullRequest={pullRequest}
+              onSelect={onSelectPullRequest}
+            />
           </div>
-          <div className="flex shrink-0 items-center gap-1">
-            <Button
+          <div className="flex shrink-0 items-center gap-2.5">
+            <button
               type="button"
-              size="icon-sm"
-              variant="ghost"
+              className={PR_ICON_BUTTON}
               onClick={onRefresh}
               disabled={loading}
               aria-label="Refresh pull request"
               title="Refresh pull request"
             >
-              <RefreshCw className={cn(loading && "animate-spin")} />
-            </Button>
-            <Button
-              type="button"
-              size="icon-sm"
-              variant="ghost"
-              asChild
+              <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
+            </button>
+            <a
+              href={pullRequest.htmlUrl}
+              target="_blank"
+              rel="noreferrer"
+              className={PR_ICON_BUTTON}
               aria-label="Open pull request on GitHub"
               title="Open pull request on GitHub"
             >
-              <a href={pullRequest.htmlUrl} target="_blank" rel="noreferrer">
-                <ExternalLink />
-              </a>
-            </Button>
+              <ExternalLink className="size-3.5" />
+            </a>
           </div>
         </div>
 
+        <h2 className="line-clamp-2 text-[14.5px] font-semibold leading-[1.4] text-foreground">
+          {pullRequest.title}
+        </h2>
+
+        <div className="flex flex-wrap items-center gap-x-[7px] gap-y-1.5">
+          <BranchChip label={pullRequest.baseBranch} />
+          <ArrowLeft className="size-3.5 shrink-0 text-(--text-tertiary)" />
+          <BranchChip label={pullRequest.headBranch} />
+          <span className="text-[11.5px] text-(--text-tertiary)">
+            {pullRequest.changedFiles} files
+          </span>
+          <span className="font-mono text-[12px] font-semibold tabular-nums text-success">
+            +{pullRequest.additions}
+          </span>
+          <span className="font-mono text-[12px] font-semibold tabular-nums text-destructive">
+            -{pullRequest.deletions}
+          </span>
+        </div>
+
         {error ? (
-          <div className="mt-2 rounded-md bg-destructive/10 px-2 py-1.5 text-[11px] text-destructive">
+          <div className="rounded-md bg-destructive/10 px-2 py-1.5 text-[11px] text-destructive">
             {error}
           </div>
         ) : null}
-      </section>
+      </div>
 
-      <Tabs defaultValue="changes" className="min-w-0 gap-0">
-        <TabsList variant="workspace" className="overflow-x-auto pl-3 scrollbar-hide">
-          <TabsTrigger value="changes">Changes</TabsTrigger>
-          <TabsTrigger value="description">Description</TabsTrigger>
-          <TabsTrigger value="discussion">
-            Discussion {pullRequest.discussion.length}
-          </TabsTrigger>
-          <TabsTrigger value="commits">
-            Commits {pullRequest.commitItems.length}
-          </TabsTrigger>
-          <TabsTrigger value="checks">Checks</TabsTrigger>
-        </TabsList>
-        <TabsContent value="changes" className="m-0 min-w-0">
+      <div
+        role="tablist"
+        aria-label="Pull request sections"
+        className={PR_TABS_ROW}
+      >
+        {tabs.map((tab) => (
+          <PrTabButton
+            key={tab.id}
+            active={activeTab === tab.id}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.count !== undefined ? `${tab.label} ${tab.count}` : tab.label}
+          </PrTabButton>
+        ))}
+      </div>
+
+      <div className={PR_CONTENT_SCROLL}>
+        {activeTab === "changes" ? (
           <LocalChangesView files={pullRequest.files} />
-        </TabsContent>
-        <TabsContent value="description" className="m-0">
+        ) : activeTab === "description" ? (
           <DescriptionView description={pullRequest.description} />
-        </TabsContent>
-        <TabsContent value="discussion" className="m-0">
+        ) : activeTab === "discussion" ? (
           <DiscussionView items={pullRequest.discussion} />
-        </TabsContent>
-        <TabsContent value="commits" className="m-0">
+        ) : activeTab === "commits" ? (
           <CommitsView commits={pullRequest.commitItems} />
-        </TabsContent>
-        <TabsContent value="checks" className="m-0">
+        ) : (
           <ChecksView
             pullRequest={pullRequest}
             projectId={projectId}
             onRefresh={onRefresh}
           />
-        </TabsContent>
-      </Tabs>
+        )}
+      </div>
     </div>
+  );
+}
+
+function PrTabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={cn(
+        "inline-flex h-[26px] items-center rounded-lg px-3 text-[12.5px] leading-none whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+        active
+          ? "border border-border bg-secondary font-semibold text-foreground"
+          : "border border-transparent font-medium text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function BranchChip({ label }: { label: string }) {
+  return (
+    <span className="rounded-md border border-border bg-secondary px-2 py-0.5 font-mono text-[11px] text-muted-foreground">
+      {label}
+    </span>
   );
 }
 
@@ -206,48 +251,51 @@ export function PullRequestEmptyPanel({
       : null;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <section className="border-b border-layout-border px-3 py-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 font-mono text-[10px] text-muted-foreground ring-1 ring-border">
-                <GitPullRequest className="size-3" />
-                No PR
-              </span>
-              <PullRequestSelector
-                project={project}
-                pullRequest={null}
-                onSelect={onSelectPullRequest}
-              />
-            </div>
-            <h2 className="mt-2 text-sm font-semibold">Pull request</h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {emptyPullRequestMessage(gitStatus)}
-            </p>
+      <section className={PR_META_SECTION}>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary px-2.5 py-1 text-[12px] font-semibold text-muted-foreground">
+              <GitPullRequest className="size-3" />
+              No PR
+            </span>
+            <PullRequestSelector
+              project={project}
+              pullRequest={null}
+              onSelect={onSelectPullRequest}
+            />
           </div>
-          <Button
+          <button
             type="button"
-            size="icon-sm"
-            variant="ghost"
+            className={PR_ICON_BUTTON}
             onClick={onRefresh}
             disabled={loading}
             aria-label="Refresh pull request"
             title="Refresh pull request"
           >
-            <RefreshCw className={cn(loading && "animate-spin")} />
-          </Button>
+            <RefreshCw className={cn("size-3", loading && "animate-spin")} />
+          </button>
+        </div>
+        <div className="flex flex-col gap-1">
+          <h2 className="text-[14.5px] font-semibold leading-[1.4] text-foreground">
+            Pull request
+          </h2>
+          <p className="text-[12px] leading-[1.55] text-muted-foreground">
+            {emptyPullRequestMessage(gitStatus)}
+          </p>
         </div>
         {gitStatus ? (
-          <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
-            <MetricTile label="Branch" value={gitStatus.branch ?? "detached"} />
-            <MetricTile label="Dirty" value={gitStatus.dirtyCount} />
+          <div className="flex flex-wrap items-center gap-x-[7px] gap-y-1.5">
+            <BranchChip label={gitStatus.branch ?? "detached"} />
+            <span className="text-[11.5px] text-(--text-tertiary)">
+              {gitStatus.dirtyCount} dirty
+            </span>
           </div>
         ) : null}
         {canShowCreateAction ? (
           <Button
             type="button"
             size="sm"
-            className="mt-3"
+            className="mt-1 self-start"
             onClick={onCreatePullRequest}
             disabled={!createReady || loading || creating}
             title={createBlocker ?? "Create pull request"}
@@ -261,12 +309,10 @@ export function PullRequestEmptyPanel({
           </Button>
         ) : null}
         {createBlocker ? (
-          <p className="mt-3 text-[11px] text-muted-foreground">
-            {createBlocker}
-          </p>
+          <p className="text-[11px] text-muted-foreground/70">{createBlocker}</p>
         ) : null}
         {error ? (
-          <div className="mt-2 rounded-md bg-destructive/10 px-2 py-1.5 text-[11px] text-destructive">
+          <div className="rounded-md bg-destructive/10 px-2 py-1.5 text-[11px] text-destructive">
             {error}
           </div>
         ) : null}
@@ -342,70 +388,70 @@ export function LocalChangesView({
   };
 
   if (files.length === 0) {
-    return (
-      <div className="px-3 py-8 text-center text-xs text-muted-foreground">
-        No changed files reported.
-      </div>
-    );
+    return <EmptyTabMessage>No changed files reported.</EmptyTabMessage>;
   }
 
   return (
-    <div className="min-h-0 min-w-0 overflow-y-auto px-2 py-2">
-      <ol className="grid min-w-0 gap-1.5">
-        {files.map((file) => {
-          const expanded = visibleExpandedFiles.has(file.filename);
-          return (
-            <li
-              key={file.filename}
-              className="min-w-0 overflow-hidden rounded-md bg-background/35 ring-1 ring-border/70"
+    <ol className={cn(PR_BODY_PAD, "grid min-w-0 gap-2")}>
+      {files.map((file) => {
+        const expanded = visibleExpandedFiles.has(file.filename);
+        return (
+          <li
+            key={file.filename}
+            className="min-w-0 overflow-hidden rounded-xl border border-border bg-card"
+          >
+            <button
+              type="button"
+              onClick={() => toggleFile(file.filename)}
+              aria-expanded={expanded}
+              aria-controls={diffPanelId(file.filename)}
+              className={cn(
+                "flex w-full items-center gap-2 px-3 py-2.5 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                expanded && "border-b border-layout-border",
+              )}
             >
-              <button
-                type="button"
-                onClick={() => toggleFile(file.filename)}
-                aria-expanded={expanded}
-                aria-controls={diffPanelId(file.filename)}
-                className={cn(
-                  "grid w-full grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-1 px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent/35 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-                  expanded && "bg-accent/35",
-                )}
-              >
-                <span className="inline-flex size-4 shrink-0 items-center justify-center rounded transition-colors hover:bg-accent/50">
-                  {expanded ? (
-                    <ChevronDown className="size-3 text-muted-foreground" />
-                  ) : (
-                    <ChevronRight className="size-3 text-muted-foreground" />
+              {expanded ? (
+                <ChevronDown className="size-3.5 shrink-0 text-(--text-tertiary)" />
+              ) : (
+                <ChevronRight className="size-3.5 shrink-0 text-(--text-tertiary)" />
+              )}
+              <FileKindBadge status={file.status} />
+              <span className="min-w-0 flex-1">
+                <span
+                  className={cn(
+                    "block truncate font-mono text-[12.5px] text-foreground",
+                    expanded ? "font-semibold" : "font-normal",
                   )}
+                >
+                  {file.filename}
                 </span>
-                <FileStatusBadge status={file.status} />
-                <span className="min-w-0 pl-1.5">
-                  <span className="block truncate font-medium">{file.filename}</span>
-                  {file.previousFilename ? (
-                    <span className="block truncate font-mono text-[10px] text-muted-foreground">
-                      from {file.previousFilename}
-                    </span>
-                  ) : null}
-                </span>
-                <span className="font-mono text-[10px] tabular-nums">
-                  <span className="text-emerald-500">+{file.additions}</span>
-                  <span className="mx-1 text-muted-foreground/50">/</span>
-                  <span className="text-destructive">-{file.deletions}</span>
-                </span>
-              </button>
-              {expanded ? <PatchView file={file} /> : null}
-            </li>
-          );
-        })}
-      </ol>
-    </div>
+                {file.previousFilename ? (
+                  <span className="block truncate font-mono text-[10.5px] text-(--text-tertiary)">
+                    from {file.previousFilename}
+                  </span>
+                ) : null}
+              </span>
+              <span className="font-mono text-[11.5px] font-semibold tabular-nums text-success">
+                +{file.additions}
+              </span>
+              <span className="font-mono text-[11.5px] font-semibold tabular-nums text-destructive">
+                -{file.deletions}
+              </span>
+            </button>
+            {expanded ? <PatchView file={file} /> : null}
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 
-function FileStatusBadge({ status }: { status: string }) {
+function FileKindBadge({ status }: { status: string }) {
   const meta = fileStatusMeta(status);
   return (
     <span
       className={cn(
-        "inline-flex size-3.5 items-center justify-center rounded-sm font-mono text-[9px] font-semibold leading-none ring-1",
+        "inline-flex size-[17px] shrink-0 items-center justify-center rounded-md text-[9.5px] font-bold leading-none",
         meta.className,
       )}
       title={meta.label}
@@ -426,33 +472,33 @@ function fileStatusMeta(status: string): {
       return {
         char: "A",
         label: "Added",
-        className: "bg-emerald-500/15 text-emerald-300 ring-emerald-500/30",
+        className: "bg-success/10 text-success",
       };
     case "modified":
     case "changed":
       return {
         char: "M",
         label: "Modified",
-        className: "bg-amber-500/15 text-amber-300 ring-amber-500/30",
+        className: "bg-primary/10 text-primary",
       };
     case "removed":
     case "deleted":
       return {
         char: "D",
         label: "Deleted",
-        className: "bg-destructive/15 text-red-300 ring-destructive/30",
+        className: "bg-destructive/10 text-destructive",
       };
     case "renamed":
       return {
         char: "R",
         label: "Renamed",
-        className: "bg-sky-500/15 text-sky-300 ring-sky-500/30",
+        className: "bg-info/10 text-info",
       };
     default:
       return {
         char: status.slice(0, 1).toUpperCase() || "?",
         label: status || "Unknown",
-        className: "bg-secondary text-muted-foreground ring-border",
+        className: "bg-secondary text-muted-foreground",
       };
   }
 }
@@ -461,14 +507,14 @@ function PatchView({ file }: { file: ProjectPullRequestFileSummary }) {
   return (
     <div
       id={diffPanelId(file.filename)}
-      className="min-w-0 max-w-full overflow-hidden border-t border-border/60"
+      className="min-w-0 max-w-full overflow-hidden"
     >
       <PatchDiffView
         patch={file.patch}
         filename={file.filename}
         previousFilename={file.previousFilename}
         status={file.status}
-        className="rounded-none ring-0"
+        variant="embedded"
       />
     </div>
   );
@@ -489,24 +535,22 @@ function ChecksView({
 }) {
   const meta = checkStateMeta(pullRequest.checks.state);
   if (pullRequest.checks.total === 0) {
-    return (
-      <div className="px-3 py-8 text-center text-xs text-muted-foreground">
-        No check runs reported.
-      </div>
-    );
+    return <EmptyTabMessage>No check runs reported.</EmptyTabMessage>;
   }
 
   return (
-    <div className="min-w-0 max-w-full px-2 py-2">
-      <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2 text-xs">
-        <meta.Icon className={cn("size-3.5", meta.className)} />
-        <span className="font-medium">{meta.label}</span>
-        <span className="text-muted-foreground">
-          {pullRequest.checks.passed} passed / {pullRequest.checks.pending} pending /{" "}
+    <div className={cn(PR_BODY_PAD, "min-w-0 max-w-full")}>
+      <div className="mb-1 flex min-w-0 flex-wrap items-center gap-2 pb-1">
+        <meta.Icon className={cn("size-4 shrink-0", meta.className)} />
+        <span className="text-[13px] font-semibold text-foreground">
+          {meta.label}
+        </span>
+        <span className="font-mono text-[11.5px] text-(--text-tertiary)">
+          {pullRequest.checks.passed} passed · {pullRequest.checks.pending} pending ·{" "}
           {pullRequest.checks.failed} failed
         </span>
       </div>
-      <ol className="grid min-w-0 max-w-full gap-1">
+      <ol className="grid min-w-0 max-w-full gap-2">
         {pullRequest.checks.runs.map((run) => (
           <li key={`${run.name}:${run.id ?? ""}`} className="min-w-0 max-w-full">
             <CheckRunRow
@@ -589,46 +633,56 @@ function CheckRunRow({
   };
 
   const runMeta = runStateMeta(run);
+  const statusLabel = run.conclusion ?? run.status;
+  const statusToneClass =
+    run.status !== "completed"
+      ? "text-warning"
+      : ["success", "neutral", "skipped"].includes(run.conclusion ?? "")
+        ? "text-success"
+        : "text-destructive";
 
   return (
-    <div className="min-w-0 max-w-full overflow-hidden rounded-md border border-border/40 bg-background/20">
-      <div className="flex min-w-0 items-center justify-between gap-2 px-2 py-1.5 text-xs hover:bg-accent/15">
+    <div className="min-w-0 max-w-full overflow-hidden rounded-xl border border-border bg-card">
+      <div className="flex min-w-0 items-center gap-2.5 px-3 py-2.5">
+        <runMeta.Icon className={cn("size-4 shrink-0", runMeta.className)} />
         <button
           type="button"
           onClick={toggleExpand}
           disabled={!canLoadLogs}
-          className="grid min-w-0 flex-1 grid-cols-[0.875rem_1fr] items-start gap-2 text-left"
+          className="min-w-0 flex-1 text-left focus-visible:outline-none disabled:cursor-default"
           title={canLoadLogs ? "View logs" : "No workflow job logs available for this check"}
         >
-          <runMeta.Icon className={cn("size-3.5 shrink-0 pt-0.5", runMeta.className)} />
-          <span className="min-w-0">
-            <span className="block truncate font-medium">{run.name}</span>
-            <span className="block truncate font-mono text-[10px] text-muted-foreground">
-              {run.conclusion ?? run.status}
-              {jobId ? ` | job ${jobId}` : " | GitHub check"}
+          <span className="block truncate text-[13px] font-semibold text-foreground">
+            {run.name}
+          </span>
+          <span className="mt-[3px] flex min-w-0 items-center gap-1.5 font-mono text-[11px]">
+            <span className={cn("font-semibold", statusToneClass)}>{statusLabel}</span>
+            <span className="text-(--text-tertiary)">|</span>
+            <span className="truncate text-(--text-tertiary)">
+              {jobId ? `job ${jobId}` : "GitHub check"}
             </span>
           </span>
         </button>
 
-        <div className="flex shrink-0 items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="flex shrink-0 items-center gap-2.5"
+          onClick={(e) => e.stopPropagation()}
+        >
           {run.htmlUrl ?? run.detailsUrl ? (
-            <Button
-              type="button"
-              size="icon-xs"
-              variant="ghost"
-              asChild
+            <a
+              href={run.htmlUrl ?? run.detailsUrl ?? ""}
+              target="_blank"
+              rel="noreferrer"
+              className={PR_ICON_BUTTON}
               title="Open check on GitHub"
             >
-              <a href={run.htmlUrl ?? run.detailsUrl ?? ""} target="_blank" rel="noreferrer">
-                <ExternalLink className="size-3" />
-              </a>
-            </Button>
+              <ExternalLink className="size-3" />
+            </a>
           ) : null}
           {canRerun ? (
-            <Button
+            <button
               type="button"
-              size="icon-xs"
-              variant="ghost"
+              className={PR_ICON_BUTTON}
               onClick={rerunJob}
               disabled={rerunning}
               title="Rerun failed job"
@@ -638,37 +692,43 @@ function CheckRunRow({
               ) : (
                 <RotateCcw className="size-3" />
               )}
-            </Button>
+            </button>
           ) : null}
           {canLoadLogs ? (
-            <Button
+            <button
               type="button"
-              size="icon-xs"
-              variant="ghost"
+              className={cn(
+                PR_ICON_BUTTON,
+                expanded && "text-muted-foreground",
+              )}
               onClick={toggleExpand}
               title="View logs"
             >
-              <FileText className="size-3" />
-            </Button>
+              {expanded ? (
+                <ChevronDown className="size-3" />
+              ) : (
+                <FileText className="size-3" />
+              )}
+            </button>
           ) : null}
         </div>
       </div>
 
       {expanded && (
-        <div className="min-w-0 max-w-full border-t border-border/40 bg-background/50 p-2 font-mono text-[10px]">
+        <div className="px-[11px] pb-2.5">
           {loadingLogs ? (
-            <div className="flex items-center gap-2 text-muted-foreground py-2 justify-center">
+            <div className="flex items-center justify-center gap-2 rounded-lg border border-layout-border bg-background px-2.5 py-3 text-[11.5px] text-(--text-tertiary)">
               <Loader2 className="size-3.5 animate-spin" />
               <span>Loading logs from GitHub...</span>
             </div>
           ) : error ? (
-            <div className="flex min-w-0 items-center justify-between gap-2 py-1 text-destructive">
+            <div className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-[11px] text-destructive">
               <span className="min-w-0 whitespace-pre-wrap break-words">{error}</span>
               <Button
                 type="button"
                 size="xs"
                 variant="outline"
-                className="h-5 px-1.5 text-[9px]"
+                className="h-5 shrink-0 px-1.5 text-[9px]"
                 onClick={fetchLogs}
               >
                 Retry
@@ -676,25 +736,25 @@ function CheckRunRow({
             </div>
           ) : logs ? (
             <div className="relative min-w-0 max-w-full">
-              <pre className="block max-h-72 w-full max-w-full overflow-auto whitespace-pre-wrap break-words rounded bg-background/70 p-2 font-mono text-[10px] leading-normal text-foreground/90 wrap-break-word">
+              <pre className="block max-h-72 w-full max-w-full overflow-auto whitespace-pre-wrap break-words rounded-lg border border-layout-border bg-background px-3 py-2.5 font-mono text-[10px] leading-relaxed text-foreground/90 wrap-break-word">
                 {logs}
               </pre>
-              <div className="mt-1.5 flex justify-end">
-                <Button
+              <div className="mt-2 flex justify-end">
+                <button
                   type="button"
-                  size="xs"
-                  variant="outline"
-                  className="h-5 px-2 text-[9px]"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border bg-secondary px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-60"
                   onClick={fetchLogs}
                   disabled={loadingLogs}
                 >
-                  <RefreshCw className="mr-1 size-2.5" />
+                  <RefreshCw className="size-3" />
                   Reload Logs
-                </Button>
+                </button>
               </div>
             </div>
           ) : (
-            <div className="py-1 text-center font-sans text-muted-foreground">No logs available.</div>
+            <div className="rounded-lg border border-layout-border bg-background py-2 text-center text-[11.5px] text-(--text-tertiary)">
+              No logs available.
+            </div>
           )}
         </div>
       )}
@@ -715,19 +775,13 @@ function DescriptionView({ description }: { description: string | null }) {
   const body = description?.trim();
 
   if (!body) {
-    return (
-      <div className="px-3 py-8 text-center text-xs text-muted-foreground">
-        No PR description provided.
-      </div>
-    );
+    return <EmptyTabMessage>No PR description provided.</EmptyTabMessage>;
   }
 
   return (
-    <div className="px-2 py-2">
-      <article className="min-w-0 rounded-md bg-background/45 px-2.5 py-2 ring-1 ring-border">
-        <Markdown className="min-w-0 space-y-1 text-xs leading-snug wrap-break-word [&_h1]:mt-1 [&_h1]:text-sm [&_h1]:leading-tight [&_h2]:mt-1 [&_h2]:text-sm [&_h2]:leading-tight [&_h3]:mt-1 [&_h3]:leading-tight [&_li]:leading-snug [&_ol]:space-y-0 [&_p]:leading-snug [&_table]:text-[11px] [&_td]:px-1.5 [&_td]:py-0.5 [&_th]:px-1.5 [&_th]:py-0.5 [&_ul]:space-y-0">
-          {body}
-        </Markdown>
+    <div className={PR_BODY_PAD}>
+      <article className="min-w-0 rounded-xl border border-border bg-card px-4 py-3.5">
+        <Markdown className={PR_MARKDOWN_CLASSNAME}>{body}</Markdown>
       </article>
     </div>
   );
@@ -735,72 +789,63 @@ function DescriptionView({ description }: { description: string | null }) {
 
 function DiscussionView({ items }: { items: ProjectPullRequestDiscussionItem[] }) {
   if (items.length === 0) {
-    return (
-      <div className="px-3 py-8 text-center text-xs text-muted-foreground">
-        No discussion comments reported.
-      </div>
-    );
+    return <EmptyTabMessage>No discussion comments reported.</EmptyTabMessage>;
   }
 
   const orderedItems = orderDiscussionItems(items);
   const depthById = getDiscussionDepths(items);
 
   return (
-    <ol className="grid min-w-0 gap-1.5 px-2 py-2">
+    <ol className={cn(PR_BODY_PAD, "grid min-w-0 gap-2")}>
       {orderedItems.map((item) => {
         const depth = depthById.get(item.id) ?? 0;
         const isReply = depth > 0;
+        const isBot = item.authorLogin.endsWith("[bot]");
 
         return (
           <li
             key={`${item.kind}:${item.id}`}
-            className={cn(
-              "min-w-0",
-              isReply && "ml-3 border-l border-border pl-2",
-            )}
+            className={cn("min-w-0", isReply && "ml-3 border-l border-border pl-2")}
           >
-            <article className="min-w-0 rounded-md bg-background/45 px-2.5 py-2 ring-1 ring-border">
-              <div className="mb-1.5 flex min-w-0 items-start justify-between gap-2">
-                <div className="grid min-w-0 grid-cols-[0.875rem_minmax(0,1fr)] items-start gap-2">
-                  <MessageSquare
-                    className={cn(
-                      "mt-0.5 size-3.5 text-muted-foreground",
-                      isReply && "text-foreground/70",
-                    )}
-                  />
-                  <div className="min-w-0">
-                    <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">
-                      <span className="truncate font-semibold">{item.authorLogin}</span>
-                      <span className="font-mono text-[10px] text-muted-foreground">
-                        {relativeTime(item.createdAt)}
-                      </span>
-                      <span className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-                        {item.kind === "review_comment" ? "Review" : "Comment"}
-                      </span>
-                    </div>
-                    {item.path ? (
-                      <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
-                        {item.path}
-                        {item.line ? `:${item.line}` : ""}
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-                <Button
-                  type="button"
-                  size="icon-xs"
-                  variant="ghost"
-                  asChild
+            <article className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
+              <div className="flex min-w-0 items-center gap-2 border-b border-layout-border px-3 py-2.5">
+                {isBot ? (
+                  <Bot className="size-4 shrink-0 text-(--text-tertiary)" />
+                ) : (
+                  <MessageSquare className="size-4 shrink-0 text-(--text-tertiary)" />
+                )}
+                <span className="truncate text-[12.5px] font-semibold text-foreground">
+                  {item.authorLogin}
+                </span>
+                <span className="shrink-0 text-[11.5px] text-(--text-tertiary)">
+                  {relativeTime(item.createdAt)}
+                </span>
+                <span className="shrink-0 rounded-md border border-border bg-secondary px-2 py-0.5 text-[10.5px] font-medium text-muted-foreground">
+                  {item.kind === "review_comment" ? "Review" : "Comment"}
+                </span>
+                <span className="min-w-0 flex-1" />
+                <a
+                  href={item.htmlUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={PR_ICON_BUTTON}
                   title="Open comment on GitHub"
                 >
-                  <a href={item.htmlUrl} target="_blank" rel="noreferrer">
-                    <ExternalLink className="size-3" />
-                  </a>
-                </Button>
+                  <ExternalLink className="size-3" />
+                </a>
               </div>
-              <Markdown className="min-w-0 space-y-1 text-xs leading-snug wrap-break-word [&_h1]:mt-1 [&_h1]:text-sm [&_h1]:leading-tight [&_h2]:mt-1 [&_h2]:text-sm [&_h2]:leading-tight [&_h3]:mt-1 [&_h3]:leading-tight [&_li]:leading-snug [&_ol]:space-y-0 [&_p]:leading-snug [&_table]:text-[11px] [&_td]:px-1.5 [&_td]:py-0.5 [&_th]:px-1.5 [&_th]:py-0.5 [&_ul]:space-y-0">
-                {item.body}
-              </Markdown>
+              <div className="flex flex-col gap-2 px-3 py-2.5">
+                {item.path ? (
+                  <span className="inline-flex max-w-full items-center gap-1.5 self-start rounded border border-border bg-secondary px-2 py-0.5 font-mono text-[10.5px] text-muted-foreground">
+                    <FileCode className="size-3 shrink-0 text-(--text-tertiary)" />
+                    <span className="truncate">
+                      {item.path}
+                      {item.line ? `:${item.line}` : ""}
+                    </span>
+                  </span>
+                ) : null}
+                <Markdown className={PR_MARKDOWN_CLASSNAME}>{item.body}</Markdown>
+              </div>
             </article>
           </li>
         );
@@ -883,80 +928,63 @@ function CommitsView({
   commits: ProjectPullRequestCommitSummary[];
 }) {
   if (commits.length === 0) {
-    return (
-      <div className="px-3 py-8 text-center text-xs text-muted-foreground">
-        No commits reported.
-      </div>
-    );
+    return <EmptyTabMessage>No commits reported.</EmptyTabMessage>;
   }
 
   return (
-    <ol className="grid min-w-0 gap-1.5 px-2 py-2">
+    <ol className={cn(PR_BODY_PAD, "grid min-w-0 gap-2")}>
       {commits.map((commit) => (
         <li
           key={commit.sha}
-          className="grid min-w-0 grid-cols-[0.875rem_minmax(0,1fr)_auto] items-start gap-2 rounded-md border border-border/40 bg-background/20 px-2 py-1.5 text-xs hover:bg-accent/25"
+          className="min-w-0 rounded-xl border border-border bg-card px-3 py-2.5"
         >
-          <GitCommit className="mt-0.5 size-3.5 text-muted-foreground" />
-          <div className="min-w-0">
+          <div className="flex min-w-0 items-start gap-2">
+            <GitCommitHorizontal className="mt-0.5 size-4 shrink-0 text-(--text-tertiary)" />
             <a
               href={commit.htmlUrl}
               target="_blank"
               rel="noreferrer"
-              className="block truncate font-semibold hover:underline"
+              className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-[1.4] text-foreground hover:underline"
             >
               {commit.title}
             </a>
-            <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-              <span className="truncate">{commit.authorLogin ?? commit.authorName}</span>
-              <span>{relativeTime(commit.committedAt)}</span>
-              <span className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[10px]">
-                {commit.shortSha}
-              </span>
-            </div>
-            {commit.message !== commit.title ? (
-              <pre className="mt-1.5 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded bg-background/70 p-1.5 font-mono text-[10px] leading-normal text-muted-foreground">
-                {commit.message}
-              </pre>
-            ) : null}
-          </div>
-          <Button
-            type="button"
-            size="icon-xs"
-            variant="ghost"
-            asChild
-            title="Open commit on GitHub"
-          >
-            <a href={commit.htmlUrl} target="_blank" rel="noreferrer">
+            <a
+              href={commit.htmlUrl}
+              target="_blank"
+              rel="noreferrer"
+              className={cn(PR_ICON_BUTTON, "mt-0.5")}
+              title="Open commit on GitHub"
+            >
               <ExternalLink className="size-3" />
             </a>
-          </Button>
+          </div>
+          <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2 pl-6">
+            <span className="truncate text-[11.5px] text-muted-foreground">
+              {commit.authorLogin ?? commit.authorName}
+            </span>
+            <span className="text-[11.5px] text-(--text-tertiary)">
+              {relativeTime(commit.committedAt)}
+            </span>
+            <span className="rounded-md border border-border bg-secondary px-1.5 py-px font-mono text-[10.5px] text-muted-foreground">
+              {commit.shortSha}
+            </span>
+          </div>
+          {commit.message !== commit.title ? (
+            <pre className="mt-2 min-w-0 max-w-full overflow-x-auto whitespace-pre-wrap break-words rounded-lg border border-layout-border bg-background px-3 py-2.5 font-mono text-[10.5px] leading-[1.5] text-muted-foreground">
+              {commit.message}
+            </pre>
+          ) : null}
         </li>
       ))}
     </ol>
   );
 }
 
-function InlineStat({
-  value,
-  label,
-  tone,
-}: {
-  value: string | number;
-  label?: string;
-  tone?: "add" | "delete";
-}) {
+function EmptyTabMessage({ children }: { children: ReactNode }) {
   return (
-    <span
-      className={cn(
-        "font-mono tabular-nums",
-        tone === "add" && "text-emerald-400",
-        tone === "delete" && "text-destructive",
-      )}
-    >
-      {value}
-      {label ? <span className="ml-1 text-muted-foreground">{label}</span> : null}
-    </span>
+    <div className={cn(PR_BODY_PAD, "text-center text-[12px] text-(--text-tertiary)")}>
+      {children}
+    </div>
   );
 }
 
@@ -1100,62 +1128,60 @@ export function PullRequestSelector({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="inline-flex items-center gap-0.5 rounded-sm px-1 py-0.5 font-mono text-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-secondary px-2.5 py-1 font-mono text-[12px] text-muted-foreground transition-colors hover:bg-secondary/80 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           aria-label={pullRequest ? `Select pull request, current ${label}` : "Select pull request"}
         >
           <span className="truncate">{label}</span>
-          <ChevronDown className="size-3 shrink-0 opacity-70" />
+          <ChevronDown className="size-3.5 shrink-0 text-(--text-tertiary)" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" side="bottom" className="w-80 overflow-hidden p-0">
-        <div className="border-b border-layout-border p-1.5">
-          <div className="grid grid-cols-[0.75rem_1fr_auto] items-center gap-1.5 rounded-md bg-background/70 px-1.5 py-1 ring-1 ring-border">
-            <Search className="size-3 text-muted-foreground" />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search pull requests"
-              className="min-w-0 bg-transparent font-mono text-[11px] outline-none placeholder:text-muted-foreground"
-              aria-label="Search pull requests"
-            />
-            <button
-              type="button"
-              onClick={() => void loadPullRequests()}
-              disabled={loading}
-              className="inline-flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-60"
-              aria-label="Refresh pull requests"
-              title="Refresh pull requests"
-            >
-              {loading ? (
-                <Loader2 className="size-3 animate-spin" />
-              ) : (
-                <RefreshCw className="size-3" />
-              )}
-            </button>
-          </div>
-        </div>
-        <div className="max-h-72 overflow-y-auto p-0.5">
-          <PopupSectionHeader
-            title="Pull requests"
-            action={
-              <PopupSortSelect
-                value={pullRequestSort}
-                options={PULL_REQUEST_SORT_OPTIONS}
-                onChange={setPullRequestSort}
-                aria-label="Sort pull requests"
-              />
-            }
+      <PopoverContent align="start" side="bottom" className="w-[360px] overflow-hidden p-0">
+        <div className="flex items-center gap-2 border-b border-layout-border px-3 py-2.5">
+          <Search className="size-4 shrink-0 text-(--text-tertiary)" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search pull requests"
+            className="min-w-0 flex-1 bg-transparent text-[12.5px] outline-none placeholder:text-(--text-tertiary)"
+            aria-label="Search pull requests"
           />
+          <button
+            type="button"
+            onClick={() => void loadPullRequests()}
+            disabled={loading}
+            className={PR_ICON_BUTTON}
+            aria-label="Refresh pull requests"
+            title="Refresh pull requests"
+          >
+            {loading ? (
+              <Loader2 className="size-3 animate-spin" />
+            ) : (
+              <RefreshCw className="size-3" />
+            )}
+          </button>
+        </div>
+        <div className="max-h-80 overflow-y-auto">
+          <div className="flex items-center justify-between gap-2 px-3 pb-1 pt-2">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-(--text-tertiary)">
+              Pull requests
+            </span>
+            <PopupSortSelect
+              value={pullRequestSort}
+              options={PULL_REQUEST_SORT_OPTIONS}
+              onChange={setPullRequestSort}
+              aria-label="Sort pull requests"
+            />
+          </div>
           {error ? (
-            <div className="mx-1 rounded-md bg-destructive/10 px-1.5 py-1 text-[11px] text-destructive">
+            <div className="mx-2 mb-2 rounded-md bg-destructive/10 px-2 py-1.5 text-[11px] text-destructive">
               {error}
             </div>
           ) : filteredPullRequests.length === 0 ? (
-            <div className="px-2 py-3 text-center text-[11px] text-muted-foreground">
+            <div className="px-3 py-6 text-center text-[11.5px] text-(--text-tertiary)">
               {loading ? "Loading pull requests..." : "No pull requests found."}
             </div>
           ) : (
-            <ul className="grid gap-0.5">
+            <ul className="grid gap-0.5 px-1.5 pb-1.5">
               {filteredPullRequests.map((item) => {
                 const selected = pullRequest?.number === item.number;
                 const stateLabel = item.merged
@@ -1168,32 +1194,35 @@ export function PullRequestSelector({
                     <button
                       type="button"
                       onClick={() => selectPullRequest(item)}
-                      className="grid w-full grid-cols-[0.75rem_minmax(0,1fr)_0.75rem] items-start gap-1.5 rounded-md px-1.5 py-1 text-left text-[11px] transition-colors hover:bg-accent disabled:opacity-60"
-                    >
-                      {selecting === item.number ? (
-                        <Loader2 className="mt-0.5 size-3 animate-spin text-primary" />
-                      ) : (
-                        <GitBranch
-                          className={cn(
-                            "mt-0.5 size-3",
-                            item.merged
-                              ? "text-purple-400"
-                              : item.state === "open"
-                                ? "text-emerald-400"
-                                : "text-muted-foreground",
-                          )}
-                        />
+                      className={cn(
+                        "flex w-full items-start gap-2.5 rounded-md px-2 py-[7px] text-left transition-colors hover:bg-secondary/60 disabled:opacity-60",
+                        selected && "bg-secondary",
                       )}
-                      <span className="min-w-0">
-                        <span className="block truncate font-medium">
+                    >
+                      <span className="pt-px">
+                        {selecting === item.number ? (
+                          <Loader2 className="size-4 animate-spin text-primary" />
+                        ) : (
+                          <PullRequestStateIcon item={item} />
+                        )}
+                      </span>
+                      <span className="grid min-w-0 flex-1 gap-[3px]">
+                        <span
+                          className={cn(
+                            "truncate text-[12.5px] text-foreground",
+                            selected ? "font-semibold" : "font-medium",
+                          )}
+                        >
                           #{item.number} {item.title}
                         </span>
-                        <span className="block truncate font-mono text-[10px] text-muted-foreground">
-                          {item.headBranch} {"->"} {item.baseBranch} | {stateLabel} |{" "}
+                        <span className="truncate font-mono text-[10.5px] text-(--text-tertiary)">
+                          {item.headBranch} → {item.baseBranch} · {stateLabel} ·{" "}
                           {relativePullRequestTime(item.updatedAt)}
                         </span>
                       </span>
-                      {selected ? <Check className="mt-0.5 size-3 text-primary" /> : null}
+                      {selected ? (
+                        <Check className="mt-px size-4 shrink-0 text-primary" />
+                      ) : null}
                     </button>
                   </li>
                 );
@@ -1206,29 +1235,42 @@ export function PullRequestSelector({
   );
 }
 
+function PullRequestStateIcon({ item }: { item: ProjectPullRequestListItem }) {
+  if (item.merged) {
+    return <GitMerge className="size-4 text-thought" />;
+  }
+  return (
+    <GitPullRequest
+      className={cn(
+        "size-4",
+        item.state === "open" ? "text-success" : "text-(--text-tertiary)",
+      )}
+    />
+  );
+}
+
 function StateBadge({
   pullRequest,
 }: {
   pullRequest: ProjectPullRequestSummary;
 }) {
-  const label = pullRequest.merged
-    ? "Merged"
-    : pullRequest.state === "open"
-      ? "Open"
-      : "Closed";
-  const className = pullRequest.merged
-    ? "bg-purple-500/15 text-purple-300 ring-purple-500/30"
-    : pullRequest.state === "open"
-      ? "bg-emerald-500/15 text-emerald-300 ring-emerald-500/30"
-      : "bg-secondary text-muted-foreground ring-border";
+  const merged = pullRequest.merged;
+  const open = !merged && pullRequest.state === "open";
+  const label = merged ? "Merged" : open ? "Open" : "Closed";
+  const className = merged
+    ? "bg-thought/12 text-thought"
+    : open
+      ? "bg-success/10 text-success"
+      : "bg-secondary text-muted-foreground";
+  const Icon = merged ? GitMerge : GitPullRequest;
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[10px] ring-1",
+        "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-semibold",
         className,
       )}
     >
-      <GitPullRequest className="size-3" />
+      <Icon className="size-3" />
       {label}
     </span>
   );
@@ -1253,10 +1295,10 @@ function runStateMeta(
   run: ProjectPullRequestSummary["checks"]["runs"][number],
 ) {
   if (run.status !== "completed") {
-    return { Icon: Clock, className: "text-amber-400" };
+    return { Icon: Clock, className: "text-warning" };
   }
   if (["success", "neutral", "skipped"].includes(run.conclusion ?? "")) {
-    return { Icon: CheckCircle2, className: "text-emerald-400" };
+    return { Icon: CheckCircle2, className: "text-success" };
   }
   return { Icon: XCircle, className: "text-destructive" };
 }

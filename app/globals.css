@@ -14,6 +14,8 @@
   --primary: oklch(0.63 0.16 58.84);
   --primary-foreground: oklch(0.985 0.004 80);
   --accent-muted: oklch(0.58 0.09 62);
+  --text-tertiary: oklch(0.533 0 0);
+  --thought: oklch(0.7217 0.1767 305.5);
   --secondary: oklch(0.92 0 0);
   --secondary-foreground: oklch(0.23 0 0);
   --muted: oklch(0.92 0 0);
@@ -61,6 +63,8 @@
   --primary: oklch(0.7288 0.1618 58.84); /* accent #F08A24 */
   --primary-foreground: oklch(0.1591 0 0); /* accent-text #0D0D0D */
   --accent-muted: oklch(0.6764 0.0853 62.72); /* accent-muted #C98A4B */
+  --text-tertiary: oklch(0.533 0 0); /* text-tertiary #6B6B6B */
+  --thought: oklch(0.7217 0.1767 305.5); /* thought #A78BFA */
   --secondary: oklch(0.252 0 0); /* bg-active #222222 */
   --secondary-foreground: oklch(0.9612 0 0);
   --muted: oklch(0.2178 0 0); /* bg-hover #1A1A1A */
@@ -114,6 +118,7 @@
   /* No --color-accent-muted: the "accent-" prefix collides with Tailwind's
      accent-color utility namespace, so text-accent-muted never generates.
      Use text-(--accent-muted) / bg-(--accent-muted) instead. */
+  --color-thought: var(--thought);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-success: var(--success);

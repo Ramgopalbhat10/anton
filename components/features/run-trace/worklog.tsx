@@ -4,8 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatAddToolApproveResponseFunction } from "ai";
 import {
   FileText,
-  GitBranch,
   GitCompareArrows,
+  GitPullRequest,
   FolderTree,
   Info,
   ListTodo,
@@ -23,7 +23,6 @@ import {
   type AntonUIMessage,
   type ToolTraceEntry,
 } from "@/src/lib/trace";
-import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/shared/feedback-states";
 import { cn } from "@/lib/utils";
 import { Markdown } from "@/components/features/chat/markdown";
@@ -43,16 +42,19 @@ import type {
 } from "@/src/lib/api-types";
 
 const traceWorkspaceHeaderRowClass =
-  "flex shrink-0 items-center border-b border-layout-border p-1.5";
+  "flex shrink-0 items-center border-b border-layout-border px-3.5 py-2.5";
 
 const traceWorkspaceTabClass =
-  "inline-flex h-6 min-w-0 max-w-44 shrink-0 items-center gap-1.5 rounded pl-1.5 pr-2 text-[11px] font-normal transition-colors duration-150";
+  "group/tab inline-flex h-[25px] min-w-0 max-w-44 shrink-0 items-center gap-1 rounded-[6px] border border-transparent pl-2 pr-2.5 text-[12.5px] leading-none transition-colors duration-150";
 
 const traceWorkspaceTabCloseButtonClass =
-  "group/close relative inline-flex size-4 shrink-0 items-center justify-center rounded transition-colors hover:bg-background/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+  "relative inline-flex size-4 shrink-0 items-center justify-center rounded-[4px] text-(--text-tertiary) transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
 const traceWorkspaceTabLabelButtonClass =
-  "min-w-0 rounded text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+  "flex min-w-0 items-center gap-1.5 rounded-[4px] text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+
+const traceWorkspaceIconButtonClass =
+  "inline-flex size-6 shrink-0 items-center justify-center rounded-md text-(--text-tertiary) transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60";
 
 export type WorklogEntry = ToolTraceEntry;
 type SidebarTab = "worklog" | "plans" | "todos" | "pr" | "files" | "diff" | "status";
@@ -163,14 +165,15 @@ export function Worklog({
           <div className="flex min-w-0 items-center gap-1 overflow-x-auto overflow-y-hidden scrollbar-hide">
             {tabs.map((tab) => {
               const meta = tabMeta(tab);
+              const isActive = activeTab === tab;
               return (
                 <div
                   key={tab}
                   className={cn(
                     traceWorkspaceTabClass,
-                    activeTab === tab
-                      ? "bg-secondary text-foreground"
-                      : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
+                    isActive
+                      ? "border-border bg-secondary font-semibold text-foreground"
+                      : "font-medium text-muted-foreground hover:bg-muted hover:text-foreground",
                   )}
                   role="group"
                   aria-label={`${meta.label} tab`}
@@ -178,39 +181,42 @@ export function Worklog({
                   <button
                     type="button"
                     onClick={() => closeTab(tab)}
-                    className={traceWorkspaceTabCloseButtonClass}
+                    className={cn(
+                      traceWorkspaceTabCloseButtonClass,
+                      "group/close",
+                      isActive && "text-foreground",
+                    )}
                     aria-label={`Close ${meta.label} tab`}
                     title={`Close ${meta.label}`}
                   >
-                    <meta.Icon className="size-3 transition-opacity group-hover/close:opacity-0 group-focus-visible/close:opacity-0" />
-                    <X className="absolute size-3 opacity-0 transition-opacity group-hover/close:opacity-100 group-focus-visible/close:opacity-100" />
+                    <meta.Icon className="size-3 shrink-0 transition-opacity group-hover/close:opacity-0 group-focus-visible/close:opacity-0" />
+                    <X className="pointer-events-none absolute size-3 shrink-0 opacity-0 transition-opacity group-hover/close:opacity-100 group-focus-visible/close:opacity-100" />
                   </button>
                   <button
                     type="button"
                     onClick={() => setActiveTab(tab)}
                     className={traceWorkspaceTabLabelButtonClass}
-                    aria-pressed={activeTab === tab}
+                    aria-pressed={isActive}
                   >
-                    <span className="block truncate">{meta.label}</span>
+                    <span className="truncate">{meta.label}</span>
                   </button>
                 </div>
               );
             })}
           </div>
 
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="flex shrink-0 items-center gap-2.5">
             <div className="relative">
-              <Button
+              <button
                 type="button"
-                size="icon-sm"
-                variant="ghost"
+                className={traceWorkspaceIconButtonClass}
                 onClick={() => setMenuOpen((open) => !open)}
                 disabled={availableTabs.length === 0}
                 aria-label="Add sidebar tab"
                 aria-expanded={menuOpen}
               >
-                <Plus />
-              </Button>
+                <Plus className="size-3.5" />
+              </button>
               {menuOpen && availableTabs.length > 0 && (
                 <div className="absolute right-0 top-full z-50 mt-1 w-36 min-w-36 overflow-hidden rounded-md bg-popover text-popover-foreground shadow-md ring-1 ring-border">
                   <ul className="p-0.5">
@@ -236,27 +242,29 @@ export function Worklog({
               )}
             </div>
             {onExpandToggle && (
-              <Button
+              <button
                 type="button"
-                size="icon-sm"
-                variant="ghost"
+                className={traceWorkspaceIconButtonClass}
                 onClick={onExpandToggle}
                 aria-label={expanded ? "Shrink trace workspace" : "Expand trace workspace"}
                 aria-pressed={expanded}
               >
-                {expanded ? <Minimize2 /> : <Maximize2 />}
-              </Button>
+                {expanded ? (
+                  <Minimize2 className="size-[13px]" />
+                ) : (
+                  <Maximize2 className="size-[13px]" />
+                )}
+              </button>
             )}
             {onClose && (
-              <Button
+              <button
                 type="button"
-                size="icon-sm"
-                variant="ghost"
+                className={traceWorkspaceIconButtonClass}
                 onClick={onClose}
                 aria-label="Close trace workspace"
               >
-                <X />
-              </Button>
+                <X className="size-3.5" />
+              </button>
             )}
           </div>
         </header>
@@ -316,7 +324,7 @@ const SIDEBAR_TABS = [
   { id: "worklog", label: "Worklog", Icon: TerminalSquare },
   { id: "plans", label: "Plans", Icon: FileText },
   { id: "todos", label: "Todos", Icon: ListTodo },
-  { id: "pr", label: "PR", Icon: GitBranch },
+  { id: "pr", label: "PR", Icon: GitPullRequest },
   { id: "files", label: "Files", Icon: FolderTree },
   { id: "diff", label: "Diff", Icon: GitCompareArrows },
   { id: "status", label: "Status", Icon: Info },
