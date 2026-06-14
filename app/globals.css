@@ -188,21 +188,25 @@
     background-clip: padding-box;
   }
   .anton-file-tree {
+    /* Metrics mirror design/mockups.pen "Files · Tree" (W3nOF): mono 11px rows,
+       5px radius, 8px row padding, 7px icon↔label gap, compact row height. */
     --trees-accent-override: var(--primary);
     --trees-bg-override: transparent;
-    --trees-bg-muted-override: color-mix(in oklch, var(--foreground) 6%, transparent);
+    --trees-bg-muted-override: var(--muted); /* bg-hover #1A1A1A */
     --trees-border-color-override: var(--border);
-    --trees-border-radius-override: var(--radius-sm);
-    --trees-fg-muted-override: var(--muted-foreground);
+    --trees-border-radius-override: 5px;
+    --trees-fg-muted-override: var(--text-tertiary);
     --trees-fg-override: var(--foreground);
     --trees-focus-ring-color-override: var(--ring);
     --trees-font-family-override: var(--font-jetbrains-mono);
     --trees-font-size-override: 11px;
-    --trees-gap-override: 0px;
+    --trees-item-height: 22px;
+    --trees-gap-override: 1px;
+    --trees-level-gap-override: 12px;
     --trees-item-margin-x-override: 2px;
-    --trees-item-padding-x-override: 4px;
-    --trees-padding-inline-override: 2px;
-    --trees-search-bg-override: var(--secondary);
+    --trees-item-padding-x-override: 8px;
+    --trees-item-row-gap-override: 7px;
+    --trees-padding-inline-override: 8px;
     --trees-search-fg-override: var(--foreground);
     --trees-git-added-color-override: var(--success);
     --trees-git-deleted-color-override: var(--destructive);
@@ -210,11 +214,11 @@
     --trees-git-modified-color-override: var(--info);
     --trees-git-renamed-color-override: var(--warning);
     --trees-git-untracked-color-override: var(--success);
-    --trees-selected-bg-override: color-mix(in oklch, var(--primary) 18%, transparent);
+    --trees-selected-bg-override: color-mix(in oklch, var(--primary) 10%, transparent); /* accent-soft */
     --trees-selected-fg-override: var(--foreground);
   }
   .project-file-code-view {
-    --project-file-code-surface: color-mix(in oklch, var(--background) 25%, var(--card));
+    --project-file-code-surface: var(--background);
   }
   .project-file-code-view::-webkit-scrollbar-corner {
     background: var(--project-file-code-surface);

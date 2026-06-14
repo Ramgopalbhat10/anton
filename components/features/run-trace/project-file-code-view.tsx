@@ -24,14 +24,14 @@ const codeViewerOptions = {
       width: 100%;
       min-width: max-content;
       max-width: none;
-      --project-file-code-surface: color-mix(in oklch, var(--background) 25%, var(--card));
+      --project-file-code-surface: var(--background);
       --diffs-bg: var(--project-file-code-surface);
       --diffs-dark-bg: var(--project-file-code-surface);
       --diffs-dark: #ededed;
       --diffs-font-size: 11px;
       --diffs-line-height: 19px;
       --diffs-font-family: var(--font-jetbrains-mono), "SF Mono", Monaco, Consolas, "Liberation Mono", monospace;
-      --diffs-fg-number-override: rgba(255, 255, 255, 0.34);
+      --diffs-fg-number-override: var(--text-tertiary);
       --diffs-gap-block: 0;
       --diffs-gap-inline: 0;
     }
@@ -39,7 +39,7 @@ const codeViewerOptions = {
       width: 100%;
       min-width: max-content;
       max-width: none;
-      padding-block: 0;
+      padding-block: 10px 14px;
       overflow: visible;
       background: transparent;
     }
@@ -51,23 +51,22 @@ const codeViewerOptions = {
     [data-gutter] {
       z-index: 5;
       background-color: var(--project-file-code-surface);
-      box-shadow: 1px 0 0 var(--border);
     }
     [data-overflow="scroll"] [data-gutter] {
       position: sticky;
       left: 0;
     }
     [data-column-number] {
-      min-width: 3.5ch;
-      padding-inline: 0.375rem 0.5rem;
+      min-width: 2.5ch;
+      padding-inline: 0.5rem 0.75rem;
+      font-size: 10px;
       background-color: var(--project-file-code-surface);
-      border-right: 1px solid rgba(255, 255, 255, 0.08);
     }
     [data-line-number-content] {
-      min-width: 3.5ch;
+      min-width: 2.5ch;
     }
     [data-line] {
-      padding-inline: 0.625rem 1rem;
+      padding-inline: 0.5rem 0.875rem;
     }
   `,
 };
