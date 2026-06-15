@@ -7364,6 +7364,7 @@
                   "type": "frame",
                   "id": "Wu7LP",
                   "name": "Mode Chip",
+                  "height": 26,
                   "fill": "$bg-active",
                   "cornerRadius": 6,
                   "gap": 5,
@@ -7371,6 +7372,7 @@
                     5,
                     9
                   ],
+                  "justifyContent": "center",
                   "alignItems": "center",
                   "children": [
                     {
@@ -7409,6 +7411,7 @@
                   "type": "frame",
                   "id": "AfE7G",
                   "name": "Approval Chip",
+                  "height": 26,
                   "fill": "$accent-soft",
                   "cornerRadius": 6,
                   "gap": 5,
@@ -7416,6 +7419,7 @@
                     5,
                     9
                   ],
+                  "justifyContent": "center",
                   "alignItems": "center",
                   "children": [
                     {
@@ -7454,6 +7458,7 @@
                   "type": "frame",
                   "id": "JvB84",
                   "name": "MCP Chip",
+                  "height": 26,
                   "cornerRadius": 6,
                   "stroke": "$border",
                   "strokeWidth": 1,
@@ -7462,6 +7467,7 @@
                     5,
                     9
                   ],
+                  "justifyContent": "center",
                   "alignItems": "center",
                   "children": [
                     {
@@ -7510,6 +7516,7 @@
                   "y": 0,
                   "name": "Session Chip",
                   "enabled": false,
+                  "height": 26,
                   "cornerRadius": 6,
                   "stroke": "$border",
                   "strokeWidth": 1,
@@ -7518,6 +7525,7 @@
                     5,
                     9
                   ],
+                  "justifyContent": "center",
                   "alignItems": "center",
                   "children": [
                     {
@@ -7546,15 +7554,17 @@
                   "type": "frame",
                   "id": "ixM5y",
                   "name": "Model Select",
+                  "height": 26,
                   "fill": "$bg-input",
                   "cornerRadius": 6,
                   "stroke": "$border",
                   "strokeWidth": 1,
                   "gap": 8,
                   "padding": [
-                    6,
-                    10
+                    5,
+                    9
                   ],
+                  "justifyContent": "center",
                   "alignItems": "center",
                   "children": [
                     {
@@ -11374,6 +11384,113 @@
               ]
             }
           ]
+        },
+        {
+          "type": "frame",
+          "id": "Z64sq",
+          "name": "Row 5",
+          "gap": 56,
+          "alignItems": "end",
+          "children": [
+            {
+              "type": "frame",
+              "id": "W2WS3k",
+              "name": "State / Compact default",
+              "width": 320,
+              "layout": "vertical",
+              "gap": 16,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "L3y6k7",
+                  "name": "Caption",
+                  "fill": "$text-tertiary",
+                  "content": "COMPACT · NARROW PANEL",
+                  "fontFamily": "$font",
+                  "fontSize": 11.5,
+                  "fontWeight": "500",
+                  "letterSpacing": 0.8
+                },
+                {
+                  "id": "g4uPL",
+                  "type": "ref",
+                  "ref": "lCg6X",
+                  "name": "Composer Compact",
+                  "width": "fill_container"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "nbX5i",
+              "name": "State / Compact with sidebar",
+              "width": 320,
+              "layout": "vertical",
+              "gap": 16,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "v9m6r5",
+                  "name": "Caption",
+                  "fill": "$text-tertiary",
+                  "content": "COMPACT · SIDEBAR EXPANDED",
+                  "fontFamily": "$font",
+                  "fontSize": 11.5,
+                  "fontWeight": "500",
+                  "letterSpacing": 0.8
+                },
+                {
+                  "id": "Fj9Pr",
+                  "type": "ref",
+                  "ref": "lCg6X",
+                  "name": "Composer Compact",
+                  "width": "fill_container",
+                  "descendants": {
+                    "jGXAN": {
+                      "content": "Go through the codebase and understand what this application does"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "qnsoE",
+          "name": "Row 6",
+          "gap": 56,
+          "alignItems": "end",
+          "children": [
+            {
+              "type": "frame",
+              "id": "GcPf2",
+              "name": "State / Inline single row",
+              "width": 480,
+              "layout": "vertical",
+              "gap": 16,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "uml3q",
+                  "name": "Caption",
+                  "fill": "$text-tertiary",
+                  "content": "INLINE · SINGLE ROW",
+                  "fontFamily": "$font",
+                  "fontSize": 11.5,
+                  "fontWeight": "500",
+                  "letterSpacing": 0.8
+                },
+                {
+                  "id": "UNe8N",
+                  "type": "ref",
+                  "ref": "rkFLV",
+                  "name": "Composer Inline",
+                  "width": "fill_container"
+                }
+              ]
+            }
+          ]
         }
       ]
     },
@@ -12543,7 +12660,7 @@
                 "bottom": 1
               },
               "padding": [
-                12,
+                13,
                 14
               ],
               "justifyContent": "space_between",
@@ -43046,6 +43163,792 @@
                       ]
                     }
                   ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "lCg6X",
+      "x": 0,
+      "y": -2720,
+      "name": "Component / Composer Compact",
+      "reusable": true,
+      "width": "fill_container(320)",
+      "layout": "vertical",
+      "gap": 8,
+      "children": [
+        {
+          "type": "frame",
+          "id": "wI7ZZ",
+          "name": "Composer Card",
+          "width": "fill_container",
+          "fill": "$bg-card",
+          "cornerRadius": 12,
+          "stroke": "$border",
+          "strokeWidth": 1,
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 12,
+          "children": [
+            {
+              "type": "text",
+              "id": "jGXAN",
+              "name": "Prompt Placeholder",
+              "fill": "$accent-muted",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "Ask Anton to change the code",
+              "fontFamily": "$font-mono",
+              "fontSize": 13,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "E1yEX",
+              "name": "Controls Stack",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 8,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "w9RFY",
+                  "name": "Controls Row 1",
+                  "width": "fill_container",
+                  "gap": 6,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "B49NBa",
+                      "name": "Attach",
+                      "width": 26,
+                      "height": 26,
+                      "cornerRadius": 6,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "RPqnk",
+                          "name": "Plus",
+                          "width": 14,
+                          "height": 14,
+                          "icon": "plus",
+                          "library": "lucide",
+                          "fill": "$text-secondary"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "bMT66",
+                      "name": "Mode Chip",
+                      "height": 26,
+                      "fill": "$bg-active",
+                      "cornerRadius": 6,
+                      "gap": 5,
+                      "padding": [
+                        5,
+                        9
+                      ],
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "q2jRy",
+                          "name": "Mode Icon",
+                          "width": 12,
+                          "height": 12,
+                          "icon": "code-xml",
+                          "library": "lucide",
+                          "fill": "$text-secondary"
+                        },
+                        {
+                          "type": "icon",
+                          "id": "kLkxP",
+                          "name": "Chevron",
+                          "width": 11,
+                          "height": 11,
+                          "icon": "chevron-down",
+                          "library": "lucide",
+                          "fill": "$text-tertiary"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "IrxoX",
+                      "name": "Approval Chip",
+                      "width": 26,
+                      "height": 26,
+                      "fill": "$accent-soft",
+                      "cornerRadius": 6,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "sBVk0",
+                          "name": "Approval Icon",
+                          "width": 12,
+                          "height": 12,
+                          "icon": "shield-off",
+                          "library": "lucide",
+                          "fill": "$accent"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "gvAfV",
+                      "name": "MCP Chip",
+                      "height": 26,
+                      "cornerRadius": 6,
+                      "stroke": "$border",
+                      "strokeWidth": 1,
+                      "gap": 5,
+                      "padding": [
+                        5,
+                        9
+                      ],
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "m4KC8",
+                          "name": "MCP Icon",
+                          "width": 12,
+                          "height": 12,
+                          "icon": "server",
+                          "library": "lucide",
+                          "fill": "$text-secondary"
+                        },
+                        {
+                          "type": "text",
+                          "id": "EuEpC",
+                          "name": "MCP Count",
+                          "fill": "$text-primary",
+                          "content": "1",
+                          "fontFamily": "$font",
+                          "fontSize": 12.5,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "icon",
+                          "id": "ptaXI",
+                          "name": "Chevron",
+                          "width": 11,
+                          "height": 11,
+                          "icon": "chevron-down",
+                          "library": "lucide",
+                          "fill": "$text-tertiary"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "xWejr",
+                      "name": "Spacer",
+                      "width": "fill_container",
+                      "height": 1
+                    },
+                    {
+                      "type": "frame",
+                      "id": "lYdXY",
+                      "name": "Send Button",
+                      "width": 26,
+                      "height": 26,
+                      "fill": "$accent",
+                      "cornerRadius": 6,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "yZUGa",
+                          "name": "Send Icon",
+                          "width": 14,
+                          "height": 14,
+                          "icon": "arrow-up",
+                          "library": "lucide",
+                          "fill": "$accent-text"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "AlepC",
+                  "name": "Controls Row 2",
+                  "width": "fill_container",
+                  "gap": 6,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "hH45W",
+                      "name": "Model Select",
+                      "width": "fill_container",
+                      "height": 26,
+                      "fill": "$bg-input",
+                      "cornerRadius": 6,
+                      "stroke": "$border",
+                      "strokeWidth": 1,
+                      "gap": 8,
+                      "padding": [
+                        5,
+                        9
+                      ],
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "xj2RU",
+                          "name": "Model Label",
+                          "fill": "$text-primary",
+                          "content": "DeepSeek V4 Flash",
+                          "fontFamily": "$font",
+                          "fontSize": 12.5,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "icon",
+                          "id": "XVbIx",
+                          "name": "Chevron",
+                          "width": 12,
+                          "height": 12,
+                          "icon": "chevron-down",
+                          "library": "lucide",
+                          "fill": "$text-tertiary"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "L732Zk",
+                      "name": "Session Chip",
+                      "height": 26,
+                      "cornerRadius": 6,
+                      "stroke": "$border",
+                      "strokeWidth": 1,
+                      "gap": 5,
+                      "padding": [
+                        5,
+                        9
+                      ],
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "LaVnG",
+                          "name": "Token Icon",
+                          "width": 11,
+                          "height": 11,
+                          "icon": "coins",
+                          "library": "lucide",
+                          "fill": "$text-tertiary"
+                        },
+                        {
+                          "type": "text",
+                          "id": "RqOOB",
+                          "name": "Session Label",
+                          "fill": "$text-tertiary",
+                          "content": "95k tok",
+                          "fontFamily": "$font-mono",
+                          "fontSize": 11.5,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "WpHgz",
+          "name": "Context Row",
+          "gap": 12,
+          "padding": [
+            0,
+            4
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "Y6TB5",
+              "name": "Project Chip",
+              "gap": 6,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "icon",
+                  "id": "d4fvLA",
+                  "name": "Project Icon",
+                  "width": 13,
+                  "height": 13,
+                  "icon": "folder-git-2",
+                  "library": "lucide",
+                  "fill": "$text-secondary"
+                },
+                {
+                  "type": "text",
+                  "id": "NHAlF",
+                  "name": "Project Label",
+                  "fill": "$text-secondary",
+                  "content": "notes",
+                  "fontFamily": "$font",
+                  "fontSize": 12.5,
+                  "fontWeight": "500"
+                },
+                {
+                  "type": "icon",
+                  "id": "yM5fP",
+                  "name": "Chevron",
+                  "width": 11,
+                  "height": 11,
+                  "icon": "chevron-down",
+                  "library": "lucide",
+                  "fill": "$text-tertiary"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "hTXJq",
+              "name": "Branch Chip",
+              "gap": 6,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "icon",
+                  "id": "eOPlO",
+                  "name": "Branch Icon",
+                  "width": 13,
+                  "height": 13,
+                  "icon": "git-branch",
+                  "library": "lucide",
+                  "fill": "$text-secondary"
+                },
+                {
+                  "type": "text",
+                  "id": "u0k6rt",
+                  "name": "Branch Label",
+                  "fill": "$text-secondary",
+                  "content": "fix/quick-switcher...",
+                  "fontFamily": "$font",
+                  "fontSize": 12.5,
+                  "fontWeight": "500"
+                },
+                {
+                  "type": "icon",
+                  "id": "XYhme",
+                  "name": "Chevron",
+                  "width": 11,
+                  "height": 11,
+                  "icon": "chevron-down",
+                  "library": "lucide",
+                  "fill": "$text-tertiary"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "rkFLV",
+      "x": 0,
+      "y": -2980,
+      "name": "Component / Composer Inline",
+      "reusable": true,
+      "width": "fill_container(480)",
+      "fill": "$bg-base",
+      "stroke": "$border",
+      "layout": "vertical",
+      "gap": 8,
+      "children": [
+        {
+          "type": "frame",
+          "id": "XaFIa",
+          "name": "Composer Card",
+          "width": "fill_container",
+          "fill": "$bg-card",
+          "cornerRadius": 12,
+          "stroke": "$border",
+          "strokeWidth": 1,
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 12,
+          "children": [
+            {
+              "type": "text",
+              "id": "s9rkPi",
+              "name": "Prompt Placeholder",
+              "fill": "$accent-muted",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "Ask Anton to change the code",
+              "fontFamily": "$font-mono",
+              "fontSize": 13,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "yxKjG",
+              "name": "Controls",
+              "width": "fill_container",
+              "gap": 6,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "WvjjF",
+                  "name": "Attach",
+                  "width": 26,
+                  "height": 26,
+                  "cornerRadius": 6,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "Ikwpd",
+                      "name": "Plus",
+                      "width": 14,
+                      "height": 14,
+                      "icon": "plus",
+                      "library": "lucide",
+                      "fill": "$text-secondary"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "vSJar",
+                  "name": "Mode Chip",
+                  "height": 26,
+                  "fill": "$bg-active",
+                  "cornerRadius": 6,
+                  "stroke": "$border",
+                  "strokeWidth": 1,
+                  "gap": 5,
+                  "padding": [
+                    5,
+                    9
+                  ],
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "TJbAQ",
+                      "name": "Mode Icon",
+                      "width": 12,
+                      "height": 12,
+                      "icon": "code-xml",
+                      "library": "lucide",
+                      "fill": "$text-secondary"
+                    },
+                    {
+                      "type": "icon",
+                      "id": "AK5eH",
+                      "name": "Chevron",
+                      "width": 11,
+                      "height": 11,
+                      "icon": "chevron-down",
+                      "library": "lucide",
+                      "fill": "$text-tertiary"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "LHqX5",
+                  "name": "Approval Chip",
+                  "width": 26,
+                  "height": 26,
+                  "fill": "$accent-soft",
+                  "cornerRadius": 6,
+                  "gap": 5,
+                  "padding": [
+                    5,
+                    9
+                  ],
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "PMZ1L",
+                      "name": "Approval Icon",
+                      "width": 12,
+                      "height": 12,
+                      "icon": "shield-off",
+                      "library": "lucide",
+                      "fill": "$accent"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "Rbr3M",
+                  "name": "MCP Chip",
+                  "height": 26,
+                  "cornerRadius": 6,
+                  "stroke": "$border",
+                  "strokeWidth": 1,
+                  "gap": 5,
+                  "padding": [
+                    5,
+                    9
+                  ],
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "acUXg",
+                      "name": "MCP Icon",
+                      "width": 12,
+                      "height": 12,
+                      "icon": "server",
+                      "library": "lucide",
+                      "fill": "$text-secondary"
+                    },
+                    {
+                      "type": "text",
+                      "id": "W2D23r",
+                      "name": "MCP Count",
+                      "fill": "$text-primary",
+                      "content": "1",
+                      "fontFamily": "$font",
+                      "fontSize": 12.5,
+                      "fontWeight": "500"
+                    },
+                    {
+                      "type": "icon",
+                      "id": "MwUqI",
+                      "name": "Chevron",
+                      "width": 11,
+                      "height": 11,
+                      "icon": "chevron-down",
+                      "library": "lucide",
+                      "fill": "$text-tertiary"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "G1hosD",
+                  "name": "Spacer",
+                  "width": "fill_container",
+                  "height": 1
+                },
+                {
+                  "type": "frame",
+                  "id": "Ztjle",
+                  "name": "Session Chip",
+                  "height": 26,
+                  "cornerRadius": 6,
+                  "stroke": "$border",
+                  "strokeWidth": 1,
+                  "gap": 5,
+                  "padding": [
+                    5,
+                    9
+                  ],
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "jiGvA",
+                      "name": "Token Icon",
+                      "width": 11,
+                      "height": 11,
+                      "icon": "coins",
+                      "library": "lucide",
+                      "fill": "$text-tertiary"
+                    },
+                    {
+                      "type": "text",
+                      "id": "isEBy",
+                      "name": "Session Count",
+                      "fill": "$text-tertiary",
+                      "content": "95k",
+                      "fontFamily": "$font-mono",
+                      "fontSize": 11.5,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "qH867",
+                  "name": "Model Select",
+                  "height": 26,
+                  "fill": "$bg-input",
+                  "cornerRadius": 6,
+                  "stroke": "$border",
+                  "strokeWidth": 1,
+                  "gap": 8,
+                  "padding": [
+                    5,
+                    9
+                  ],
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "I3S1z",
+                      "name": "Model Label",
+                      "fill": "$text-primary",
+                      "content": "DeepSeek V4 Flash",
+                      "fontFamily": "$font",
+                      "fontSize": 12.5,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "icon",
+                      "id": "HIqzv",
+                      "name": "Chevron",
+                      "width": 12,
+                      "height": 12,
+                      "icon": "chevron-down",
+                      "library": "lucide",
+                      "fill": "$text-tertiary"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "N13Rv",
+                  "name": "Send Button",
+                  "width": 26,
+                  "height": 26,
+                  "fill": "$accent",
+                  "cornerRadius": 6,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "XADpB",
+                      "name": "Send Icon",
+                      "width": 14,
+                      "height": 14,
+                      "icon": "arrow-up",
+                      "library": "lucide",
+                      "fill": "$accent-text"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "w9oc0",
+          "name": "Context Row",
+          "gap": 12,
+          "padding": [
+            0,
+            4
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "L5mfa",
+              "name": "Project Chip",
+              "gap": 6,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "icon",
+                  "id": "DaZAn",
+                  "name": "Project Icon",
+                  "width": 13,
+                  "height": 13,
+                  "icon": "folder-git-2",
+                  "library": "lucide",
+                  "fill": "$text-secondary"
+                },
+                {
+                  "type": "text",
+                  "id": "fXQg8",
+                  "name": "Project Label",
+                  "fill": "$text-secondary",
+                  "content": "notes",
+                  "fontFamily": "$font",
+                  "fontSize": 12.5,
+                  "fontWeight": "500"
+                },
+                {
+                  "type": "icon",
+                  "id": "HTUwN",
+                  "name": "Chevron",
+                  "width": 11,
+                  "height": 11,
+                  "icon": "chevron-down",
+                  "library": "lucide",
+                  "fill": "$text-tertiary"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "m9N1dH",
+              "name": "Branch Chip",
+              "gap": 6,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "icon",
+                  "id": "FFIj1",
+                  "name": "Branch Icon",
+                  "width": 13,
+                  "height": 13,
+                  "icon": "git-branch",
+                  "library": "lucide",
+                  "fill": "$text-secondary"
+                },
+                {
+                  "type": "text",
+                  "id": "tTNXj",
+                  "name": "Branch Label",
+                  "fill": "$text-secondary",
+                  "content": "fix/quick-switcher...",
+                  "fontFamily": "$font",
+                  "fontSize": 12.5,
+                  "fontWeight": "500"
+                },
+                {
+                  "type": "icon",
+                  "id": "SFNhS",
+                  "name": "Chevron",
+                  "width": 11,
+                  "height": 11,
+                  "icon": "chevron-down",
+                  "library": "lucide",
+                  "fill": "$text-tertiary"
                 }
               ]
             }
