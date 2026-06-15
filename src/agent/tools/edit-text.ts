@@ -50,10 +50,14 @@ export function createEditTextTool(workspaceRoot?: string) {
     execute: async ({ path: relPath, edits, allowGuarded = false }) => {
       try {
         const abs = resolveInWorkspace(relPath, workspaceRoot);
-        await assertGuardAllowed({ absPath: abs, relPath, allowGuarded });
+        const metadata = await assertGuardAllowed({ absPath: abs, relPath, allowGuarded });
         const previous = await readTextFileSnapshot(abs, TEXT_FILE_MAX_BYTES);
 
-        const result = applyTextEditsToContent(previous.content, edits);
+        const result = applyTextEditsToContent(previous.content, edits, {
+          allowIndentationRecovery: !metadata.guard.guarded,
+          maxBytes: TEXT_FILE_MAX_BYTES,
+          recoveryDisabledReason: metadata.guard.guarded ? "guarded" : undefined,
+        });
         if (!result.ok) {
           const failed = edits[result.index];
           return structuredError({
@@ -108,6 +112,16 @@ export function createEditTextTool(workspaceRoot?: string) {
           diff,
           patchPreview,
           priorReadStale: true as const,
+          ...(result.recoveredEditCount > 0
+            ? {
+                matchStrategy:
+                  result.recoveredEditCount === result.appliedCount
+                    ? "indentation"
+                    : "mixed",
+                recoveredEditCount: result.recoveredEditCount,
+                matchedLineRanges: result.matchedLineRanges,
+              }
+            : {}),
           ...(lint.skipped
             ? { postEditLint: "skipped" as const, postEditLintReason: lint.reason }
             : lint.ok
@@ -250,6 +264,15 @@ function compactEditTextModelOutput(output: unknown): JSONValue {
     nextHash: stringValue(output.nextHash),
     diff: stringValue(output.diff),
     priorReadStale: true,
+    ...(numberValue(output.recoveredEditCount) > 0
+      ? {
+          matchStrategy: stringValue(output.matchStrategy),
+          recoveredEditCount: numberValue(output.recoveredEditCount),
+          matchedLineRanges: Array.isArray(output.matchedLineRanges)
+            ? output.matchedLineRanges.slice(0, 10)
+            : [],
+        }
+      : {}),
     ...(stringValue(output.postEditLint)
       ? { postEditLint: stringValue(output.postEditLint) }
       : {}),
@@ -291,10 +314,10 @@ function recommendedNextForEditTextFailure(code: string): string {
     return "Use nearMatches or re-read the relevant range, then retry with current text.";
   }
   if (code === "FIND_NOT_UNIQUE") {
-    return "Narrow the oldText snippet or set replaceAll only when every match is intended.";
+    return "Include more surrounding context or use replace_lines.";
   }
   if (code === "GUARD_REJECTED") {
-    return "Set allowGuarded only if this guarded edit is intentional.";
+    return "Use exact text or replace_lines; automatic recovery is disabled for guarded files.";
   }
   if (code === "SYNTAX_OR_LINT_FAILED") {
     return "Use the lint issues and failed patch preview to make a smaller valid edit.";

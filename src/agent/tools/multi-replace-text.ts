@@ -9,6 +9,13 @@ import {
 } from "./edit-utils";
 import { assertGuardAllowed } from "./file-guardrails";
 import { findPreview, nearMatchesForFind } from "./edit-diagnostics";
+import {
+  detectLineEnding,
+  normalizeToLF,
+  planTextReplacement,
+  restoreLineEndings,
+  type MatchedLineRange,
+} from "./text-edits";
 
 const replacementSchema = z.object({
   find: z.string().min(1).describe("Exact text to find in the file."),
@@ -44,7 +51,7 @@ export function createMultiReplaceTextTool(workspaceRoot?: string) {
     execute: async ({ path: relPath, expectedHash, replacements, allowGuarded = false }) => {
       try {
         const abs = resolveInWorkspace(relPath, workspaceRoot);
-        await assertGuardAllowed({ absPath: abs, relPath, allowGuarded });
+        const metadata = await assertGuardAllowed({ absPath: abs, relPath, allowGuarded });
         const previous = await readTextFileSnapshot(abs, TEXT_FILE_MAX_BYTES);
         if (previous.sha256 !== expectedHash) {
           return structuredError({
@@ -56,35 +63,44 @@ export function createMultiReplaceTextTool(workspaceRoot?: string) {
           });
         }
 
-        let nextContent = previous.content;
+        const lineEnding = detectLineEnding(previous.content);
+        let nextContent = normalizeToLF(previous.content);
         let replacementCount = 0;
+        let recoveredEditCount = 0;
+        const matchedLineRanges: MatchedLineRange[] = [];
         for (const [index, replacement] of replacements.entries()) {
-          const occurrences = countOccurrences(nextContent, replacement.find);
-          if (occurrences === 0) {
+          const plan = planTextReplacement({
+            content: nextContent,
+            find: normalizeToLF(replacement.find),
+            replace: normalizeToLF(replacement.replace),
+            allowIndentationRecovery: !metadata.guard.guarded,
+            maxBytes: TEXT_FILE_MAX_BYTES,
+            recoveryDisabledReason: metadata.guard.guarded ? "guarded" : undefined,
+          });
+          if (!plan.ok) {
             return structuredError({
-              code: "FIND_NOT_FOUND",
+              code: plan.code,
               path: relPath,
               expectedHash,
-              message: `${relPath} exists and hash matched, but replacement ${index + 1} find snippet was not found`,
+              message: `${relPath} exists and hash matched, but replacement ${index + 1} failed: ${plan.message}`,
               failedReplacementIndex: index,
               matchedReplacementCount: replacementCount,
               find: replacement.find,
-              content: previous.content,
+              content: nextContent,
             });
           }
-          if (occurrences > 1) {
-            return structuredError({
-              code: "FIND_NOT_UNIQUE",
-              path: relPath,
-              expectedHash,
-              message: `replacement ${index + 1}: find text occurs ${occurrences} times in ${relPath}; narrow find`,
-            });
+          nextContent = plan.content;
+          replacementCount += plan.replacementCount;
+          if (plan.strategy === "indentation") {
+            recoveredEditCount += 1;
+            if (plan.matchedLineRange) {
+              matchedLineRanges.push(plan.matchedLineRange);
+            }
           }
-          nextContent = nextContent.replace(replacement.find, replacement.replace);
-          replacementCount += 1;
         }
 
-        if (Buffer.byteLength(nextContent, "utf8") > TEXT_FILE_MAX_BYTES) {
+        const restoredContent = restoreLineEndings(nextContent, lineEnding);
+        if (Buffer.byteLength(restoredContent, "utf8") > TEXT_FILE_MAX_BYTES) {
           return structuredError({
             code: "WRITE_FAILED",
             path: relPath,
@@ -93,14 +109,24 @@ export function createMultiReplaceTextTool(workspaceRoot?: string) {
           });
         }
 
-        await atomicWriteTextFile(abs, nextContent);
+        await atomicWriteTextFile(abs, restoredContent);
         return {
           ok: true as const,
           path: relPath,
           replacementCount,
           previousHash: previous.sha256,
-          nextHash: sha256(nextContent),
-          bytesWritten: Buffer.byteLength(nextContent, "utf8"),
+          nextHash: sha256(restoredContent),
+          bytesWritten: Buffer.byteLength(restoredContent, "utf8"),
+          ...(recoveredEditCount > 0
+            ? {
+                matchStrategy:
+                  recoveredEditCount === replacementCount
+                    ? "indentation"
+                    : "mixed",
+                recoveredEditCount,
+                matchedLineRanges,
+              }
+            : {}),
         };
       } catch (err) {
         if (err instanceof SandboxError && err.message.includes("guard")) {
@@ -123,19 +149,6 @@ export function createMultiReplaceTextTool(workspaceRoot?: string) {
 }
 
 export const multiReplaceTextTool = createMultiReplaceTextTool();
-
-function countOccurrences(source: string, find: string): number {
-  if (find.length === 0) return 0;
-  let count = 0;
-  let index = 0;
-  while (index <= source.length - find.length) {
-    const next = source.indexOf(find, index);
-    if (next === -1) break;
-    count += 1;
-    index = next + find.length;
-  }
-  return count;
-}
 
 function structuredError(input: {
   code:
@@ -213,6 +226,15 @@ function compactMultiReplaceModelOutput(output: unknown): JSONValue {
     previousHash: stringValue(output.previousHash),
     nextHash: stringValue(output.nextHash),
     bytesWritten: numberValue(output.bytesWritten),
+    ...(numberValue(output.recoveredEditCount) > 0
+      ? {
+          matchStrategy: stringValue(output.matchStrategy),
+          recoveredEditCount: numberValue(output.recoveredEditCount),
+          matchedLineRanges: Array.isArray(output.matchedLineRanges)
+            ? output.matchedLineRanges.slice(0, 10)
+            : [],
+        }
+      : {}),
   };
 }
 

@@ -1254,7 +1254,18 @@ function hashKey(value: string): string {
 }
 
 function stableJson(value: unknown): string {
-  return JSON.stringify(value ?? null);
+  if (value === undefined) return "null";
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJson).join(",")}]`;
+  }
+  return `{${Object.entries(value)
+    .filter(([, nested]) => nested !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, nested]) => `${JSON.stringify(key)}:${stableJson(nested)}`)
+    .join(",")}}`;
 }
 
 function finiteNumber(value: unknown): number | undefined {

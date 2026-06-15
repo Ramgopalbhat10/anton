@@ -8,9 +8,19 @@ import {
 } from "./sandbox";
 import {
   DIFF_PREVIEW_BYTES,
+  TEXT_FILE_MAX_BYTES,
   applySingleFilePatch,
   sha256,
 } from "./tools/edit-utils";
+import { pathGuardReasons } from "./tools/file-guardrails";
+import {
+  applyTextEditsToContent,
+  detectLineEnding,
+  normalizeToLF,
+  planTextReplacement,
+  restoreLineEndings,
+  type TextEdit,
+} from "./tools/text-edits";
 import { planFormatCommand } from "./tools/format";
 import {
   classifyBashCommand as classifyBashCommandByPolicy,
@@ -862,17 +872,12 @@ function buildEditTextApproval(
 ): ToolApprovalMetadata {
   const relPath = stringValue(input.path);
   const edits = Array.isArray(input.edits) ? input.edits : [];
-  const first = isRecord(edits[0]) ? edits[0] : undefined;
-  const oldText = typeof first?.oldText === "string" ? first.oldText : "";
-  const newText = typeof first?.newText === "string" ? first.newText : "";
-  const diff = buildReplaceTextDiffPreview({
+  const diff = buildEditTextDiffPreview({
     relPath,
-    find: oldText,
-    replace: newText,
-    expectedHash: undefined,
+    edits,
     workspaceRoot,
   });
-  const previewDetails = diff.message ? [diff.message] : [];
+  const previewDetails = diffPreviewDetails(diff);
 
   return {
     title: "Edit workspace file (exact text)",
@@ -902,10 +907,11 @@ function buildReplaceTextApproval(
     relPath,
     find,
     replace,
+    replaceAll: booleanValue(input.replaceAll),
     expectedHash: stringValue(input.expectedHash),
     workspaceRoot,
   });
-  const previewDetails = diff.message ? [diff.message] : [];
+  const previewDetails = diffPreviewDetails(diff);
 
   return {
     title: "Replace text in workspace file",
@@ -932,17 +938,13 @@ function buildMultiReplaceTextApproval(
 ): ToolApprovalMetadata {
   const relPath = stringValue(input.path);
   const replacements = Array.isArray(input.replacements) ? input.replacements : [];
-  const first = isRecord(replacements[0]) ? replacements[0] : undefined;
-  const find = typeof first?.find === "string" ? first.find : "";
-  const replace = typeof first?.replace === "string" ? first.replace : "";
-  const diff = buildReplaceTextDiffPreview({
+  const diff = buildMultiReplaceTextDiffPreview({
     relPath,
-    find,
-    replace,
+    replacements,
     expectedHash: stringValue(input.expectedHash),
     workspaceRoot,
   });
-  const previewDetails = diff.message ? [diff.message] : [];
+  const previewDetails = diffPreviewDetails(diff);
 
   return {
     title: "Apply ordered replacements in workspace file",
@@ -1105,6 +1107,19 @@ function lineRangeDetail(startLine: unknown, endLine: unknown): string {
   return `Line range: ${start ?? "default"} to ${end ?? "default"}`;
 }
 
+function diffPreviewDetails(diff: TextDiffPreviewResult): string[] {
+  const details: string[] = [];
+  if (diff.message) details.push(diff.message);
+  if (diff.recoveredEditCount && diff.recoveredEditCount > 0) {
+    details.push(
+      diff.recoveredEditCount === 1
+        ? "Diff preview uses one unique indentation-only match."
+        : `Diff preview uses ${diff.recoveredEditCount} unique indentation-only matches.`,
+    );
+  }
+  return details;
+}
+
 function fileStatusDetail(
   relPath: string | undefined,
   workspaceRoot: string | undefined,
@@ -1148,6 +1163,34 @@ function pathsDetail(value: unknown, workspaceRoot: string | undefined): string 
 function stringArrayValue(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === "string");
+}
+
+function textEditsFromUnknown(edits: unknown[]): TextEdit[] {
+  return edits.flatMap((edit) => {
+    if (!isRecord(edit)) return [];
+    const oldText = stringValue(edit.oldText);
+    const newText = stringValue(edit.newText);
+    if (oldText === undefined || newText === undefined) return [];
+    return [
+      {
+        oldText,
+        newText,
+        ...(booleanValue(edit.replaceAll) ? { replaceAll: true } : {}),
+      },
+    ];
+  });
+}
+
+function replacementsFromUnknown(
+  replacements: unknown[],
+): Array<{ find: string; replace: string }> {
+  return replacements.flatMap((replacement) => {
+    if (!isRecord(replacement)) return [];
+    const find = stringValue(replacement.find);
+    const replace = stringValue(replacement.replace);
+    if (find === undefined || replace === undefined) return [];
+    return [{ find, replace }];
+  });
 }
 
 function isVerificationTarget(
@@ -1197,22 +1240,76 @@ function buildEditFileDiffPreview(
   }
 }
 
+type TextDiffPreviewResult = {
+  preview?: ToolApprovalMetadata["diffPreview"];
+  message?: string;
+  recoveredEditCount?: number;
+};
+
+function buildEditTextDiffPreview({
+  relPath,
+  edits,
+  workspaceRoot,
+}: {
+  relPath: string | undefined;
+  edits: unknown[];
+  workspaceRoot: string | undefined;
+}): TextDiffPreviewResult {
+  if (!relPath) return { message: "Diff preview unavailable: path is missing." };
+  if (edits.length === 0) {
+    return { message: "Diff preview unavailable: no text edits provided." };
+  }
+  const normalizedEdits = textEditsFromUnknown(edits);
+  if (normalizedEdits.length !== edits.length) {
+    return { message: "Diff preview unavailable: text edits are invalid." };
+  }
+  try {
+    const current = readPreviewTextSync(relPath, workspaceRoot);
+    if (!current.ok) return { message: current.message };
+    const result = applyTextEditsToContent(current.content, normalizedEdits, {
+      allowIndentationRecovery: !current.guarded,
+      maxBytes: TEXT_FILE_MAX_BYTES,
+      recoveryDisabledReason: current.guarded ? "guarded" : undefined,
+    });
+    if (!result.ok) {
+      return {
+        message: `Diff preview unavailable: edit ${result.index + 1} would fail with ${result.code}: ${result.message}.`,
+      };
+    }
+    if (Buffer.byteLength(result.content, "utf8") > DIFF_PREVIEW_BYTES) {
+      return {
+        message: `Diff preview omitted because patched content is too large and exceeds ${DIFF_PREVIEW_BYTES} bytes.`,
+      };
+    }
+    return {
+      preview: {
+        path: relPath,
+        previous: current.content,
+        next: result.content,
+        truncated: false,
+      },
+      recoveredEditCount: result.recoveredEditCount,
+    };
+  } catch (err) {
+    return { message: `Diff preview unavailable: ${errorMessage(err)}.` };
+  }
+}
+
 function buildReplaceTextDiffPreview({
   relPath,
   find,
   replace,
+  replaceAll,
   expectedHash,
   workspaceRoot,
 }: {
   relPath: string | undefined;
   find: string;
   replace: string;
+  replaceAll: boolean;
   expectedHash: string | undefined;
   workspaceRoot: string | undefined;
-}): {
-  preview?: ToolApprovalMetadata["diffPreview"];
-  message?: string;
-} {
+}): TextDiffPreviewResult {
   if (!relPath) return { message: "Diff preview unavailable: path is missing." };
   if (!find) return { message: "Diff preview unavailable: find text is missing." };
   try {
@@ -1223,10 +1320,26 @@ function buildReplaceTextDiffPreview({
         message: `Diff preview unavailable because expectedHash does not match current file hash ${current.sha256}.`,
       };
     }
-    if (!current.content.includes(find)) {
-      return { message: "Diff preview unavailable: find text is not present in the file." };
+    const lineEnding = detectLineEnding(current.content);
+    const plan = planTextReplacement({
+      content: normalizeToLF(current.content),
+      find: normalizeToLF(find),
+      replace: normalizeToLF(replace),
+      replaceAll,
+      allowIndentationRecovery: !current.guarded && !replaceAll,
+      maxBytes: TEXT_FILE_MAX_BYTES,
+      recoveryDisabledReason: current.guarded
+        ? "guarded"
+        : replaceAll
+          ? "replaceAll"
+          : undefined,
+    });
+    if (!plan.ok) {
+      return {
+        message: `Diff preview unavailable: replacement would fail with ${plan.code}: ${plan.message}.`,
+      };
     }
-    const next = current.content.replace(find, replace);
+    const next = restoreLineEndings(plan.content, lineEnding);
     if (Buffer.byteLength(next, "utf8") > DIFF_PREVIEW_BYTES) {
       return {
         message: `Diff preview omitted because patched content is too large and exceeds ${DIFF_PREVIEW_BYTES} bytes.`,
@@ -1239,6 +1352,74 @@ function buildReplaceTextDiffPreview({
         next,
         truncated: false,
       },
+      recoveredEditCount: plan.strategy === "indentation" ? 1 : 0,
+    };
+  } catch (err) {
+    return { message: `Diff preview unavailable: ${errorMessage(err)}.` };
+  }
+}
+
+function buildMultiReplaceTextDiffPreview({
+  relPath,
+  replacements,
+  expectedHash,
+  workspaceRoot,
+}: {
+  relPath: string | undefined;
+  replacements: unknown[];
+  expectedHash: string | undefined;
+  workspaceRoot: string | undefined;
+}): TextDiffPreviewResult {
+  if (!relPath) return { message: "Diff preview unavailable: path is missing." };
+  if (replacements.length === 0) {
+    return { message: "Diff preview unavailable: no replacements provided." };
+  }
+  const normalizedReplacements = replacementsFromUnknown(replacements);
+  if (normalizedReplacements.length !== replacements.length) {
+    return { message: "Diff preview unavailable: replacements are invalid." };
+  }
+  try {
+    const current = readPreviewTextSync(relPath, workspaceRoot);
+    if (!current.ok) return { message: current.message };
+    if (expectedHash && current.sha256 !== expectedHash) {
+      return {
+        message: `Diff preview unavailable because expectedHash does not match current file hash ${current.sha256}.`,
+      };
+    }
+    const lineEnding = detectLineEnding(current.content);
+    let stagedContent = normalizeToLF(current.content);
+    let recoveredEditCount = 0;
+    for (const [index, replacement] of normalizedReplacements.entries()) {
+      const plan = planTextReplacement({
+        content: stagedContent,
+        find: normalizeToLF(replacement.find),
+        replace: normalizeToLF(replacement.replace),
+        allowIndentationRecovery: !current.guarded,
+        maxBytes: TEXT_FILE_MAX_BYTES,
+        recoveryDisabledReason: current.guarded ? "guarded" : undefined,
+      });
+      if (!plan.ok) {
+        return {
+          message: `Diff preview unavailable: replacement ${index + 1} would fail with ${plan.code}: ${plan.message}.`,
+        };
+      }
+      stagedContent = plan.content;
+      if (plan.strategy === "indentation") recoveredEditCount += 1;
+    }
+    const next = restoreLineEndings(stagedContent, lineEnding);
+    if (Buffer.byteLength(next, "utf8") > DIFF_PREVIEW_BYTES) {
+      return {
+        message: `Diff preview omitted because patched content is too large and exceeds ${DIFF_PREVIEW_BYTES} bytes.`,
+      };
+    }
+    return {
+      preview: {
+        path: relPath,
+        previous: current.content,
+        next,
+        truncated: false,
+      },
+      recoveredEditCount,
     };
   } catch (err) {
     return { message: `Diff preview unavailable: ${errorMessage(err)}.` };
@@ -1354,7 +1535,7 @@ function readPreviewTextSync(
   relPath: string,
   workspaceRoot: string | undefined,
 ):
-  | { ok: true; content: string; sha256: string }
+  | { ok: true; content: string; sha256: string; guarded: boolean }
   | { ok: false; reason: "missing" | "too-large" | "invalid"; message: string } {
   const root = workspaceRoot
     ? ensureWorkspaceRootAt(workspaceRoot)
@@ -1367,6 +1548,7 @@ function readPreviewTextSync(
       message: "Diff preview treats this as a new file.",
     };
   }
+  const lstat = fs.lstatSync(abs);
   const stat = fs.statSync(abs);
   if (!stat.isFile()) {
     return {
@@ -1400,7 +1582,12 @@ function readPreviewTextSync(
       message: "Diff preview unavailable because target appears to be binary.",
     };
   }
-  return { ok: true, content, sha256: sha256(bytes) };
+  return {
+    ok: true,
+    content,
+    sha256: sha256(bytes),
+    guarded: lstat.isSymbolicLink() || pathGuardReasons(relPath).length > 0,
+  };
 }
 
 function toolMetadata(
