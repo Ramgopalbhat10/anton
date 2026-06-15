@@ -191,7 +191,6 @@ export function ModelPicker({
         <Button
           type="button"
           variant="secondary"
-          size="xs"
           disabled={disabled}
           className={cn("min-w-0 justify-between", triggerClassName)}
         >

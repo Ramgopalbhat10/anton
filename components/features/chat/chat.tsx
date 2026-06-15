@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -167,6 +168,8 @@ function ChatSession({
   );
   const [mobileWorklogOpen, setMobileWorklogOpen] = useState(false);
   const layoutRef = useRef<HTMLDivElement>(null);
+  const chatColumnRef = useRef<HTMLElement>(null);
+  const [chatColumnWidth, setChatColumnWidth] = useState(0);
   const {
     width: worklogWidth,
     expanded: worklogExpanded,
@@ -175,6 +178,23 @@ function ChatSession({
     toggleExpanded: toggleWorklogExpanded,
     startResize: startWorklogResize,
   } = useWorklogWidth(layoutRef);
+
+  useLayoutEffect(() => {
+    const element = chatColumnRef.current;
+    if (!element) return;
+
+    const update = () => {
+      setChatColumnWidth(element.getBoundingClientRect().width);
+    };
+
+    update();
+    const observer = new ResizeObserver(() => {
+      update();
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
   const [restoreVersion, setRestoreVersion] = useState(0);
   const [messageDisplayOverride, setMessageDisplayOverride] = useState<
     AntonUIMessage[] | null
@@ -621,7 +641,10 @@ function ChatSession({
         ref={layoutRef}
         className="relative flex min-h-0 max-w-full flex-1 overflow-hidden"
       >
-        <section className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden">
+        <section
+          ref={chatColumnRef}
+          className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden"
+        >
           <MessageList
             messages={displayMessages}
             status={status}
@@ -669,6 +692,8 @@ function ChatSession({
             onSelectedMcpServerIdsChange={setSelectedMcpServerIds}
             runningCommandCount={projectCommands.runningCount}
             onOpenProjectStatus={openProjectStatus}
+            columnWidth={chatColumnWidth}
+            worklogOpen={worklogOpen}
           />
         </section>
 

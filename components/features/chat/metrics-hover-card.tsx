@@ -153,7 +153,7 @@ export function SessionMetricsHoverCard({
       trigger={
         <button
           type="button"
-          className="inline-flex h-[26px] items-center gap-1.5 rounded-md px-2 font-mono text-[11.5px] text-muted-foreground/80 ring-1 ring-border transition-colors hover:bg-secondary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-ring"
+          className="inline-flex !h-[26px] !min-h-[26px] !max-h-[26px] shrink-0 items-center gap-1.5 rounded-md px-2 py-0 font-mono text-[11.5px] leading-none text-muted-foreground/80 ring-1 ring-border transition-colors hover:bg-secondary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-ring"
           aria-label="Session token usage"
         >
           <Coins className="size-[11px]" aria-hidden />
