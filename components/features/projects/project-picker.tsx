@@ -32,6 +32,7 @@ export function ProjectPicker({
   onRefresh,
   className,
   contentAlign = "start",
+  compact = false,
 }: {
   projects: ProjectSummary[];
   selectedProjectId: string | null;
@@ -44,6 +45,7 @@ export function ProjectPicker({
   onRefresh: () => void;
   className?: string;
   contentAlign?: "start" | "center" | "end";
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -64,7 +66,11 @@ export function ProjectPicker({
     );
   }, [projects, query]);
 
-  const label = displayProject?.fullName ?? "project";
+  const label = displayProject
+    ? compact
+      ? (displayProject.fullName.split("/").at(-1) ?? displayProject.fullName)
+      : displayProject.fullName
+    : "project";
 
   if (locked) {
     return (
