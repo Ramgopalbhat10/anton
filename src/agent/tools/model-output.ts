@@ -267,17 +267,20 @@ export function compactVerifyForModel(output: unknown): unknown {
     ? output.results.map(compactVerifyResultForModel)
     : output.results;
   const failed = Array.isArray(results)
-    ? results.find((result) => isRecord(result) && result.ok === false)
+    ? results.find(isVerifyExecutionFailure)
     : undefined;
   const failureSummary = extractVerifyFailureSummary(output);
   const base = {
     ok: output.ok,
     status: output.status,
+    strategy: output.strategy,
+    stoppedOnFailure: output.stoppedOnFailure,
+    firstFailedTarget: output.firstFailedTarget,
+    notRunCount: output.notRunCount,
     failureScope: output.failureScope,
     recommendedNext: output.recommendedNext,
     summary: output.summary,
     packageManager: output.packageManager,
-    parallel: output.parallel,
     ranCount: output.ranCount,
     skippedCount: output.skippedCount,
     editedPaths: Array.isArray(output.editedPaths)
@@ -304,7 +307,7 @@ export function compactVerifyForModel(output: unknown): unknown {
       ...(parseIssues.length > 0 ? { parseIssues: parseIssues.slice(0, 5) } : {}),
       ...(failed && isRecord(failed)
         ? {
-            failedTarget: failed.target,
+            failedTarget: output.firstFailedTarget ?? failed.target,
             failedCommand: failed.command,
             timedOut: failed.timedOut,
             timeoutMs: failed.timeoutMs,
@@ -346,9 +349,7 @@ export function extractVerifyFailureSummary(output: unknown): string | undefined
   if (typeof output.summary === "string" && output.summary.trim().length > 0) {
     const base = output.summary.trim();
     if (!Array.isArray(output.results)) return base;
-    const failed = output.results.find(
-      (result) => isRecord(result) && result.ok === false && result.skipped !== true,
-    );
+    const failed = output.results.find(isVerifyExecutionFailure);
     if (!isRecord(failed)) return base;
     const text = [failed.stderr, failed.stdout, failed.error, failed.message]
       .filter((value): value is string => typeof value === "string")
@@ -408,11 +409,19 @@ export function extractParseIssuesFromText(
 
 function compactVerifyResultForModel(result: unknown): unknown {
   if (!isRecord(result)) return result;
+  const status = typeof result.status === "string" ? result.status : undefined;
+  const notRun = status === "not_run" || result.notRun === true;
   return {
     target: result.target,
+    ...(status ? { status } : {}),
     skipped: result.skipped,
     ok: result.ok,
-    ...(result.skipped
+    ...(notRun
+      ? {
+          notRun: true as const,
+          reason: result.reason,
+        }
+      : result.skipped
       ? { reason: result.reason }
       : {
           command: result.command,
@@ -424,6 +433,16 @@ function compactVerifyResultForModel(result: unknown): unknown {
           ...(result.ok === false ? { error: result.error } : {}),
         }),
   };
+}
+
+function isVerifyExecutionFailure(value: unknown): value is Record<string, unknown> {
+  return (
+    isRecord(value) &&
+    value.ok === false &&
+    value.skipped !== true &&
+    value.notRun !== true &&
+    value.status !== "not_run"
+  );
 }
 
 function tailText(value: unknown): string | undefined {

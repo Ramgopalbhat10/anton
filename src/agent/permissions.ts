@@ -690,6 +690,7 @@ function buildVerifyApproval(
     target: targets.length > 0 ? targets.join(", ") : "typecheck, lint, build",
     details: [
       `Targets: ${targets.length > 0 ? targets.join(", ") : "typecheck, lint, build"}.`,
+      "Targets run in staged order and stop after the first failure.",
       `Commands: ${commands}.`,
       `Timeout per command: ${numberValue(input.timeoutMs) ?? 120_000}ms.`,
       "Runs package scripts directly through the detected package manager without shell interpolation.",

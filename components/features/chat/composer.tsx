@@ -80,6 +80,8 @@ interface ComposerProps {
   onSelectedMcpServerIdsChange: (ids: string[]) => void;
   runningCommandCount?: number;
   onOpenProjectStatus?: () => void;
+  columnWidth?: number;
+  worklogOpen?: boolean;
 }
 
 const MIN_HEIGHT = 24;
@@ -87,17 +89,18 @@ const MAX_HEIGHT = 44;
 
 type ComposerVariant = "full" | "compact" | "inline";
 
-const COMPOSER_CONTROL_H = "h-[26px]";
-const COMPOSER_ICON_BTN = "size-[26px] rounded-md";
+const COMPOSER_CONTROL_H =
+  "!h-[26px] !min-h-[26px] !max-h-[26px] shrink-0 py-0 leading-none";
+const COMPOSER_ICON_BTN = "size-[26px] shrink-0 rounded-md";
 
 const COMPOSER_CHIP = cn(
   COMPOSER_CONTROL_H,
-  "gap-1.5 rounded-md bg-secondary px-2 text-xs font-medium leading-4 text-foreground shadow-none ring-0 hover:bg-secondary/80 focus-visible:ring-0",
+  "gap-1.5 rounded-md bg-secondary px-2 text-xs font-medium text-foreground shadow-none ring-0 hover:bg-secondary/80 focus-visible:ring-0",
 );
 
 const COMPOSER_CHIP_OUTLINE = cn(
   COMPOSER_CONTROL_H,
-  "gap-1.5 rounded-md bg-transparent px-2 text-xs font-medium leading-4 text-muted-foreground/80 shadow-none ring-1 ring-border hover:bg-secondary/40 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring",
+  "gap-1.5 rounded-md bg-transparent px-2 text-xs font-medium text-muted-foreground/80 shadow-none ring-1 ring-border hover:bg-secondary/40 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring",
 );
 
 const MODEL_TRIGGER = cn(
@@ -105,33 +108,18 @@ const MODEL_TRIGGER = cn(
   "justify-between gap-2 rounded-md bg-input px-2 text-xs font-normal text-foreground shadow-none ring-1 ring-border hover:bg-input/80",
 );
 
-function resolveComposerVariant(width: number): ComposerVariant {
+function resolveComposerVariant(
+  width: number,
+  worklogOpen: boolean,
+): ComposerVariant {
+  if (width <= 0) return worklogOpen ? "inline" : "full";
   if (width < 320) return "compact";
+  if (worklogOpen) {
+    if (width < 400) return "compact";
+    return "inline";
+  }
   if (width < 480) return "inline";
   return "full";
-}
-
-function useComposerVariant() {
-  const ref = useRef<HTMLDivElement>(null);
-  const [variant, setVariant] = useState<ComposerVariant>("full");
-
-  useLayoutEffect(() => {
-    const element = ref.current;
-    if (!element) return;
-
-    const update = (width: number) => {
-      setVariant(resolveComposerVariant(width));
-    };
-
-    update(element.getBoundingClientRect().width);
-    const observer = new ResizeObserver(([entry]) => {
-      update(entry.contentRect.width);
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
-
-  return { ref, variant };
 }
 
 export function Composer({
@@ -162,10 +150,12 @@ export function Composer({
   onSelectedMcpServerIdsChange,
   runningCommandCount = 0,
   onOpenProjectStatus,
+  columnWidth = 0,
+  worklogOpen = false,
 }: ComposerProps) {
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { ref: composerWidthRef, variant } = useComposerVariant();
+  const variant = resolveComposerVariant(columnWidth, worklogOpen);
   const sendDisabled = disabled || (mode !== "chat" && !project);
   const iconOnly = variant !== "full";
   const compactContext = variant !== "full";
@@ -250,7 +240,11 @@ export function Composer({
       disabled={streaming}
       triggerClassName={cn(
         MODEL_TRIGGER,
-        variant === "compact" ? "min-w-0 flex-1" : "w-40 sm:w-48",
+        variant === "compact"
+          ? "min-w-0 flex-1"
+          : variant === "inline"
+            ? "w-32 min-w-0 shrink"
+            : "w-40 sm:w-48",
       )}
     />
   );
@@ -286,10 +280,7 @@ export function Composer({
       }}
       className="relative z-40 w-full max-w-full shrink-0 overflow-visible bg-background px-3 pb-2 pt-1 sm:px-4"
     >
-      <div
-        ref={composerWidthRef}
-        className="mx-auto w-full max-w-[calc(100vw-1.5rem)] min-w-0 sm:max-w-[720px]"
-      >
+      <div className="mx-auto w-full max-w-[calc(100vw-1.5rem)] min-w-0 sm:max-w-[720px]">
         <div className="rounded-xl bg-card p-3 ring-1 ring-border">
           <Textarea
             ref={textareaRef}
@@ -486,7 +477,6 @@ function McpSelector({
         <Button
           type="button"
           variant="secondary"
-          size="xs"
           className={cn(
             COMPOSER_CHIP_OUTLINE,
             selectedCount > 0 && "text-foreground",

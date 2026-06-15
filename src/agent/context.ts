@@ -603,6 +603,7 @@ function failedTargetsFromVerifyResults(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item): string[] => {
     if (!isRecord(item) || item.ok !== false) return [];
+    if (item.notRun === true || item.status === "not_run") return [];
     const target = compactLine(stringValue(item.target), 100);
     if (!target) return [];
     const exitCode = outputExitCode(item);

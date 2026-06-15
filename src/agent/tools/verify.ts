@@ -72,12 +72,22 @@ export type VerificationStep = {
 type VerificationResult =
   | {
       target: VerificationTarget;
+      status: "skipped";
       skipped: true;
       ok: true;
       reason: string;
     }
   | {
       target: VerificationTarget;
+      status: "not_run";
+      skipped: false;
+      ok: false;
+      notRun: true;
+      reason: string;
+    }
+  | {
+      target: VerificationTarget;
+      status: "passed" | "failed" | "command_broken";
       skipped: false;
       ok: boolean;
       command?: string;
@@ -152,66 +162,36 @@ export function createVerifyTool(
         });
       }
 
-      const results = await Promise.all(
-        plan.steps.map(async (step): Promise<VerificationResult> => {
-          if (step.skipped || !step.command) {
-            return {
-              target: step.target,
-              skipped: true,
-              ok: true,
-              reason: step.reason ?? "No matching package script found.",
-            };
-          }
+      const results: VerificationResult[] = [];
+      let firstFailedTarget: VerificationTarget | undefined;
 
-          const [file, ...args] = step.command;
-          const stepTimeoutMs = timeoutForTarget(
-            step.target,
-            defaults.timeoutMs,
-            timeoutMs,
-          );
-          if (!file) {
-            return {
-              target: step.target,
-              skipped: false,
-              ok: false,
-              timeoutMs: stepTimeoutMs,
-              error: "Verification command is empty.",
-              commandBroken: true,
-            };
-          }
+      for (const step of plan.steps) {
+        if (!isRunnableStep(step)) {
+          results.push(skippedResultForStep(step));
+          continue;
+        }
 
-          const result = await runWorkspaceProcess(file, args, root, {
-            timeoutMs: stepTimeoutMs,
-          });
-          const ok = result.exitCode === 0;
-          return {
-            target: step.target,
-            skipped: false,
-            ok,
-            command: step.command.join(" "),
-            timeoutMs: stepTimeoutMs,
-            exitCode: result.exitCode ?? undefined,
-            timedOut: result.timedOut,
-            stdout: capOutput(result.stdout),
-            stderr: capOutput(result.stderr),
-            ...(result.failedToStart ? { commandBroken: true as const } : {}),
-            ...(ok
-              ? {}
-              : {
-                  error: result.timedOut
-                    ? `Verification command timed out after ${formatDuration(stepTimeoutMs)}.`
-                    : result.stderr ||
-                      result.stdout ||
-                      "Verification command failed.",
-                }),
-          };
-        }),
-      );
+        if (firstFailedTarget !== undefined) {
+          results.push(notRunResultForStep(step, firstFailedTarget));
+          continue;
+        }
+
+        const result = await runVerificationStep({
+          step,
+          workspaceRoot: root,
+          defaultTimeoutMs: defaults.timeoutMs,
+          requestedTimeoutMs: timeoutMs,
+        });
+        results.push(result);
+        if (isExecutedFailure(result)) {
+          firstFailedTarget = result.target;
+        }
+      }
 
       return buildVerificationOutput({
         editedPaths,
         packageManager: plan.packageManager,
-        parallel: true,
+        firstFailedTarget,
         results,
         workspaceRoot: root,
       });
@@ -222,18 +202,21 @@ export function createVerifyTool(
 function buildVerificationOutput(input: {
   editedPaths: readonly string[];
   packageManager: PackageManager | undefined;
-  parallel?: boolean;
+  firstFailedTarget?: VerificationTarget;
   results: readonly VerificationResult[];
   planError?: string;
   workspaceRoot: string;
 }) {
-  const ranCount = input.results.filter((result) => !result.skipped).length;
-  const failed = input.results.filter((result) => !result.ok);
+  const ran = input.results.filter(isExecutedResult);
+  const ranCount = ran.length;
+  const skippedCount = input.results.filter((result) => result.skipped).length;
+  const notRunCount = input.results.filter(isNotRunResult).length;
+  const failed = ran.filter((result) => !result.ok);
+  const firstFailed = failed[0];
+  const firstFailedTarget = input.firstFailedTarget ?? firstFailed?.target;
+  const stoppedOnFailure = firstFailedTarget !== undefined;
   const status = verificationStatus(input.results, input.planError);
-  const failedText = failed
-    .map((result) => failedResultText(result))
-    .filter((text) => text.length > 0)
-    .join("\n");
+  const failedText = firstFailed ? failedResultText(firstFailed) : "";
   const pathHints = extractPathHints(
     failedText,
     input.editedPaths,
@@ -243,7 +226,7 @@ function buildVerificationOutput(input: {
   const recommendedNext = recommendedNextForStatus(status, failureScope);
   const failureSummary = failureSummaryForStatus({
     status,
-    failed,
+    firstFailed,
     planError: input.planError,
     pathHints,
   });
@@ -251,15 +234,18 @@ function buildVerificationOutput(input: {
   return {
     ok: status === "passed" || status === "skipped",
     status,
+    strategy: "staged" as const,
+    stoppedOnFailure,
+    ...(firstFailedTarget ? { firstFailedTarget } : {}),
+    notRunCount,
     failureScope,
     recommendedNext,
     editedPaths: input.editedPaths,
     pathHints,
     ...(failureSummary ? { failureSummary } : {}),
     ...(input.packageManager ? { packageManager: input.packageManager } : {}),
-    ...(input.parallel ? { parallel: true as const } : {}),
     ranCount,
-    skippedCount: input.results.length - ranCount,
+    skippedCount,
     results: input.results,
     summary:
       status === "passed"
@@ -267,9 +253,118 @@ function buildVerificationOutput(input: {
         : status === "skipped"
           ? (input.planError ?? "No verification scripts were available.")
           : status === "command_broken"
-            ? "Verification command could not be executed."
-            : `Verification failed for ${failed.length} target${failed.length === 1 ? "" : "s"}.`,
+            ? `Verification command for ${firstFailedTarget ?? "a target"} could not be executed.`
+            : firstFailedTarget
+              ? `Verification failed on ${firstFailedTarget}.`
+              : `Verification failed for ${failed.length} target${failed.length === 1 ? "" : "s"}.`,
   };
+}
+
+async function runVerificationStep({
+  step,
+  workspaceRoot,
+  defaultTimeoutMs,
+  requestedTimeoutMs,
+}: {
+  step: VerificationStep & { skipped: false; command: string[] };
+  workspaceRoot: string;
+  defaultTimeoutMs: number;
+  requestedTimeoutMs: number | undefined;
+}): Promise<VerificationResult> {
+  const [file, ...args] = step.command;
+  const stepTimeoutMs = timeoutForTarget(
+    step.target,
+    defaultTimeoutMs,
+    requestedTimeoutMs,
+  );
+  if (!file) {
+    return {
+      target: step.target,
+      status: "command_broken",
+      skipped: false,
+      ok: false,
+      timeoutMs: stepTimeoutMs,
+      error: "Verification command is empty.",
+      commandBroken: true,
+    };
+  }
+
+  const result = await runWorkspaceProcess(file, args, workspaceRoot, {
+    timeoutMs: stepTimeoutMs,
+  });
+  const ok = result.exitCode === 0;
+  const commandBroken = result.failedToStart;
+  return {
+    target: step.target,
+    status: ok ? "passed" : commandBroken ? "command_broken" : "failed",
+    skipped: false,
+    ok,
+    command: step.command.join(" "),
+    timeoutMs: stepTimeoutMs,
+    exitCode: result.exitCode ?? undefined,
+    timedOut: result.timedOut,
+    stdout: capOutput(result.stdout),
+    stderr: capOutput(result.stderr),
+    ...(commandBroken ? { commandBroken: true as const } : {}),
+    ...(ok
+      ? {}
+      : {
+          error: result.timedOut
+            ? `Verification command timed out after ${formatDuration(stepTimeoutMs)}.`
+            : result.stderr ||
+              result.stdout ||
+              "Verification command failed.",
+        }),
+  };
+}
+
+function skippedResultForStep(step: VerificationStep): VerificationResult {
+  return {
+    target: step.target,
+    status: "skipped",
+    skipped: true,
+    ok: true,
+    reason: step.reason ?? "No matching package script found.",
+  };
+}
+
+function notRunResultForStep(
+  step: VerificationStep,
+  firstFailedTarget: VerificationTarget,
+): VerificationResult {
+  return {
+    target: step.target,
+    status: "not_run",
+    skipped: false,
+    ok: false,
+    notRun: true,
+    reason: `Not run because ${firstFailedTarget} failed earlier in the staged verification run.`,
+  };
+}
+
+function isRunnableStep(
+  step: VerificationStep,
+): step is VerificationStep & { skipped: false; command: string[] } {
+  return !step.skipped && step.command !== undefined;
+}
+
+function isNotRunResult(
+  result: VerificationResult,
+): result is Extract<VerificationResult, { status: "not_run" }> {
+  return result.status === "not_run";
+}
+
+function isExecutedResult(
+  result: VerificationResult,
+): result is Extract<
+  VerificationResult,
+  { status: "passed" | "failed" | "command_broken" }
+> {
+  return !result.skipped && !isNotRunResult(result);
+}
+
+function isExecutedFailure(result: VerificationResult): boolean {
+  return isExecutedResult(result) && !result.ok;
 }
 
 function timeoutForTarget(
@@ -292,7 +387,7 @@ function verificationStatus(
   planError: string | undefined,
 ): VerificationStatus {
   if (planError) return "skipped";
-  const ran = results.filter((result) => !result.skipped);
+  const ran = results.filter(isExecutedResult);
   if (ran.length === 0) return "skipped";
   if (ran.some((result) => !result.ok && result.commandBroken === true)) {
     return "command_broken";
@@ -326,7 +421,7 @@ function failureScopeForHints(
 
 function failureSummaryForStatus(input: {
   status: VerificationStatus;
-  failed: readonly VerificationResult[];
+  firstFailed?: VerificationResult;
   planError?: string;
   pathHints: readonly VerificationPathHint[];
 }): string | undefined {
@@ -334,8 +429,10 @@ function failureSummaryForStatus(input: {
   if (input.status === "skipped") {
     return input.planError ?? "No verification scripts were available.";
   }
-  const firstFailed = input.failed.find((result) => !result.skipped);
-  if (!firstFailed || firstFailed.skipped) return undefined;
+  const firstFailed = input.firstFailed;
+  if (!firstFailed || firstFailed.skipped || isNotRunResult(firstFailed)) {
+    return undefined;
+  }
   const text = failedResultText(firstFailed);
   const primaryLine = firstMeaningfulLine(text);
   const hint = input.pathHints[0];
@@ -355,6 +452,7 @@ function failureSummaryForStatus(input: {
 
 function failedResultText(result: VerificationResult): string {
   if (result.skipped) return result.reason;
+  if (isNotRunResult(result)) return result.reason;
   return [result.stderr, result.stdout, result.error]
     .filter((value): value is string => typeof value === "string" && value.length > 0)
     .join("\n");
