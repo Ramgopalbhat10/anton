@@ -9,6 +9,12 @@ import {
 } from "./edit-utils";
 import { assertGuardAllowed } from "./file-guardrails";
 import { findPreview, nearMatchesForFind } from "./edit-diagnostics";
+import {
+  detectLineEnding,
+  normalizeToLF,
+  planTextReplacement,
+  restoreLineEndings,
+} from "./text-edits";
 
 export function createReplaceTextTool(workspaceRoot?: string) {
   return tool({
@@ -49,7 +55,7 @@ export function createReplaceTextTool(workspaceRoot?: string) {
     }) => {
       try {
         const abs = resolveInWorkspace(relPath, workspaceRoot);
-        await assertGuardAllowed({ absPath: abs, relPath, allowGuarded });
+        const metadata = await assertGuardAllowed({ absPath: abs, relPath, allowGuarded });
         const previous = await readTextFileSnapshot(abs, TEXT_FILE_MAX_BYTES);
         if (previous.sha256 !== expectedHash) {
           return structuredReplaceError({
@@ -61,29 +67,32 @@ export function createReplaceTextTool(workspaceRoot?: string) {
           });
         }
 
-        const occurrences = countOccurrences(previous.content, find);
-        if (occurrences === 0) {
+        const lineEnding = detectLineEnding(previous.content);
+        const plan = planTextReplacement({
+          content: normalizeToLF(previous.content),
+          find: normalizeToLF(find),
+          replace: normalizeToLF(replace),
+          replaceAll,
+          allowIndentationRecovery: !metadata.guard.guarded && !replaceAll,
+          maxBytes: TEXT_FILE_MAX_BYTES,
+          recoveryDisabledReason: metadata.guard.guarded
+            ? "guarded"
+            : replaceAll
+              ? "replaceAll"
+              : undefined,
+        });
+        if (!plan.ok) {
           return structuredReplaceError({
-            code: "FIND_NOT_FOUND",
+            code: plan.code,
             path: relPath,
             expectedHash,
-            message: `${relPath} exists and hash matched, but the find snippet was not found`,
+            message: `${relPath} exists and hash matched, but replacement failed: ${plan.message}`,
             find,
             content: previous.content,
           });
         }
-        if (!replaceAll && occurrences > 1) {
-          return structuredReplaceError({
-            code: "FIND_NOT_UNIQUE",
-            path: relPath,
-            expectedHash,
-            message: `find text occurs ${occurrences} times in ${relPath}; set replaceAll: true or narrow find`,
-          });
-        }
 
-        const nextContent = replaceAll
-          ? previous.content.split(find).join(replace)
-          : previous.content.replace(find, replace);
+        const nextContent = restoreLineEndings(plan.content, lineEnding);
         if (Buffer.byteLength(nextContent, "utf8") > TEXT_FILE_MAX_BYTES) {
           return structuredReplaceError({
             code: "WRITE_FAILED",
@@ -97,10 +106,19 @@ export function createReplaceTextTool(workspaceRoot?: string) {
         return {
           ok: true as const,
           path: relPath,
-          replacementCount: replaceAll ? occurrences : 1,
+          replacementCount: plan.replacementCount,
           previousHash: previous.sha256,
           nextHash: sha256(nextContent),
           bytesWritten: Buffer.byteLength(nextContent, "utf8"),
+          ...(plan.strategy === "indentation"
+            ? {
+                matchStrategy: "indentation",
+                recoveredEditCount: 1,
+                matchedLineRanges: plan.matchedLineRange
+                  ? [plan.matchedLineRange]
+                  : [],
+              }
+            : {}),
         };
       } catch (err) {
         if (err instanceof SandboxError && err.message.includes("guard")) {
@@ -123,19 +141,6 @@ export function createReplaceTextTool(workspaceRoot?: string) {
 }
 
 export const replaceTextTool = createReplaceTextTool();
-
-function countOccurrences(source: string, find: string): number {
-  if (find.length === 0) return 0;
-  let count = 0;
-  let index = 0;
-  while (index <= source.length - find.length) {
-    const next = source.indexOf(find, index);
-    if (next === -1) break;
-    count += 1;
-    index = next + find.length;
-  }
-  return count;
-}
 
 function structuredReplaceError(input: {
   code:
@@ -199,6 +204,15 @@ function compactReplaceTextModelOutput(output: unknown): JSONValue {
     previousHash: stringValue(output.previousHash),
     nextHash: stringValue(output.nextHash),
     bytesWritten: numberValue(output.bytesWritten),
+    ...(numberValue(output.recoveredEditCount) > 0
+      ? {
+          matchStrategy: stringValue(output.matchStrategy),
+          recoveredEditCount: numberValue(output.recoveredEditCount),
+          matchedLineRanges: Array.isArray(output.matchedLineRanges)
+            ? output.matchedLineRanges.slice(0, 10)
+            : [],
+        }
+      : {}),
   };
 }
 
