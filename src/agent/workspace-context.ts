@@ -10,7 +10,8 @@ const DEFAULT_WORKSPACE_CONTEXT_CHARS = 6_000;
 const MAX_REPO_MAP_ENTRIES = 80;
 const MAX_REPO_MAP_DEPTH = 4;
 const MAX_SELECTED_FILES = 8;
-const MAX_KEY_CONTEXT_FILES = 5;
+const MAX_FOUNDATIONAL_FILES = 3;
+const MAX_IMPORT_NEIGHBOR_CANDIDATES = 12;
 const MAX_FILE_READ_CHARS = 12_000;
 const MAX_FILE_SUMMARY_CHARS = 350;
 
@@ -37,17 +38,13 @@ const SKIPPED_FILES = new Set([
   "yarn.lock",
 ]);
 
-const KEY_CONTEXT_FILES = [
+const FOUNDATIONAL_CONTEXT_FILES = [
   "AGENTS.md",
-  "CLAUDE.md",
   "package.json",
   "ROADMAP.md",
-  "README.md",
-  "tsconfig.json",
-  "next.config.ts",
-  "drizzle.config.ts",
-  ".mcp.json",
-];
+] as const;
+
+const JS_TS_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs"];
 
 const SUMMARIZABLE_EXTENSIONS = new Set([
   ".css",
@@ -73,13 +70,29 @@ type GitSummary = {
   stagedDiffStat?: string;
 };
 
+type SelectedReason =
+  | "foundational"
+  | "path-mention"
+  | "basename-mention"
+  | "git-changed"
+  | "recent"
+  | "import-neighbor"
+  | "keyword";
+
+type SelectedFile = {
+  path: string;
+  reasons: SelectedReason[];
+};
+
 export function buildWorkspaceContextDigest({
   workspaceRoot,
   latestUserText,
+  recentFiles = [],
   budgetChars = DEFAULT_WORKSPACE_CONTEXT_CHARS,
 }: {
   workspaceRoot: string | undefined;
   latestUserText: string;
+  recentFiles?: readonly string[];
   budgetChars?: number;
 }): string | undefined {
   if (!workspaceRoot || budgetChars <= 0) return undefined;
@@ -92,6 +105,8 @@ export function buildWorkspaceContextDigest({
       root,
       repoMap,
       latestUserText,
+      recentFiles,
+      git,
     });
 
     const blocks = [
@@ -148,38 +163,72 @@ function selectFilesForSummary({
   root,
   repoMap,
   latestUserText,
+  recentFiles,
+  git,
 }: {
   root: string;
   repoMap: RepoMapEntry[];
   latestUserText: string;
-}): string[] {
-  const selected = new Set<string>();
-  for (const file of KEY_CONTEXT_FILES.slice(0, MAX_KEY_CONTEXT_FILES)) {
-    if (isSafeReadableFile(root, file)) selected.add(file);
+  recentFiles: readonly string[];
+  git: GitSummary | undefined;
+}): SelectedFile[] {
+  const selected = new Map<string, SelectedFile>();
+  for (const file of FOUNDATIONAL_CONTEXT_FILES.slice(0, MAX_FOUNDATIONAL_FILES)) {
+    if (isSafeReadableFile(root, file)) {
+      selected.set(file, { path: file, reasons: ["foundational"] });
+    }
   }
 
-  const explicitPaths = explicitRequestPaths(latestUserText);
-  for (const file of explicitPaths) {
-    if (selected.size >= MAX_SELECTED_FILES) break;
-    if (isSafeReadableFile(root, file)) selected.add(file);
-  }
-
-  const keywords = keywordsFor(latestUserText);
-  const scored = repoMap
+  const repoFiles = repoMap
     .filter((entry) => entry.kind === "file")
-    .map((entry) => ({
-      path: entry.path,
-      score: scorePath(entry.path, keywords),
+    .map((entry) => entry.path);
+  const explicitPaths = explicitRequestPaths(latestUserText);
+  const mentionedBasenames = mentionedBasenameSet(latestUserText);
+  const basenameMentionedPaths = repoFiles.filter((file) =>
+    mentionedBasenames.has(path.basename(file).toLowerCase()),
+  );
+  const changedPaths = changedPathsFromStatusLines(git?.statusLines ?? []);
+  const normalizedRecentFiles = normalizeSignalPaths(recentFiles);
+  const stronglySignaledPaths = uniqueStrings([
+    ...explicitPaths,
+    ...basenameMentionedPaths,
+    ...changedPaths,
+    ...normalizedRecentFiles,
+  ]);
+  const importNeighbors = importNeighborCandidates(root, stronglySignaledPaths);
+  const candidatePaths = uniqueStrings([
+    ...repoFiles,
+    ...explicitPaths,
+    ...changedPaths,
+    ...normalizedRecentFiles,
+    ...importNeighbors,
+  ]);
+  const explicitPathSet = new Set(explicitPaths);
+  const changedPathSet = new Set(changedPaths);
+  const recentPathSet = new Set(normalizedRecentFiles);
+  const importNeighborSet = new Set(importNeighbors);
+  const keywords = keywordsFor(latestUserText);
+
+  const scored = candidatePaths
+    .filter((file) => !selected.has(file) && isSafeReadableFile(root, file))
+    .map((file) => scoreCandidate({
+      file,
+      explicitPathSet,
+      changedPathSet,
+      recentPathSet,
+      importNeighborSet,
+      mentionedBasenames,
+      keywords,
     }))
-    .filter((entry) => entry.score > 0)
+    .filter((file) => file.score > 0)
     .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path));
 
-  for (const entry of scored) {
+  for (const file of scored) {
     if (selected.size >= MAX_SELECTED_FILES) break;
-    if (isSafeReadableFile(root, entry.path)) selected.add(entry.path);
+    selected.set(file.path, { path: file.path, reasons: file.reasons });
   }
 
-  return Array.from(selected).slice(0, MAX_SELECTED_FILES);
+  return Array.from(selected.values()).slice(0, MAX_SELECTED_FILES);
 }
 
 function repoMapBlock(entries: RepoMapEntry[]): string | undefined {
@@ -213,10 +262,14 @@ function gitBlock(git: GitSummary): string {
   return lines.join("\n");
 }
 
-function selectedFilesBlock(root: string, files: string[]): string | undefined {
+function selectedFilesBlock(root: string, files: SelectedFile[]): string | undefined {
   const summaries = files.flatMap((file): string[] => {
-    const summary = summarizeFile(root, file);
-    return summary ? [summary] : [];
+    const summary = summarizeFile(root, file.path);
+    if (!summary) return [];
+    const reasons = file.reasons.length > 0
+      ? ` [${file.reasons.join(", ")}]`
+      : "";
+    return [`- ${file.path}${reasons}: ${summary}`];
   });
   if (summaries.length === 0) return undefined;
   return ["Selected file summaries:", ...summaries].join("\n");
@@ -230,7 +283,7 @@ function summarizeFile(root: string, relativePath: string): string | undefined {
   const extension = path.extname(relativePath).toLowerCase();
   if (relativePath === "package.json") {
     const packageSummary = summarizePackageJson(content);
-    return packageSummary ? `- ${relativePath}: ${packageSummary}` : undefined;
+    return packageSummary || undefined;
   }
   if (extension === ".md") {
     const headings = content
@@ -241,10 +294,10 @@ function summarizeFile(root: string, relativePath: string): string | undefined {
     const summary = headings.length > 0
       ? `headings: ${headings.join("; ")}`
       : firstUsefulLines(content);
-    return `- ${relativePath}: ${compactLine(summary, MAX_FILE_SUMMARY_CHARS)}`;
+    return compactLine(summary, MAX_FILE_SUMMARY_CHARS);
   }
 
-  return `- ${relativePath}: ${compactLine(firstUsefulLines(content), MAX_FILE_SUMMARY_CHARS)}`;
+  return compactLine(firstUsefulLines(content), MAX_FILE_SUMMARY_CHARS);
 }
 
 function summarizePackageJson(content: string): string | undefined {
@@ -321,8 +374,16 @@ function runGit(
 }
 
 function explicitRequestPaths(text: string): string[] {
-  return Array.from(text.matchAll(/`([^`]+)`/g), (match) => normalizeRelative(match[1]))
-    .filter((value) => isSummarizablePath(value) && !value.includes(".."));
+  const paths = [
+    ...Array.from(text.matchAll(/`([^`]+)`/g), (match) => match[1]),
+    ...Array.from(
+      text.matchAll(
+        /(^|[\s("'`])((?:\.{1,2}[\\/])?(?:(?:[\w@+.-]+[\\/])+)?[\w@+.-]+\.(?:css|js|jsx|json|md|mjs|mts|ts|tsx))(?=$|[\s)"'`,:;!?])/gi,
+      ),
+      (match) => match[2],
+    ),
+  ];
+  return normalizeSignalPaths(paths);
 }
 
 function keywordsFor(text: string): string[] {
@@ -351,13 +412,184 @@ function keywordsFor(text: string): string[] {
   return Array.from(new Set(words)).slice(0, 25);
 }
 
-function scorePath(relativePath: string, keywords: string[]): number {
+function scorePath(relativePath: string, keywords: readonly string[]): number {
   const normalized = relativePath.toLowerCase();
   return keywords.reduce((score, keyword) => {
     if (normalized === keyword) return score + 10;
     if (normalized.includes(keyword)) return score + 3;
     return score;
   }, 0);
+}
+
+function scoreCandidate({
+  file,
+  explicitPathSet,
+  changedPathSet,
+  recentPathSet,
+  importNeighborSet,
+  mentionedBasenames,
+  keywords,
+}: {
+  file: string;
+  explicitPathSet: ReadonlySet<string>;
+  changedPathSet: ReadonlySet<string>;
+  recentPathSet: ReadonlySet<string>;
+  importNeighborSet: ReadonlySet<string>;
+  mentionedBasenames: ReadonlySet<string>;
+  keywords: readonly string[];
+}): SelectedFile & { score: number } {
+  let score = 0;
+  const reasons: SelectedReason[] = [];
+
+  if (explicitPathSet.has(file)) {
+    score += 1_000;
+    reasons.push("path-mention");
+  }
+  if (mentionedBasenames.has(path.basename(file).toLowerCase())) {
+    score += 900;
+    reasons.push("basename-mention");
+  }
+  if (changedPathSet.has(file)) {
+    score += 700;
+    reasons.push("git-changed");
+  }
+  if (recentPathSet.has(file)) {
+    score += 600;
+    reasons.push("recent");
+  }
+  if (importNeighborSet.has(file)) {
+    score += 500;
+    reasons.push("import-neighbor");
+  }
+
+  const keywordScore = scorePath(file, keywords);
+  if (keywordScore > 0) {
+    score += keywordScore;
+    reasons.push("keyword");
+  }
+
+  return { path: file, reasons, score };
+}
+
+function changedPathsFromStatusLines(statusLines: readonly string[]): string[] {
+  const paths: string[] = [];
+  for (const line of statusLines) {
+    if (line.length < 4) continue;
+    const rawPath = line.slice(3).trim();
+    if (!rawPath) continue;
+    if (rawPath.includes(" -> ")) {
+      const [source, target] = rawPath.split(" -> ", 2);
+      paths.push(source, target);
+      continue;
+    }
+    paths.push(rawPath);
+  }
+  return normalizeSignalPaths(paths);
+}
+
+function mentionedBasenameSet(text: string): Set<string> {
+  return new Set(
+    explicitRequestPaths(text).map((file) => path.basename(file).toLowerCase()),
+  );
+}
+
+function importNeighborCandidates(
+  root: string,
+  seedPaths: readonly string[],
+): string[] {
+  const neighbors: string[] = [];
+  const seen = new Set<string>();
+
+  for (const seedPath of seedPaths) {
+    if (neighbors.length >= MAX_IMPORT_NEIGHBOR_CANDIDATES) break;
+    if (!isJsTsPath(seedPath) || !isSafeReadableFile(root, seedPath)) continue;
+    const content = safeReadText(path.join(root, seedPath));
+    if (!content) continue;
+
+    for (const specifier of relativeImportSpecifiers(content)) {
+      if (neighbors.length >= MAX_IMPORT_NEIGHBOR_CANDIDATES) break;
+      const resolved = resolveRelativeImport(root, seedPath, specifier);
+      if (!resolved || seen.has(resolved)) continue;
+      seen.add(resolved);
+      neighbors.push(resolved);
+    }
+  }
+
+  return neighbors;
+}
+
+function relativeImportSpecifiers(content: string): string[] {
+  const pattern =
+    /(?:import|export)\s+(?:[^"'()]*?\s+from\s+)?["']([^"']+)["']|import\s*\(\s*["']([^"']+)["']\s*\)|require\s*\(\s*["']([^"']+)["']\s*\)/g;
+  const specifiers: string[] = [];
+  for (const match of content.matchAll(pattern)) {
+    const specifier = match[1] ?? match[2] ?? match[3] ?? "";
+    if (specifier.startsWith(".")) specifiers.push(specifier);
+  }
+  return uniqueStrings(specifiers);
+}
+
+function resolveRelativeImport(
+  root: string,
+  importerPath: string,
+  specifier: string,
+): string | undefined {
+  const basePath = normalizeRelative(path.join(path.dirname(importerPath), specifier));
+  const candidates = importResolutionCandidates(basePath);
+  return candidates.find((candidate) => isSafeReadableFile(root, candidate));
+}
+
+function importResolutionCandidates(basePath: string): string[] {
+  const extension = path.extname(basePath).toLowerCase();
+  if (JS_TS_EXTENSIONS.includes(extension)) return [basePath];
+  return [
+    ...JS_TS_EXTENSIONS.map((candidateExtension) => `${basePath}${candidateExtension}`),
+    ...JS_TS_EXTENSIONS.map((candidateExtension) =>
+      normalizeRelative(path.join(basePath, `index${candidateExtension}`)),
+    ),
+  ];
+}
+
+function isJsTsPath(relativePath: string): boolean {
+  return JS_TS_EXTENSIONS.includes(path.extname(relativePath).toLowerCase());
+}
+
+function normalizeSignalPaths(values: readonly string[]): string[] {
+  return uniqueStrings(values.flatMap((value): string[] => {
+    const normalized = normalizeSignalPath(value);
+    return normalized ? [normalized] : [];
+  }));
+}
+
+function normalizeSignalPath(value: string): string | undefined {
+  const withoutLineSuffix = value
+    .trim()
+    .replace(/^['"]|['"]$/g, "")
+    .replace(/:\d+(?::\d+)?$/, "");
+  const normalized = normalizeRelative(withoutLineSuffix);
+  if (
+    !normalized ||
+    normalized.startsWith("/") ||
+    /^[A-Za-z]:\//.test(normalized)
+  ) {
+    return undefined;
+  }
+
+  const parts = normalized.split("/").filter(Boolean);
+  if (parts.length === 0 || parts.some((part) => part === "." || part === "..")) {
+    return undefined;
+  }
+  const relativePath = parts.join("/");
+  return isSummarizablePath(relativePath) ? relativePath : undefined;
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    if (seen.has(value)) return false;
+    seen.add(value);
+    return true;
+  });
 }
 
 function isSafeReadableFile(root: string, relativePath: string): boolean {

@@ -47,6 +47,7 @@ import {
 import {
   buildDroppedHistoryDigest,
   buildSessionContextDigest,
+  recentTouchedFilesForSession,
   RunContextCollector,
   type RunContextStatus,
 } from "@/src/agent/context";
@@ -405,22 +406,28 @@ export async function POST(req: Request) {
     isProfileHandoffContinuation && profileHandoffRun
       ? profileHandoffTransitionLabel(profileHandoffRun.costMetadata)
       : undefined;
+  const includeWorkspaceContext =
+    mode !== "chat" && !isSegmentContinuation && profile !== "single-file-edit";
   const sessionContextDigest =
-    mode === "chat" || isSegmentContinuation || profile === "single-file-edit"
-      ? undefined
-      : buildSessionContextDigest({
+    includeWorkspaceContext
+      ? buildSessionContextDigest({
           sessionId,
           latestUserText: userText,
           budgetChars: budget.priorRunContextChars,
-        });
+        })
+      : undefined;
+  const recentFiles = includeWorkspaceContext
+    ? recentTouchedFilesForSession(sessionId)
+    : undefined;
   const workspaceContextDigest =
-    mode === "chat" || isSegmentContinuation || profile === "single-file-edit"
-      ? undefined
-      : buildWorkspaceContextDigest({
+    includeWorkspaceContext
+      ? buildWorkspaceContextDigest({
           workspaceRoot: project?.localPath,
           latestUserText: userText,
+          recentFiles,
           budgetChars: budget.workspaceContextChars,
-        });
+        })
+      : undefined;
   const baseModelContextText = isProfileHandoffContinuation
     ? continuationContextMessageText(continuationNote)
     : profile === "single-file-edit" &&
