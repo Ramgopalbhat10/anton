@@ -98,11 +98,6 @@ const COMPOSER_CHIP = cn(
   "gap-1.5 rounded-md bg-secondary px-2 text-xs font-medium leading-4 text-foreground shadow-none ring-0 hover:bg-secondary/80 focus-visible:ring-0",
 );
 
-const COMPOSER_CHIP_OUTLINE = cn(
-  COMPOSER_CONTROL_H,
-  "gap-1.5 rounded-md bg-transparent px-2 text-xs font-medium leading-4 text-muted-foreground/80 shadow-none ring-1 ring-border hover:bg-secondary/40 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring",
-);
-
 const MODEL_TRIGGER = cn(
   COMPOSER_CONTROL_H,
   "justify-between gap-2 rounded-md bg-input px-2 text-xs font-normal text-foreground shadow-none ring-1 ring-border hover:bg-input/80",
@@ -472,10 +467,10 @@ function McpSelector({
         <Button
           type="button"
           variant="secondary"
-          size="xs"
           className={cn(
-            COMPOSER_CHIP_OUTLINE,
+            COMPOSER_CHIP,
             selectedCount > 0 && "text-foreground",
+            iconOnly && "px-2",
           )}
           disabled={disabled}
           aria-label={`MCP servers, ${selectedCount} enabled`}
