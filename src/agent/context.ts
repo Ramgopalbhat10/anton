@@ -17,6 +17,8 @@ import {
 } from "@/src/lib/tool-summaries";
 
 const RECENT_CONTEXT_COUNT = 5;
+const RECENT_TOUCHED_SUMMARY_COUNT = 20;
+const DEFAULT_RECENT_TOUCHED_FILE_LIMIT = 20;
 const DEFAULT_CONTEXT_BUDGET_CHARS = 6_000;
 const MAX_SUMMARY_CHARS = 2_000;
 const MAX_TEXT_FIELD_CHARS = 1_200;
@@ -343,6 +345,39 @@ export function buildSessionContextDigest({
   }
 
   return blocks.length > 1 ? blocks.join("\n\n") : undefined;
+}
+
+export function recentTouchedFilesForSession(
+  sessionId: string,
+  limit = DEFAULT_RECENT_TOUCHED_FILE_LIMIT,
+): string[] {
+  const requestedLimit = Number.isFinite(limit)
+    ? Math.floor(limit)
+    : DEFAULT_RECENT_TOUCHED_FILE_LIMIT;
+  const maxFiles = Math.min(
+    DEFAULT_RECENT_TOUCHED_FILE_LIMIT,
+    Math.max(0, requestedLimit),
+  );
+  if (maxFiles === 0) return [];
+
+  const summaries = listRunContextSummariesForSession(
+    sessionId,
+    RECENT_TOUCHED_SUMMARY_COUNT,
+  );
+  const seen = new Set<string>();
+  const paths: string[] = [];
+
+  for (const summary of summaries) {
+    for (const file of touchedFileArray(summary.files)) {
+      const normalized = normalizeRunContextFilePath(file.path);
+      if (!normalized || seen.has(normalized)) continue;
+      seen.add(normalized);
+      paths.push(normalized);
+      if (paths.length >= maxFiles) return paths;
+    }
+  }
+
+  return paths;
 }
 
 export function buildDroppedHistoryDigest(
@@ -697,6 +732,27 @@ function readPath(input: unknown): string | undefined {
   if (!isRecord(input)) return undefined;
   const path = stringValue(input.path).replace(/\\/g, "/");
   return path || undefined;
+}
+
+function normalizeRunContextFilePath(value: string): string | undefined {
+  const normalized = compactLine(value, 500)
+    .replace(/\\/g, "/")
+    .replace(/^\.\//, "")
+    .replace(/:\d+(?::\d+)?$/, "")
+    .trim();
+  if (
+    !normalized ||
+    normalized.startsWith("/") ||
+    /^[A-Za-z]:\//.test(normalized)
+  ) {
+    return undefined;
+  }
+
+  const parts = normalized.split("/").filter(Boolean);
+  if (parts.length === 0 || parts.some((part) => part === "." || part === "..")) {
+    return undefined;
+  }
+  return parts.join("/");
 }
 
 function toolError(
