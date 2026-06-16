@@ -111,14 +111,18 @@ const MODEL_TRIGGER = cn(
 function resolveComposerVariant(
   width: number,
   worklogOpen: boolean,
+  hasSessionMetrics: boolean,
 ): ComposerVariant {
-  if (width <= 0) return worklogOpen ? "inline" : "full";
-  if (width < 320) return "compact";
-  if (worklogOpen) {
-    if (width < 400) return "compact";
-    return "inline";
+  if (width <= 0) {
+    return worklogOpen || hasSessionMetrics ? "inline" : "full";
   }
-  if (width < 480) return "inline";
+  if (width < 320) return "compact";
+  if (width < 400) return "compact";
+  if (worklogOpen) return "inline";
+
+  const inlineThreshold = hasSessionMetrics ? 720 : 480;
+  if (width < inlineThreshold) return "inline";
+
   return "full";
 }
 
@@ -155,7 +159,8 @@ export function Composer({
 }: ComposerProps) {
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const variant = resolveComposerVariant(columnWidth, worklogOpen);
+  const hasSessionMetrics = tokenUsage.effectiveTokens > 0 || streaming;
+  const variant = resolveComposerVariant(columnWidth, worklogOpen, hasSessionMetrics);
   const sendDisabled = disabled || (mode !== "chat" && !project);
   const iconOnly = variant !== "full";
   const compactContext = variant !== "full";
@@ -244,7 +249,7 @@ export function Composer({
           ? "min-w-0 flex-1"
           : variant === "inline"
             ? "w-32 min-w-0 shrink"
-            : "w-40 sm:w-48",
+            : "w-40 min-w-0 max-w-48 shrink",
       )}
     />
   );
@@ -309,14 +314,14 @@ export function Composer({
               </div>
             </div>
           ) : (
-            <div className="mt-3 flex items-center justify-between gap-2">
-              <div className="flex min-w-0 items-center gap-1.5">
+            <div className="mt-3 flex min-w-0 items-center gap-2">
+              <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
                 {attachButton}
                 {modeSelector}
                 {permissionsDropdown}
                 {mcpSelector}
               </div>
-              <div className="flex min-w-0 items-center gap-1.5">
+              <div className="flex shrink-0 items-center gap-1.5">
                 {variant === "inline" ? tokenCounter : null}
                 {modelPicker}
                 {variant === "full" ? tokenCounter : null}
