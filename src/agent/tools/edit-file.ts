@@ -10,6 +10,7 @@ import {
   sha256,
 } from "./edit-utils";
 import { assertGuardAllowed } from "./file-guardrails";
+import type { RunCheckpointManager } from "./checkpoints";
 
 export type EditFileErrorCode =
   | "HASH_MISMATCH"
@@ -18,7 +19,10 @@ export type EditFileErrorCode =
   | "GUARD_REJECTED"
   | "WRITE_FAILED";
 
-export function createEditFileTool(workspaceRoot?: string) {
+export function createEditFileTool(
+  workspaceRoot?: string,
+  checkpoints?: RunCheckpointManager,
+) {
   return tool({
   description:
     "Apply a single-file unified diff patch to an existing UTF-8 text file when expectedHash matches. Prefer this for multi-line structural edits. Requires user approval.",
@@ -97,7 +101,13 @@ export function createEditFileTool(workspaceRoot?: string) {
         });
       }
 
-      await atomicWriteTextFile(abs, nextContent);
+      const checkpoint = await checkpoints?.capturePath(relPath);
+      try {
+        await atomicWriteTextFile(abs, nextContent);
+      } catch (err) {
+        if (checkpoint) checkpoints?.discardCaptures([checkpoint]);
+        throw err;
+      }
       return {
         ok: true as const,
         alreadyApplied: false,
@@ -107,6 +117,7 @@ export function createEditFileTool(workspaceRoot?: string) {
         previousHash: previous.sha256,
         nextHash: sha256(nextContent),
         bytesWritten: Buffer.byteLength(nextContent, "utf8"),
+        ...(checkpoint ? { checkpoint } : {}),
       };
     } catch (err) {
       if (err instanceof SandboxError && err.message.includes("guard")) {

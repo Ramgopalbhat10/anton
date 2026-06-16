@@ -5,6 +5,10 @@ import { tool } from "ai";
 import { ensureWorkspaceRoot, ensureWorkspaceRootAt, resolveInWorkspace, SandboxError } from "../sandbox";
 import { assertPathGuardAllowed, normalizeRelPath } from "./file-guardrails";
 import { runWorkspaceProcess } from "@/src/workspace/process-runner";
+import {
+  pathOverlapsCheckpointPath,
+  type RunCheckpointManager,
+} from "./checkpoints";
 
 const pathListSchema = z
   .array(z.string())
@@ -34,7 +38,10 @@ export function createGitStatusTool(workspaceRoot?: string) {
   });
 }
 
-export function createGitDiffTool(workspaceRoot?: string) {
+export function createGitDiffTool(
+  workspaceRoot?: string,
+  checkpoints?: RunCheckpointManager,
+) {
   return tool({
     description:
       "Show a scoped git diff and return a SHA-256 hash of the patch for later revert confirmation. Read-only.",
@@ -47,14 +54,23 @@ export function createGitDiffTool(workspaceRoot?: string) {
         const root = workspace(workspaceRoot);
         const scopedPaths = validatePaths(paths, root, true);
         const args = ["diff", ...(staged ? ["--cached"] : []), ...pathspecArgs(scopedPaths)];
+        const checkpoint = staged
+          ? undefined
+          : await checkpointMetadata(checkpoints, scopedPaths);
         const result = await git(root, args);
-        if (result.exitCode !== 0) return gitError(result);
+        if (result.exitCode !== 0) {
+          return {
+            ...gitError(result),
+            ...checkpoint,
+          };
+        }
         return {
           ok: true as const,
           staged,
           paths: scopedPaths,
           patch: result.stdout,
           diffHash: sha256(result.stdout),
+          ...checkpoint,
         };
       } catch (err) {
         return { ok: false as const, error: errorMessage(err) };
@@ -240,7 +256,10 @@ export function createGitRestoreTool(workspaceRoot?: string) {
   });
 }
 
-export function createRevertChangesTool(workspaceRoot?: string) {
+export function createRevertChangesTool(
+  workspaceRoot?: string,
+  checkpoints?: RunCheckpointManager,
+) {
   return tool({
     description:
       "Revert scoped working-tree changes only when the current git diff hash matches the expected hash from git_diff. Requires approval.",
@@ -253,19 +272,77 @@ export function createRevertChangesTool(workspaceRoot?: string) {
       try {
         const root = workspace(workspaceRoot);
         const scopedPaths = validatePaths(paths, root, allowGuarded);
+        const checkpoint = checkpoints
+          ? await checkpoints.compare(scopedPaths)
+          : undefined;
+        const checkpointHash = checkpoint?.checkpointHash;
         const diff = await git(root, ["diff", ...pathspecArgs(scopedPaths)]);
-        if (diff.exitCode !== 0) return gitError(diff);
-        const actualHash = sha256(diff.stdout);
-        if (actualHash !== expectedDiffHash) {
+        const diffHash =
+          diff.exitCode === 0 ? sha256(diff.stdout) : undefined;
+        if (diff.exitCode !== 0 && checkpointHash !== expectedDiffHash) {
           return {
-            ok: false as const,
-            error: `diff hash mismatch: expected ${expectedDiffHash}, found ${actualHash}`,
-            actualDiffHash: actualHash,
+            ...gitError(diff),
+            ...(checkpointHash ? { checkpointHash } : {}),
           };
         }
-        const restore = await git(root, ["restore", "--", ...scopedPaths]);
-        if (restore.exitCode !== 0) return gitError(restore);
-        return { ok: true as const, restoredPaths: scopedPaths, diffHash: actualHash };
+        if (diffHash !== expectedDiffHash && checkpointHash !== expectedDiffHash) {
+          return {
+            ok: false as const,
+            error: hashMismatchError(expectedDiffHash, diffHash, checkpointHash),
+            ...(diffHash ? { actualDiffHash: diffHash, diffHash } : {}),
+            ...(checkpointHash ? { checkpointHash } : {}),
+          };
+        }
+
+        const checkpointRestore =
+          checkpoints && checkpoint?.hasEntries
+            ? await checkpoints.restore(scopedPaths)
+            : undefined;
+        if (checkpointRestore && !checkpointRestore.ok) {
+          return {
+            ok: false as const,
+            error: checkpointRestore.error,
+            checkpointRestoredPaths: checkpointRestore.checkpointRestoredPaths,
+            gitRestoredPaths: [],
+            unsupportedPaths: checkpointRestore.unsupportedPaths,
+            unsupportedPathDetails: checkpointRestore.unsupportedPathDetails,
+            ...(checkpointRestore.checkpointHash
+              ? { checkpointHash: checkpointRestore.checkpointHash }
+              : checkpointHash
+                ? { checkpointHash }
+                : {}),
+            ...(diffHash ? { diffHash } : {}),
+          };
+        }
+
+        const checkpointRestoredPaths =
+          checkpointRestore?.checkpointRestoredPaths ?? [];
+        const coveredPaths = checkpointRestore?.coveredPaths ?? [];
+        const gitRestorePaths =
+          coveredPaths.length > 0
+            ? await gitRestoreFallbackPaths(root, scopedPaths, coveredPaths)
+            : scopedPaths;
+        if (gitRestorePaths.length > 0) {
+          const restore = await git(root, ["restore", "--", ...gitRestorePaths]);
+          if (restore.exitCode !== 0) return gitError(restore);
+        }
+        const gitRestoredPaths = gitRestorePaths;
+        return {
+          ok: true as const,
+          restoredPaths: uniqueSorted([
+            ...checkpointRestoredPaths,
+            ...gitRestoredPaths,
+          ]),
+          checkpointRestoredPaths,
+          gitRestoredPaths,
+          unsupportedPaths: [] as string[],
+          ...(checkpointRestore?.checkpointHash
+            ? { checkpointHash: checkpointRestore.checkpointHash }
+            : checkpointHash
+              ? { checkpointHash }
+              : {}),
+          ...(diffHash ? { diffHash } : {}),
+        };
       } catch (err) {
         return { ok: false as const, error: errorMessage(err) };
       }
@@ -307,6 +384,68 @@ function validatePaths(
 
 function pathspecArgs(paths: readonly string[]): string[] {
   return paths.length > 0 ? ["--", ...paths] : [];
+}
+
+async function checkpointMetadata(
+  checkpoints: RunCheckpointManager | undefined,
+  scopedPaths: readonly string[],
+): Promise<
+  | {
+      checkpointHash: string;
+      checkpointedPaths: string[];
+      checkpointUnsupportedPaths: string[];
+    }
+  | Record<string, never>
+> {
+  const comparison = await checkpoints?.compare(scopedPaths);
+  if (!comparison?.checkpointHash) return {};
+  return {
+    checkpointHash: comparison.checkpointHash,
+    checkpointedPaths: comparison.checkpointedPaths,
+    checkpointUnsupportedPaths: comparison.checkpointUnsupportedPaths,
+  };
+}
+
+async function gitRestoreFallbackPaths(
+  root: string,
+  scopedPaths: readonly string[],
+  coveredPaths: readonly string[],
+): Promise<string[]> {
+  const result = await git(root, [
+    "diff",
+    "--name-only",
+    "-z",
+    ...pathspecArgs(scopedPaths),
+  ]);
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr || result.stdout || "git diff --name-only failed");
+  }
+  const paths = result.stdout
+    .split("\0")
+    .map((item) => normalizeRelPath(item))
+    .filter(Boolean);
+  return uniqueSorted(
+    paths.filter(
+      (changedPath) =>
+        !coveredPaths.some((coveredPath) =>
+          pathOverlapsCheckpointPath(changedPath, coveredPath),
+        ),
+    ),
+  );
+}
+
+function hashMismatchError(
+  expected: string,
+  diffHash: string | undefined,
+  checkpointHash: string | undefined,
+): string {
+  const diff = diffHash ? `diffHash ${diffHash}` : "no current diffHash";
+  const checkpoint = checkpointHash ? `, checkpointHash ${checkpointHash}` : "";
+  return `diff hash mismatch: expected ${expected}, found ${diff}${checkpoint}`;
+}
+
+function uniqueSorted(paths: readonly string[]): string[] {
+  return [...new Set(paths)].sort((left, right) => left.localeCompare(right));
 }
 
 function parseStatus(output: string): Array<{

@@ -8,6 +8,7 @@ import {
   sha256,
 } from "./edit-utils";
 import { assertGuardAllowed } from "./file-guardrails";
+import type { RunCheckpointManager } from "./checkpoints";
 
 const editSchema = z.object({
   startLine: z.number().int().min(1).describe("1-indexed first line to replace (inclusive)."),
@@ -19,7 +20,10 @@ const editSchema = z.object({
   replacement: z.string().describe("Replacement text for the line range."),
 });
 
-export function createReplaceLinesTool(workspaceRoot?: string) {
+export function createReplaceLinesTool(
+  workspaceRoot?: string,
+  checkpoints?: RunCheckpointManager,
+) {
   return tool({
     description:
       "Replace ordered, non-overlapping line ranges in an existing UTF-8 file when expectedHash matches. Prefer this when exact find strings are brittle. Requires user approval.",
@@ -85,7 +89,13 @@ export function createReplaceLinesTool(workspaceRoot?: string) {
           });
         }
 
-        await atomicWriteTextFile(abs, nextContent);
+        const checkpoint = await checkpoints?.capturePath(relPath);
+        try {
+          await atomicWriteTextFile(abs, nextContent);
+        } catch (err) {
+          if (checkpoint) checkpoints?.discardCaptures([checkpoint]);
+          throw err;
+        }
         return {
           ok: true as const,
           path: relPath,
@@ -93,6 +103,7 @@ export function createReplaceLinesTool(workspaceRoot?: string) {
           previousHash: previous.sha256,
           nextHash: sha256(nextContent),
           bytesWritten: Buffer.byteLength(nextContent, "utf8"),
+          ...(checkpoint ? { checkpoint } : {}),
           changedRanges: validation.normalizedEdits.map((edit) => ({
             startLine: edit.startLine,
             endLine: edit.endLine,

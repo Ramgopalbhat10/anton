@@ -459,7 +459,7 @@ function buildNativeToolApprovalMetadata(
         details: [
           pathsDetail(record.paths, workspaceRoot),
           `Staged: ${booleanValue(record.staged) ? "yes" : "no"}.`,
-          "Returns a patch and SHA-256 diff hash for scoped revert confirmation.",
+          "Returns a patch, SHA-256 diff hash, and active-run checkpoint hash when available.",
         ],
       });
     case "git_show":
@@ -517,7 +517,7 @@ function buildNativeToolApprovalMetadata(
         details: [
           pathsDetail(record.paths, workspaceRoot),
           `Expected diff hash: ${stringValue(record.expectedDiffHash) ?? "(missing)"}.`,
-          "The tool recomputes git_diff for the same scope before restoring files.",
+          "The tool recomputes current git and checkpoint hashes for the same scope before restoring files.",
           guardedDetail(record.allowGuarded),
         ],
       });

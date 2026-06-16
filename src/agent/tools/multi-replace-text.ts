@@ -16,13 +16,17 @@ import {
   restoreLineEndings,
   type MatchedLineRange,
 } from "./text-edits";
+import type { RunCheckpointManager } from "./checkpoints";
 
 const replacementSchema = z.object({
   find: z.string().min(1).describe("Exact text to find in the file."),
   replace: z.string().describe("Replacement text."),
 });
 
-export function createMultiReplaceTextTool(workspaceRoot?: string) {
+export function createMultiReplaceTextTool(
+  workspaceRoot?: string,
+  checkpoints?: RunCheckpointManager,
+) {
   return tool({
     description:
       "Apply ordered exact-text replacements to one existing UTF-8 file when expectedHash matches. All replacements run atomically. Requires user approval.",
@@ -109,7 +113,13 @@ export function createMultiReplaceTextTool(workspaceRoot?: string) {
           });
         }
 
-        await atomicWriteTextFile(abs, restoredContent);
+        const checkpoint = await checkpoints?.capturePath(relPath);
+        try {
+          await atomicWriteTextFile(abs, restoredContent);
+        } catch (err) {
+          if (checkpoint) checkpoints?.discardCaptures([checkpoint]);
+          throw err;
+        }
         return {
           ok: true as const,
           path: relPath,
@@ -117,6 +127,7 @@ export function createMultiReplaceTextTool(workspaceRoot?: string) {
           previousHash: previous.sha256,
           nextHash: sha256(restoredContent),
           bytesWritten: Buffer.byteLength(restoredContent, "utf8"),
+          ...(checkpoint ? { checkpoint } : {}),
           ...(recoveredEditCount > 0
             ? {
                 matchStrategy:

@@ -56,6 +56,7 @@ import {
   NATIVE_ANTON_TOOL_NAMES,
   type NativeAntonToolName,
 } from "./tools";
+import { createRunCheckpointManager } from "./tools/checkpoints";
 import { loadMcpTools, type LoadedMcpTools } from "./mcp";
 import {
   ensureWorkspaceRoot,
@@ -587,6 +588,7 @@ export async function runAgent({
   const finishedToolCallKeys = new Set<string>();
   const toolPolicy = new ToolPolicyEngine(profile, { targetPath: singleFileTargetPath });
   toolPolicy.seed(seedFromPriorToolRecords(priorToolHistory));
+  const checkpoints = createRunCheckpointManager(workspaceRoot);
   const tools = createAntonTools({
     model: selectedModel,
     mcpTools: mcpTools.tools,
@@ -597,6 +599,7 @@ export async function runAgent({
     executionCache,
     profile: isFastEditStart ? "localized-edit" : profile,
     toolPolicy,
+    checkpoints,
   });
   const initialActiveToolNames = initialActiveNativeToolNames.filter((name) =>
     Object.prototype.hasOwnProperty.call(tools, name),
