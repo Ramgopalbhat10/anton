@@ -591,14 +591,11 @@ function RecentCommandCard({
         <div className="min-w-0 flex-1">
           <div className="flex min-h-5 items-center gap-2">
             <StatusBadge status={session.status} />
-            <code className="truncate font-mono text-[10px] leading-none text-foreground">
-              {session.command}
-            </code>
-          </div>
-          <div className="mt-1 text-[10px] text-muted-foreground">
-            {formatDuration(session.startedAt, session.finishedAt)}
-            {session.exitCode !== null ? ` · exit ${session.exitCode}` : null}
-            {session.signal ? ` · ${session.signal}` : null}
+            <span className="text-[10px] text-muted-foreground">
+              {formatDuration(session.startedAt, session.finishedAt)}
+              {session.exitCode !== null ? ` · exit ${session.exitCode}` : null}
+              {session.signal ? ` · ${session.signal}` : null}
+            </span>
           </div>
         </div>
         <div className="flex h-5 shrink-0 items-center gap-0.5">

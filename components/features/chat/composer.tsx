@@ -95,12 +95,7 @@ const COMPOSER_ICON_BTN = "size-[26px] shrink-0 rounded-md";
 
 const COMPOSER_CHIP = cn(
   COMPOSER_CONTROL_H,
-  "gap-1.5 rounded-md bg-secondary px-2 text-xs font-medium text-foreground shadow-none ring-0 hover:bg-secondary/80 focus-visible:ring-0",
-);
-
-const COMPOSER_CHIP_OUTLINE = cn(
-  COMPOSER_CONTROL_H,
-  "gap-1.5 rounded-md bg-transparent px-2 text-xs font-medium text-muted-foreground/80 shadow-none ring-1 ring-border hover:bg-secondary/40 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring",
+  "gap-1.5 rounded-md bg-secondary px-2 text-xs font-medium leading-4 text-foreground shadow-none ring-0 hover:bg-secondary/80 focus-visible:ring-0",
 );
 
 const MODEL_TRIGGER = cn(
@@ -111,14 +106,18 @@ const MODEL_TRIGGER = cn(
 function resolveComposerVariant(
   width: number,
   worklogOpen: boolean,
+  hasSessionMetrics: boolean,
 ): ComposerVariant {
-  if (width <= 0) return worklogOpen ? "inline" : "full";
-  if (width < 320) return "compact";
-  if (worklogOpen) {
-    if (width < 400) return "compact";
-    return "inline";
+  if (width <= 0) {
+    return worklogOpen || hasSessionMetrics ? "inline" : "full";
   }
-  if (width < 480) return "inline";
+  if (width < 320) return "compact";
+  if (width < 400) return "compact";
+  if (worklogOpen) return "inline";
+
+  const inlineThreshold = hasSessionMetrics ? 720 : 480;
+  if (width < inlineThreshold) return "inline";
+
   return "full";
 }
 
@@ -155,7 +154,8 @@ export function Composer({
 }: ComposerProps) {
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const variant = resolveComposerVariant(columnWidth, worklogOpen);
+  const hasSessionMetrics = tokenUsage.effectiveTokens > 0 || streaming;
+  const variant = resolveComposerVariant(columnWidth, worklogOpen, hasSessionMetrics);
   const sendDisabled = disabled || (mode !== "chat" && !project);
   const iconOnly = variant !== "full";
   const compactContext = variant !== "full";
@@ -222,13 +222,7 @@ export function Composer({
   );
 
   const tokenCounter = (
-    <TokenCounter
-      tokenUsage={tokenUsage}
-      pending={streaming}
-      display={
-        variant === "full" ? "full" : variant === "compact" ? "compact" : "minimal"
-      }
-    />
+    <TokenCounter tokenUsage={tokenUsage} pending={streaming} />
   );
 
   const modelPicker = (
@@ -244,7 +238,7 @@ export function Composer({
           ? "min-w-0 flex-1"
           : variant === "inline"
             ? "w-32 min-w-0 shrink"
-            : "w-40 sm:w-48",
+            : "w-40 min-w-0 max-w-48 shrink",
       )}
     />
   );
@@ -304,22 +298,21 @@ export function Composer({
                 {sendButton}
               </div>
               <div className="flex min-w-0 items-center gap-1.5">
-                {modelPicker}
                 {tokenCounter}
+                {modelPicker}
               </div>
             </div>
           ) : (
-            <div className="mt-3 flex items-center justify-between gap-2">
-              <div className="flex min-w-0 items-center gap-1.5">
+            <div className="mt-3 flex min-w-0 items-center gap-2">
+              <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
                 {attachButton}
                 {modeSelector}
                 {permissionsDropdown}
                 {mcpSelector}
               </div>
-              <div className="flex min-w-0 items-center gap-1.5">
-                {variant === "inline" ? tokenCounter : null}
+              <div className="flex shrink-0 items-center gap-1.5">
+                {tokenCounter}
                 {modelPicker}
-                {variant === "full" ? tokenCounter : null}
                 {sendButton}
               </div>
             </div>
@@ -398,10 +391,7 @@ function ModeSelector({
       disabled={disabled}
     >
       <SelectTrigger
-        className={cn(
-          iconOnly ? COMPOSER_CHIP_OUTLINE : COMPOSER_CHIP,
-          iconOnly && "px-2",
-        )}
+        className={cn(COMPOSER_CHIP, iconOnly && "px-2")}
         hideChevron={iconOnly}
         aria-label={`Mode: ${selected.label}`}
       >
@@ -478,8 +468,9 @@ function McpSelector({
           type="button"
           variant="secondary"
           className={cn(
-            COMPOSER_CHIP_OUTLINE,
+            COMPOSER_CHIP,
             selectedCount > 0 && "text-foreground",
+            iconOnly && "px-2",
           )}
           disabled={disabled}
           aria-label={`MCP servers, ${selectedCount} enabled`}
@@ -622,12 +613,10 @@ function PermissionsDropdown({
 function TokenCounter({
   tokenUsage,
   pending,
-  display = "full",
 }: {
   tokenUsage: SessionTokenUsage;
   pending: boolean;
-  display?: "full" | "compact" | "minimal";
 }) {
   if (tokenUsage.effectiveTokens <= 0 && !pending) return null;
-  return <SessionMetricsHoverCard tokenUsage={tokenUsage} display={display} />;
+  return <SessionMetricsHoverCard tokenUsage={tokenUsage} />;
 }
