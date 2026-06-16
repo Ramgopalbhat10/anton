@@ -130,22 +130,12 @@ export function ResponseMetricsHoverCard({
   );
 }
 
-export type SessionMetricsDisplay = "full" | "compact" | "minimal";
-
 export function SessionMetricsHoverCard({
   tokenUsage,
-  display = "full",
 }: {
   tokenUsage: SessionTokenUsage;
-  display?: SessionMetricsDisplay;
 }) {
   const tokens = formatCompactSessionTokens(tokenUsage.effectiveTokens);
-  const label =
-    display === "full"
-      ? `session · ${tokens} tok`
-      : display === "compact"
-        ? `${tokens} tok`
-        : tokens;
 
   return (
     <MetricsHoverCardShell
@@ -154,10 +144,10 @@ export function SessionMetricsHoverCard({
         <button
           type="button"
           className="inline-flex !h-[26px] !min-h-[26px] !max-h-[26px] shrink-0 items-center gap-1.5 rounded-md px-2 py-0 font-mono text-[11.5px] leading-none text-muted-foreground/80 ring-1 ring-border transition-colors hover:bg-secondary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-ring"
-          aria-label="Session token usage"
+          aria-label={`Session token usage: ${tokens}`}
         >
           <Coins className="size-[11px]" aria-hidden />
-          {label}
+          {tokens}
         </button>
       }
       footer={

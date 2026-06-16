@@ -95,12 +95,12 @@ const COMPOSER_ICON_BTN = "size-[26px] shrink-0 rounded-md";
 
 const COMPOSER_CHIP = cn(
   COMPOSER_CONTROL_H,
-  "gap-1.5 rounded-md bg-secondary px-2 text-xs font-medium text-foreground shadow-none ring-0 hover:bg-secondary/80 focus-visible:ring-0",
+  "gap-1.5 rounded-md bg-secondary px-2 text-xs font-medium leading-4 text-foreground shadow-none ring-0 hover:bg-secondary/80 focus-visible:ring-0",
 );
 
 const COMPOSER_CHIP_OUTLINE = cn(
   COMPOSER_CONTROL_H,
-  "gap-1.5 rounded-md bg-transparent px-2 text-xs font-medium text-muted-foreground/80 shadow-none ring-1 ring-border hover:bg-secondary/40 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring",
+  "gap-1.5 rounded-md bg-transparent px-2 text-xs font-medium leading-4 text-muted-foreground/80 shadow-none ring-1 ring-border hover:bg-secondary/40 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring",
 );
 
 const MODEL_TRIGGER = cn(
@@ -227,13 +227,7 @@ export function Composer({
   );
 
   const tokenCounter = (
-    <TokenCounter
-      tokenUsage={tokenUsage}
-      pending={streaming}
-      display={
-        variant === "full" ? "full" : variant === "compact" ? "compact" : "minimal"
-      }
-    />
+    <TokenCounter tokenUsage={tokenUsage} pending={streaming} />
   );
 
   const modelPicker = (
@@ -309,8 +303,8 @@ export function Composer({
                 {sendButton}
               </div>
               <div className="flex min-w-0 items-center gap-1.5">
-                {modelPicker}
                 {tokenCounter}
+                {modelPicker}
               </div>
             </div>
           ) : (
@@ -322,9 +316,8 @@ export function Composer({
                 {mcpSelector}
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
-                {variant === "inline" ? tokenCounter : null}
+                {tokenCounter}
                 {modelPicker}
-                {variant === "full" ? tokenCounter : null}
                 {sendButton}
               </div>
             </div>
@@ -403,10 +396,7 @@ function ModeSelector({
       disabled={disabled}
     >
       <SelectTrigger
-        className={cn(
-          iconOnly ? COMPOSER_CHIP_OUTLINE : COMPOSER_CHIP,
-          iconOnly && "px-2",
-        )}
+        className={cn(COMPOSER_CHIP, iconOnly && "px-2")}
         hideChevron={iconOnly}
         aria-label={`Mode: ${selected.label}`}
       >
@@ -482,6 +472,7 @@ function McpSelector({
         <Button
           type="button"
           variant="secondary"
+          size="xs"
           className={cn(
             COMPOSER_CHIP_OUTLINE,
             selectedCount > 0 && "text-foreground",
@@ -627,12 +618,10 @@ function PermissionsDropdown({
 function TokenCounter({
   tokenUsage,
   pending,
-  display = "full",
 }: {
   tokenUsage: SessionTokenUsage;
   pending: boolean;
-  display?: "full" | "compact" | "minimal";
 }) {
   if (tokenUsage.effectiveTokens <= 0 && !pending) return null;
-  return <SessionMetricsHoverCard tokenUsage={tokenUsage} display={display} />;
+  return <SessionMetricsHoverCard tokenUsage={tokenUsage} />;
 }
