@@ -17,6 +17,7 @@ import {
   pathGuardReasons,
   verifyExpectedHash,
 } from "./file-guardrails";
+import type { RunCheckpointManager } from "./checkpoints";
 
 const allowGuardedSchema = z
   .boolean()
@@ -119,7 +120,10 @@ export function createMkdirTool(workspaceRoot?: string) {
   });
 }
 
-export function createDeleteTool(workspaceRoot?: string) {
+export function createDeleteTool(
+  workspaceRoot?: string,
+  checkpoints?: RunCheckpointManager,
+) {
   return tool({
     description:
       "Delete a file or directory inside the workspace. Regular files require expectedHash. Recursive directory deletes require recursive: true. Requires approval.",
@@ -154,11 +158,18 @@ export function createDeleteTool(workspaceRoot?: string) {
         if (metadata.kind === "directory") {
           await assertNoGuardedDescendants({ absPath: abs, relPath, allowGuarded });
         }
-        await fs.rm(abs, { recursive, force: false });
+        const checkpoint = await checkpoints?.capturePath(relPath);
+        try {
+          await fs.rm(abs, { recursive, force: false });
+        } catch (err) {
+          if (checkpoint) checkpoints?.discardCaptures([checkpoint]);
+          throw err;
+        }
         return {
           ok: true as const,
           path: normalizeInputPath(relPath),
           kind: metadata.kind,
+          ...(checkpoint ? { checkpoint } : {}),
         };
       } catch (err) {
         return { ok: false as const, error: errorMessage(err) };
@@ -167,7 +178,10 @@ export function createDeleteTool(workspaceRoot?: string) {
   });
 }
 
-export function createRenameTool(workspaceRoot?: string) {
+export function createRenameTool(
+  workspaceRoot?: string,
+  checkpoints?: RunCheckpointManager,
+) {
   return tool({
     description:
       "Rename or move a workspace path without overwriting the destination. Regular source files require expectedSourceHash. Requires approval.",
@@ -212,13 +226,23 @@ export function createRenameTool(workspaceRoot?: string) {
             allowGuarded,
           });
         }
-        await fs.mkdir(path.dirname(destinationAbs), { recursive: true });
-        await fs.rename(sourceAbs, destinationAbs);
+        const checkpointResults = await checkpoints?.capturePaths([
+          sourcePath,
+          destinationPath,
+        ]);
+        try {
+          await fs.mkdir(path.dirname(destinationAbs), { recursive: true });
+          await fs.rename(sourceAbs, destinationAbs);
+        } catch (err) {
+          if (checkpointResults) checkpoints?.discardCaptures(checkpointResults);
+          throw err;
+        }
         return {
           ok: true as const,
           sourcePath: normalizeInputPath(sourcePath),
           destinationPath: normalizeInputPath(destinationPath),
           kind: metadata.kind,
+          ...(checkpointResults ? { checkpoints: checkpointResults } : {}),
         };
       } catch (err) {
         return { ok: false as const, error: errorMessage(err) };
@@ -227,7 +251,10 @@ export function createRenameTool(workspaceRoot?: string) {
   });
 }
 
-export function createCopyTool(workspaceRoot?: string) {
+export function createCopyTool(
+  workspaceRoot?: string,
+  checkpoints?: RunCheckpointManager,
+) {
   return tool({
     description:
       "Copy a workspace file or directory without overwriting the destination. Regular source files require expectedSourceHash. Requires approval.",
@@ -269,8 +296,21 @@ export function createCopyTool(workspaceRoot?: string) {
             actualHash: metadata.sha256,
             expectedHash: expectedSourceHash,
           });
-          await fs.mkdir(path.dirname(destinationAbs), { recursive: true });
-          await fs.copyFile(sourceAbs, destinationAbs, fsConstants.COPYFILE_EXCL);
+          const checkpoint = await checkpoints?.capturePath(destinationPath);
+          try {
+            await fs.mkdir(path.dirname(destinationAbs), { recursive: true });
+            await fs.copyFile(sourceAbs, destinationAbs, fsConstants.COPYFILE_EXCL);
+          } catch (err) {
+            if (checkpoint) checkpoints?.discardCaptures([checkpoint]);
+            throw err;
+          }
+          return {
+            ok: true as const,
+            sourcePath: normalizeInputPath(sourcePath),
+            destinationPath: normalizeInputPath(destinationPath),
+            kind: metadata.kind,
+            ...(checkpoint ? { checkpoint } : {}),
+          };
         } else if (metadata.kind === "directory") {
           if (!recursive) {
             throw new Error("recursive: true is required to copy directories");
@@ -280,20 +320,27 @@ export function createCopyTool(workspaceRoot?: string) {
             relPath: sourcePath,
             allowGuarded,
           });
-          await fs.cp(sourceAbs, destinationAbs, {
-            recursive: true,
-            errorOnExist: true,
-            force: false,
-          });
+          const checkpoint = await checkpoints?.capturePath(destinationPath);
+          try {
+            await fs.cp(sourceAbs, destinationAbs, {
+              recursive: true,
+              errorOnExist: true,
+              force: false,
+            });
+          } catch (err) {
+            if (checkpoint) checkpoints?.discardCaptures([checkpoint]);
+            throw err;
+          }
+          return {
+            ok: true as const,
+            sourcePath: normalizeInputPath(sourcePath),
+            destinationPath: normalizeInputPath(destinationPath),
+            kind: metadata.kind,
+            ...(checkpoint ? { checkpoint } : {}),
+          };
         } else {
           throw new Error(`copy is not supported for ${metadata.kind} paths`);
         }
-        return {
-          ok: true as const,
-          sourcePath: normalizeInputPath(sourcePath),
-          destinationPath: normalizeInputPath(destinationPath),
-          kind: metadata.kind,
-        };
       } catch (err) {
         return { ok: false as const, error: errorMessage(err) };
       }

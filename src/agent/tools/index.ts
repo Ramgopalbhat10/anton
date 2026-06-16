@@ -69,6 +69,7 @@ import { createUpdateTodosTool, updateTodosTool } from "./todos";
 import { createVerifyTool, verifyTool } from "./verify";
 import type { AgentRunProfile } from "../loop";
 import type { ToolPolicyEngine } from "../tool-policy";
+import type { RunCheckpointManager } from "./checkpoints";
 
 export const nativeAntonTools = applyNativeToolPermissionPolicy({
   read_file: readFileTool,
@@ -126,6 +127,7 @@ export function createAntonTools({
   executionCache,
   profile = "general-chat",
   toolPolicy,
+  checkpoints,
 }: {
   model?: string;
   mcpTools?: ToolSet;
@@ -136,6 +138,7 @@ export function createAntonTools({
   executionCache?: ToolExecutionCache;
   profile?: AgentRunProfile;
   toolPolicy?: ToolPolicyEngine;
+  checkpoints?: RunCheckpointManager;
 }) {
   const selectedNativeToolNames = new Set(
     nativeToolNames ?? NATIVE_ANTON_TOOL_NAMES,
@@ -143,26 +146,26 @@ export function createAntonTools({
   const allNativeTools = {
     ...nativeAntonTools,
     read_file: createReadFileTool(workspaceRoot, profile),
-    edit_file: createEditFileTool(workspaceRoot),
-    replace_text: createReplaceTextTool(workspaceRoot),
-    replace_lines: createReplaceLinesTool(workspaceRoot),
-    edit_text: createEditTextTool(workspaceRoot),
-    multi_replace_text: createMultiReplaceTextTool(workspaceRoot),
-    write_file: createWriteFileTool(workspaceRoot),
+    edit_file: createEditFileTool(workspaceRoot, checkpoints),
+    replace_text: createReplaceTextTool(workspaceRoot, checkpoints),
+    replace_lines: createReplaceLinesTool(workspaceRoot, checkpoints),
+    edit_text: createEditTextTool(workspaceRoot, checkpoints),
+    multi_replace_text: createMultiReplaceTextTool(workspaceRoot, checkpoints),
+    write_file: createWriteFileTool(workspaceRoot, checkpoints),
     read_dir: createReadDirTool(workspaceRoot),
     stat: createStatTool(workspaceRoot),
     mkdir: createMkdirTool(workspaceRoot),
-    delete: createDeleteTool(workspaceRoot),
-    rename: createRenameTool(workspaceRoot),
-    copy: createCopyTool(workspaceRoot),
+    delete: createDeleteTool(workspaceRoot, checkpoints),
+    rename: createRenameTool(workspaceRoot, checkpoints),
+    copy: createCopyTool(workspaceRoot, checkpoints),
     format: createFormatTool(workspaceRoot),
     git_status: createGitStatusTool(workspaceRoot),
-    git_diff: createGitDiffTool(workspaceRoot),
+    git_diff: createGitDiffTool(workspaceRoot, checkpoints),
     git_show: createGitShowTool(workspaceRoot),
     git_branch: createGitBranchTool(workspaceRoot),
     git_commit: createGitCommitTool(workspaceRoot),
     git_restore: createGitRestoreTool(workspaceRoot),
-    revert_changes: createRevertChangesTool(workspaceRoot),
+    revert_changes: createRevertChangesTool(workspaceRoot, checkpoints),
     bash: createBashTool(workspaceRoot, permissionMode),
     inspect_project: createInspectProjectTool(workspaceRoot),
     verify: createVerifyTool(workspaceRoot, profile, {

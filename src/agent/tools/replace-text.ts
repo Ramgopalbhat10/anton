@@ -15,8 +15,12 @@ import {
   planTextReplacement,
   restoreLineEndings,
 } from "./text-edits";
+import type { RunCheckpointManager } from "./checkpoints";
 
-export function createReplaceTextTool(workspaceRoot?: string) {
+export function createReplaceTextTool(
+  workspaceRoot?: string,
+  checkpoints?: RunCheckpointManager,
+) {
   return tool({
     description:
       "Replace one exact text span in an existing UTF-8 file when expectedHash matches. Prefer this for small targeted edits. Requires user approval.",
@@ -102,7 +106,13 @@ export function createReplaceTextTool(workspaceRoot?: string) {
           });
         }
 
-        await atomicWriteTextFile(abs, nextContent);
+        const checkpoint = await checkpoints?.capturePath(relPath);
+        try {
+          await atomicWriteTextFile(abs, nextContent);
+        } catch (err) {
+          if (checkpoint) checkpoints?.discardCaptures([checkpoint]);
+          throw err;
+        }
         return {
           ok: true as const,
           path: relPath,
@@ -110,6 +120,7 @@ export function createReplaceTextTool(workspaceRoot?: string) {
           previousHash: previous.sha256,
           nextHash: sha256(nextContent),
           bytesWritten: Buffer.byteLength(nextContent, "utf8"),
+          ...(checkpoint ? { checkpoint } : {}),
           ...(plan.strategy === "indentation"
             ? {
                 matchStrategy: "indentation",

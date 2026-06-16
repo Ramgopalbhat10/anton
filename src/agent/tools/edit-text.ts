@@ -13,6 +13,7 @@ import { findPreview, nearMatchesForFind } from "./edit-diagnostics";
 import { applyTextEditsToContent, buildDisplayDiff } from "./text-edits";
 import { lintEditedFile } from "./post-edit-lint";
 import { modelVisibleToolOutput } from "./model-output";
+import type { RunCheckpointManager } from "./checkpoints";
 
 const editSchema = z.object({
   oldText: z.string().describe("Text to find in the current file on disk (LF or CRLF both work)."),
@@ -25,7 +26,10 @@ const editSchema = z.object({
     ),
 });
 
-export function createEditTextTool(workspaceRoot?: string) {
+export function createEditTextTool(
+  workspaceRoot?: string,
+  checkpoints?: RunCheckpointManager,
+) {
   return tool({
     description:
       "Apply one or more oldText/newText edits to an existing UTF-8 file. Reads the current file from disk (no read_file hash required). Line-ending differences (CRLF vs LF) are normalized before matching. Returns a compact diff so you can continue editing without re-reading the whole file. Requires user approval.",
@@ -80,7 +84,13 @@ export function createEditTextTool(workspaceRoot?: string) {
           });
         }
 
-        await atomicWriteTextFile(abs, result.content);
+        const checkpoint = await checkpoints?.capturePath(relPath);
+        try {
+          await atomicWriteTextFile(abs, result.content);
+        } catch (err) {
+          if (checkpoint) checkpoints?.discardCaptures([checkpoint]);
+          throw err;
+        }
         const diff = buildDisplayDiff(previous.content, result.content);
         const patch = createPatch(relPath, previous.content, result.content);
         const patchPreview =
@@ -88,6 +98,7 @@ export function createEditTextTool(workspaceRoot?: string) {
         const lint = await lintEditedFile(relPath, workspaceRoot);
         if (!lint.ok && !lint.skipped && lint.blocking) {
           await atomicWriteTextFile(abs, previous.content);
+          if (checkpoint) checkpoints?.discardCaptures([checkpoint]);
           return structuredError({
             code: "SYNTAX_OR_LINT_FAILED",
             path: relPath,
@@ -111,6 +122,7 @@ export function createEditTextTool(workspaceRoot?: string) {
           bytesWritten: Buffer.byteLength(result.content, "utf8"),
           diff,
           patchPreview,
+          ...(checkpoint ? { checkpoint } : {}),
           priorReadStale: true as const,
           ...(result.recoveredEditCount > 0
             ? {

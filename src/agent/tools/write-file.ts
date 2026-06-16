@@ -11,8 +11,12 @@ import {
   assertPathGuardAllowed,
 } from "./file-guardrails";
 import { modelVisibleToolOutput } from "./model-output";
+import type { RunCheckpointManager } from "./checkpoints";
 
-export function createWriteFileTool(workspaceRoot?: string) {
+export function createWriteFileTool(
+  workspaceRoot?: string,
+  checkpoints?: RunCheckpointManager,
+) {
   return tool({
   description:
     "Create a new small UTF-8 text file. Existing files are rejected; use edit_text for surgical edits or edit_file for large structural rewrites. Requires user approval.",
@@ -56,7 +60,13 @@ export function createWriteFileTool(workspaceRoot?: string) {
             "Use edit_text for surgical edits, or edit_file for large structural rewrites.",
         };
       }
-      await createTextFileExclusive(abs, content);
+      const checkpoint = await checkpoints?.capturePath(relPath);
+      try {
+        await createTextFileExclusive(abs, content);
+      } catch (err) {
+        if (checkpoint) checkpoints?.discardCaptures([checkpoint]);
+        throw err;
+      }
       return {
         ok: true as const,
         path: relPath,
@@ -66,6 +76,7 @@ export function createWriteFileTool(workspaceRoot?: string) {
         previousHash: previous.previousHash,
         previousTruncated: previous.previousTruncated,
         nextHash: sha256(content),
+        ...(checkpoint ? { checkpoint } : {}),
       };
     } catch (err) {
       const message = errorMessage(err);
