@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChatAddToolApproveResponseFunction } from "ai";
+import type { ChatAddToolApproveResponseFunction, FileUIPart } from "ai";
 import {
   Check,
   Copy,
@@ -21,6 +21,8 @@ import {
   messageIsUnverifiedEdit,
   messageIsVerificationFailed,
   type AntonUIMessage,
+  type AntonWorkspaceReference,
+  type AntonWorkspaceReferencePartData,
 } from "@/src/lib/trace";
 import type { ChatMode } from "@/src/lib/chat-modes";
 import { cn } from "@/lib/utils";
@@ -36,6 +38,10 @@ import { ResponseMetricsHoverCard } from "./metrics-hover-card";
 import { RunTraceAccordion } from "@/components/features/run-trace/run-trace";
 import { isFailedToolOutput } from "@/components/features/run-trace/tool-display";
 import { getTodoTraceDisplay } from "@/components/features/run-trace/trace-data";
+import {
+  AttachmentTray,
+  WorkspaceReferenceTray,
+} from "./composer-parts";
 
 interface MessageListProps {
   messages: AntonUIMessage[];
@@ -234,14 +240,7 @@ function MessageEvent({
       >
         {isUser ? (
           <div className="rounded-[10px] border border-border bg-secondary px-3.5 py-[9px] text-[13px]">
-            {message.parts.map((part, i) => {
-              if (part.type !== "text") return null;
-              return (
-                <div key={i} className="whitespace-pre-wrap leading-normal">
-                  {part.text}
-                </div>
-              );
-            })}
+            <UserMessageContent message={message} />
           </div>
         ) : (
           <div>
@@ -301,6 +300,66 @@ function MessageEvent({
       )}
     </div>
   );
+}
+
+function UserMessageContent({ message }: { message: AntonUIMessage }) {
+  const textParts = message.parts.filter((part) => part.type === "text");
+  const references = message.parts.flatMap((part) =>
+    isWorkspaceReferencePart(part) ? part.data.references : [],
+  );
+  const files = message.parts.filter(isMessageFilePart);
+
+  return (
+    <div className="grid min-w-0 gap-2">
+      {textParts.map((part, index) => (
+        <div key={index} className="whitespace-pre-wrap leading-normal">
+          {part.text}
+        </div>
+      ))}
+      <WorkspaceReferenceTray
+        references={references}
+        className={textParts.length > 0 ? "pt-0.5" : undefined}
+      />
+      <AttachmentTray files={files} />
+    </div>
+  );
+}
+
+function isMessageFilePart(
+  part: AntonUIMessage["parts"][number],
+): part is FileUIPart {
+  return part.type === "file";
+}
+
+function isWorkspaceReferencePart(
+  part: AntonUIMessage["parts"][number],
+): part is Extract<AntonUIMessage["parts"][number], { type: "data-workspace-reference" }> {
+  return (
+    part.type === "data-workspace-reference" &&
+    isWorkspaceReferenceData(part.data)
+  );
+}
+
+function isWorkspaceReferenceData(
+  data: unknown,
+): data is AntonWorkspaceReferencePartData {
+  if (!isRecord(data)) return false;
+  if (typeof data.projectId !== "string") return false;
+  if (!Array.isArray(data.references)) return false;
+  return data.references.every(isWorkspaceReference);
+}
+
+function isWorkspaceReference(value: unknown): value is AntonWorkspaceReference {
+  if (!isRecord(value)) return false;
+  return (
+    (value.kind === "file" || value.kind === "directory") &&
+    typeof value.path === "string" &&
+    typeof value.label === "string"
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function PlanMessageCard({

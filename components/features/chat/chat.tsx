@@ -49,6 +49,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { MessageList } from "./message-list";
 import { Composer } from "./composer";
+import type { ComposerSendPayload } from "./composer-context";
 import { sessionTokenUsage } from "./message-metrics";
 import { generateChatId } from "./chat-utils";
 import { Worklog } from "@/components/features/run-trace/worklog";
@@ -220,7 +221,7 @@ function ChatSession({
     initialControls?.selectedMcpServerIds ?? [],
   );
   const [pendingMcpSend, setPendingMcpSend] = useState<{
-    text: string;
+    payload: ComposerSendPayload;
     mode: ChatMode;
     untrusted: McpPreflightServer[];
   } | null>(null);
@@ -504,11 +505,13 @@ function ChatSession({
   }, [messages, requestBodyForMode, sendMessage, sessionId, status]);
 
   const sendWithMcp = async (
-    text: string,
+    payload: ComposerSendPayload,
     requestedMode: ChatMode = mode,
   ): Promise<boolean> => {
     if (requestedMode !== "chat" && !effectiveProjectId) return false;
-    const includeMcp = requestedMode === "agent" && !isAcceptedPlanRequest(text);
+    if (payload.references.length > 0 && !effectiveProjectId) return false;
+    const includeMcp =
+      requestedMode === "agent" && !isAcceptedPlanRequest(payload.text);
     const selectedIds = includeMcp
       ? selectedEnabledMcpServerIds()
       : [];
@@ -522,7 +525,11 @@ function ChatSession({
         body: JSON.stringify({ serverIds: selectedIds }),
       });
       if (!preflight.ok) {
-        setPendingMcpSend({ text, mode: requestedMode, untrusted: preflight.untrusted });
+        setPendingMcpSend({
+          payload,
+          mode: requestedMode,
+          untrusted: preflight.untrusted,
+        });
         return false;
       }
     }
@@ -531,7 +538,7 @@ function ChatSession({
     }
     setStreamingResponseMode(requestedMode);
     void sendMessage(
-      { text },
+      composerPayloadToMessage(payload, effectiveProjectId),
       {
         body: {
           ...requestBodyForMode(requestedMode),
@@ -557,7 +564,7 @@ function ChatSession({
       });
     }
     setPendingMcpSend(null);
-    await sendWithMcp(pending.text, pending.mode);
+    await sendWithMcp(pending.payload, pending.mode);
   };
 
   const streaming = status === "streaming" || status === "submitted";
@@ -653,7 +660,10 @@ function ChatSession({
             onApproval={approveTool}
             onAcceptPlan={() => {
               setMode("agent");
-              void sendWithMcp("Implement plan", "agent");
+              void sendWithMcp(
+                { text: "Implement plan", references: [], files: [] },
+                "agent",
+              );
             }}
             acceptPlanDisabled={streaming || !effectiveProjectId}
           />
@@ -771,6 +781,28 @@ function ChatSession({
 
 function isAcceptedPlanRequest(text: string): boolean {
   return text.trim().toLowerCase() === "implement plan";
+}
+
+function composerPayloadToMessage(
+  payload: ComposerSendPayload,
+  projectId: string | null,
+): { role: "user"; parts: AntonUIMessage["parts"] } {
+  const parts: AntonUIMessage["parts"] = [];
+  if (payload.text.trim().length > 0) {
+    parts.push({ type: "text", text: payload.text.trim() });
+  }
+  if (payload.references.length > 0 && projectId) {
+    parts.push({
+      type: "data-workspace-reference",
+      id: `workspace-reference-${generateChatId()}`,
+      data: {
+        projectId,
+        references: payload.references,
+      },
+    });
+  }
+  parts.push(...payload.files);
+  return { role: "user", parts };
 }
 
 function composerControlsStorageKey(sessionId: string): string {
@@ -903,7 +935,11 @@ function McpTrustDialog({
   onClose,
   onApprove,
 }: {
-  pending: { text: string; mode: ChatMode; untrusted: McpPreflightServer[] } | null;
+  pending: {
+    payload: ComposerSendPayload;
+    mode: ChatMode;
+    untrusted: McpPreflightServer[];
+  } | null;
   onClose: () => void;
   onApprove: () => void;
 }) {
