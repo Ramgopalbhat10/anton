@@ -21,6 +21,7 @@ const IGNORED_DIRECTORIES = [
   ".git",
   ".next",
   ".turbo",
+  ".vercel",
   "build",
   "coverage",
   "dist",

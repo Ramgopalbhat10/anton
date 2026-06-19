@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FileUIPart } from "ai";
 import {
   Code2,
@@ -40,6 +40,14 @@ export function ComposerSuggestionPopover({
   onSelect: (suggestion: ComposerSuggestion) => void;
   className?: string;
 }) {
+  const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  useEffect(() => {
+    optionRefs.current[activeIndex]?.scrollIntoView({
+      block: "nearest",
+    });
+  }, [activeIndex]);
+
   if (suggestions.length === 0) return null;
 
   return (
@@ -58,12 +66,15 @@ export function ComposerSuggestionPopover({
           const active = index === activeIndex;
           return (
             <button
+              ref={(element) => {
+                optionRefs.current[index] = element;
+              }}
               key={suggestion.id}
               type="button"
               role="option"
               aria-selected={active}
               className={cn(
-                "flex w-full min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left outline-none",
+                "flex w-full min-w-0 items-start gap-2 rounded-md px-2.5 py-2 text-left outline-none",
                 active
                   ? "bg-secondary text-foreground"
                   : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground",
@@ -83,7 +94,7 @@ export function ComposerSuggestionPopover({
                 </span>
               </span>
               {suggestion.kind === "slash" ? (
-                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-[0.06em] text-muted-foreground">
+                <span className="mt-px shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-[0.06em] text-muted-foreground">
                   {suggestion.source}
                 </span>
               ) : null}
@@ -119,7 +130,7 @@ export function WorkspaceReferencePill({
         <FileText className="size-3 shrink-0 text-muted-foreground" />
       )}
       <span className="min-w-0 truncate font-mono">
-        {reference.kind === "directory" ? `${reference.path}/` : reference.path}
+        {reference.kind === "directory" ? `${reference.label}/` : reference.label}
       </span>
       {removable ? (
         <button
@@ -212,7 +223,7 @@ export function AttachmentPreview({
     <span
       className={cn(
         "group/attachment relative inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md bg-secondary px-2 py-1 text-[11.5px] font-medium text-secondary-foreground ring-1 ring-border/70",
-        image && "pl-1",
+        image && "gap-0 p-1",
         className,
       )}
     >
@@ -233,14 +244,14 @@ export function AttachmentPreview({
       ) : (
         <AttachmentIcon file={file} />
       )}
-      <span className="grid min-w-0">
-        <span className="truncate">{name}</span>
-        {!image ? (
+      {!image ? (
+        <span className="grid min-w-0">
+          <span className="truncate">{name}</span>
           <span className="truncate text-[10.5px] font-normal text-muted-foreground">
             {file.mediaType}
           </span>
-        ) : null}
-      </span>
+        </span>
+      ) : null}
       {removable ? (
         <button
           type="button"
@@ -267,7 +278,7 @@ function ImageLightbox({
     <AlertDialog open={file !== null} onOpenChange={(open) => {
       if (!open) onOpenChange(null);
     }}>
-      <AlertDialogContent className="!max-w-[min(94vw,960px)] gap-0 bg-popover p-2">
+      <AlertDialogContent className="!w-auto !max-w-[min(94vw,960px)] gap-0 bg-popover p-1">
         <AlertDialogTitle className="sr-only">{name}</AlertDialogTitle>
         <AlertDialogDescription className="sr-only">
           Attached image preview.
@@ -278,7 +289,7 @@ function ImageLightbox({
             <img
               src={file.url}
               alt={name}
-              className="max-h-[82vh] w-auto max-w-full rounded-lg object-contain"
+              className="max-h-[86vh] max-w-[92vw] rounded-lg object-contain"
             />
             <AlertDialogCancel
               size="icon-sm"
@@ -296,12 +307,12 @@ function ImageLightbox({
 
 function SuggestionIcon({ suggestion }: { suggestion: ComposerSuggestion }) {
   if (suggestion.kind === "slash") {
-    return <Sparkles className="size-3.5 shrink-0 text-primary" />;
+    return <Sparkles className="mt-px size-3.5 shrink-0 text-primary" />;
   }
   return suggestion.reference.kind === "directory" ? (
-    <Folder className="size-3.5 shrink-0 text-muted-foreground" />
+    <Folder className="mt-px size-3.5 shrink-0 text-muted-foreground" />
   ) : (
-    <FileText className="size-3.5 shrink-0 text-muted-foreground" />
+    <FileText className="mt-px size-3.5 shrink-0 text-muted-foreground" />
   );
 }
 
@@ -322,7 +333,7 @@ function AttachmentIcon({ file }: { file: FileUIPart }) {
     return <ImageIcon className="size-3.5 shrink-0 text-muted-foreground" />;
   }
   if (mediaType.includes("text") || mediaType.includes("pdf")) {
-    return <FileText className="size-3.5 shrink-0 text-muted-foreground" />;
+    return <FileText className="mt-px size-3.5 shrink-0 text-muted-foreground" />;
   }
   if (mediaType.includes("csv")) {
     return <Paperclip className="size-3.5 shrink-0 text-muted-foreground" />;
