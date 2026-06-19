@@ -7,8 +7,9 @@ import type {
 } from "@/src/lib/api-types";
 import {
   FALLBACK_OPENROUTER_MODELS,
-  isStaticOpenCodeGoModelId,
+  getProviderId,
 } from "@/src/lib/models";
+import { isSupportedOpenCodeGoModelId } from "@/src/lib/opencode-go-catalog";
 
 const OPENROUTER_API_BASE = "https://openrouter.ai";
 const CATALOG_TTL_MS = 10 * 60 * 1000;
@@ -28,9 +29,13 @@ const endpointCache = new Map<
   }
 >();
 
-export async function getOpenRouterCatalog(): Promise<OpenRouterCatalogSummary> {
+export async function getOpenRouterCatalog(
+  { refresh = false }: { refresh?: boolean } = {},
+): Promise<OpenRouterCatalogSummary> {
   const now = Date.now();
-  if (catalogCache && catalogCache.expiresAt > now) return catalogCache.value;
+  if (!refresh && catalogCache && catalogCache.expiresAt > now) {
+    return catalogCache.value;
+  }
 
   try {
     const [providers, models] = await Promise.all([
@@ -98,7 +103,9 @@ export async function getOpenRouterModelEndpoints(
 }
 
 export async function isSupportedAgentModelId(modelId: string): Promise<boolean> {
-  if (isStaticOpenCodeGoModelId(modelId)) return true;
+  if (getProviderId(modelId) === "opencode-go") {
+    return isSupportedOpenCodeGoModelId(modelId);
+  }
   const providerModelId = modelId.startsWith("openrouter/")
     ? modelId.slice("openrouter/".length)
     : modelId.includes("/")

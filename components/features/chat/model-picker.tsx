@@ -12,7 +12,10 @@ import {
   type ModelId,
   type ProviderId,
 } from "@/src/lib/models";
-import type { OpenRouterCatalogSummary } from "@/src/lib/api-types";
+import type {
+  OpenCodeGoCatalogSummary,
+  OpenRouterCatalogSummary,
+} from "@/src/lib/api-types";
 import { getJson } from "@/src/lib/client-fetch";
 import { Button } from "@/components/ui/button";
 import {
@@ -111,13 +114,18 @@ export function ModelPicker({
   const [catalog, setCatalog] = useState<OpenRouterCatalogSummary | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
+  const [openCodeGoCatalog, setOpenCodeGoCatalog] =
+    useState<OpenCodeGoCatalogSummary | null>(null);
+  const [openCodeGoCatalogError, setOpenCodeGoCatalogError] =
+    useState<string | null>(null);
+  const [openCodeGoCatalogLoading, setOpenCodeGoCatalogLoading] = useState(false);
 
   const loadCatalog = useCallback(async ({ refresh = false } = {}) => {
     if (!refresh && (catalog || catalogError)) return;
     setCatalogLoading(true);
     try {
       const data = await getJson<{ catalog: OpenRouterCatalogSummary }>(
-        "/api/openrouter/catalog",
+        refresh ? "/api/openrouter/catalog?refresh=1" : "/api/openrouter/catalog",
       );
       setCatalog(data.catalog);
       setCatalogError(null);
@@ -128,14 +136,69 @@ export function ModelPicker({
     }
   }, [catalog, catalogError]);
 
+  const loadOpenCodeGoCatalog = useCallback(async ({ refresh = false } = {}) => {
+    if (!refresh && (openCodeGoCatalog || openCodeGoCatalogError)) return;
+    setOpenCodeGoCatalogLoading(true);
+    try {
+      const data = await getJson<{ catalog: OpenCodeGoCatalogSummary }>(
+        refresh
+          ? "/api/opencode-go/catalog?refresh=1"
+          : "/api/opencode-go/catalog",
+      );
+      setOpenCodeGoCatalog(data.catalog);
+      setOpenCodeGoCatalogError(null);
+    } catch (err) {
+      setOpenCodeGoCatalogError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setOpenCodeGoCatalogLoading(false);
+    }
+  }, [openCodeGoCatalog, openCodeGoCatalogError]);
+
+  const loadProviderCatalog = useCallback(
+    (provider: ProviderId, options?: { refresh?: boolean }) => {
+      if (provider === "openrouter") return loadCatalog(options);
+      if (provider === "opencode-go") return loadOpenCodeGoCatalog(options);
+      return Promise.resolve();
+    },
+    [loadCatalog, loadOpenCodeGoCatalog],
+  );
+
   const handleOpenChange = (nextOpen: boolean) => {
     if (nextOpen) {
       const nextProvider = getProviderId(value);
       setActiveProvider(nextProvider);
-      if (nextProvider === "openrouter") void loadCatalog();
+      void loadProviderCatalog(nextProvider);
     }
     setOpen(nextOpen);
   };
+
+  const openCodeGoModels = useMemo(() => {
+    const apiModels: PickerModel[] =
+      openCodeGoCatalog?.models.map((model) => ({
+        id: `opencode-go/${model.id}`,
+        label: model.name,
+      })) ??
+      getModelsForProvider("opencode-go").map((model) => ({
+        id: model.id,
+        label: model.label,
+      }));
+    const selectedProviderModelId =
+      getProviderId(value) === "opencode-go" ? getProviderModelId(value) : null;
+    const withSelected =
+      selectedProviderModelId &&
+      !apiModels.some((model) => model.id === value)
+        ? [
+            {
+              id: value,
+              label: getModelLabel(value),
+            },
+            ...apiModels,
+          ]
+        : apiModels;
+    return withSelected
+      .filter((model) => matchesQuery(model.label, model.id, query))
+      .slice(0, 80);
+  }, [openCodeGoCatalog, query, value]);
 
   const openRouterModels = useMemo(() => {
     const apiModels: PickerModel[] =
@@ -183,7 +246,29 @@ export function ModelPicker({
       (model) =>
         getProviderId(value) === "openrouter" &&
         model.id === getProviderModelId(value),
-    )?.name ?? getModelLabel(value);
+    )?.name ??
+    openCodeGoCatalog?.models.find(
+      (model) =>
+        getProviderId(value) === "opencode-go" &&
+        model.id === getProviderModelId(value),
+    )?.name ??
+    getModelLabel(value);
+
+  const activeCatalogLoading =
+    activeProvider === "openrouter"
+      ? catalogLoading
+      : activeProvider === "opencode-go"
+        ? openCodeGoCatalogLoading
+        : false;
+  const activeCatalogError =
+    activeProvider === "openrouter"
+      ? catalogError
+      : activeProvider === "opencode-go"
+        ? openCodeGoCatalogError
+        : null;
+  const activeProviderLabel =
+    PROVIDERS.find((provider) => provider.id === activeProvider)?.label ??
+    activeProvider;
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
@@ -209,8 +294,9 @@ export function ModelPicker({
         <Tabs
           value={activeProvider}
           onValueChange={(next) => {
-            setActiveProvider(next as ProviderId);
-            if (next === "openrouter") void loadCatalog();
+            const provider = next as ProviderId;
+            setActiveProvider(provider);
+            void loadProviderCatalog(provider);
           }}
           className="min-w-0 gap-0"
         >
@@ -237,16 +323,19 @@ export function ModelPicker({
                 className="min-w-0 flex-1 bg-transparent text-[12.5px] outline-none placeholder:text-muted-foreground/70"
                 aria-label="Search models"
               />
-              {activeProvider === "openrouter" ? (
+              {activeProvider === "openrouter" ||
+              activeProvider === "opencode-go" ? (
                 <button
                   type="button"
-                  onClick={() => void loadCatalog({ refresh: true })}
-                  disabled={catalogLoading}
+                  onClick={() =>
+                    void loadProviderCatalog(activeProvider, { refresh: true })
+                  }
+                  disabled={activeCatalogLoading}
                   className="inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-60"
-                  aria-label="Refresh OpenRouter models"
-                  title="Refresh OpenRouter models"
+                  aria-label={`Refresh ${activeProviderLabel} models`}
+                  title={`Refresh ${activeProviderLabel} models`}
                 >
-                  {catalogLoading ? (
+                  {activeCatalogLoading ? (
                     <Loader2 className="size-3 animate-spin" />
                   ) : (
                     <RefreshCw className="size-3" />
@@ -254,22 +343,21 @@ export function ModelPicker({
                 </button>
               ) : null}
             </div>
-            {activeProvider === "openrouter" && catalogError ? (
+            {activeCatalogError ? (
               <p className="mt-1 text-[11px] text-muted-foreground">
                 Static fallback models shown.
               </p>
             ) : null}
           </div>
           {PROVIDERS.map((provider) => {
+            const providerCatalogLoading =
+              provider.id === "openrouter"
+                ? catalogLoading
+                : openCodeGoCatalogLoading;
             const visibleModels: PickerModel[] =
               provider.id === "openrouter"
                 ? openRouterModels
-                : getModelsForProvider(provider.id).filter((model) =>
-                    matchesQuery(model.label, model.id, query),
-                  ).map((model) => ({
-                    id: model.id,
-                    label: model.label,
-                  }));
+                : openCodeGoModels;
             return (
               <TabsContent key={provider.id} value={provider.id} className="m-0">
                 <div className="max-h-96 overflow-y-auto p-1.5 pt-0">
@@ -289,7 +377,7 @@ export function ModelPicker({
                   />
                   {visibleModels.length === 0 ? (
                     <div className="px-2 py-3 text-center text-[11px] text-muted-foreground">
-                      {provider.id === "openrouter" && catalogLoading
+                      {providerCatalogLoading
                         ? "Loading models..."
                         : "No models found."}
                     </div>
