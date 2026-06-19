@@ -394,6 +394,10 @@ function buildCatalogModels({
       promptPrice: null,
       completionPrice: null,
     }));
+  const orderedModels =
+    providerId === "opencode-go"
+      ? sortOpenCodeGoModels(apiModels)
+      : apiModels;
 
   const selectedProviderModelId =
     getProviderId(selectedValue) === providerId
@@ -401,9 +405,9 @@ function buildCatalogModels({
       : null;
   if (
     !selectedProviderModelId ||
-    apiModels.some((model) => model.id === selectedValue)
+    orderedModels.some((model) => model.id === selectedValue)
   ) {
-    return apiModels;
+    return orderedModels;
   }
 
   return [
@@ -415,7 +419,7 @@ function buildCatalogModels({
           ? selectedProviderModelId.split("/")[0]
           : undefined,
     },
-    ...apiModels,
+    ...orderedModels,
   ];
 }
 
@@ -423,6 +427,21 @@ function providerLabel(providerId: ProviderId): string {
   return (
     PROVIDERS.find((provider) => provider.id === providerId)?.label ?? providerId
   );
+}
+
+function sortOpenCodeGoModels(models: PickerModel[]): PickerModel[] {
+  const rankById = new Map(
+    getModelsForProvider("opencode-go").map((model, index) => [model.id, index]),
+  );
+  return models
+    .map((model, index) => ({ model, index }))
+    .sort(
+      (left, right) =>
+        (rankById.get(left.model.id) ?? Number.MAX_SAFE_INTEGER) -
+          (rankById.get(right.model.id) ?? Number.MAX_SAFE_INTEGER) ||
+        left.index - right.index,
+    )
+    .map((entry) => entry.model);
 }
 
 function isFreeModel(model: PickerModel): boolean {
