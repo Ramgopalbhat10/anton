@@ -9,10 +9,12 @@ import {
   type ModelMessage,
   type ProviderMetadata,
   type TextStreamPart,
+  type TextPart,
   type ToolSet,
   type UIMessageStreamWriter,
 } from "ai";
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
 import { z } from "zod";
 
 import {
@@ -55,6 +57,8 @@ import { buildWorkspaceContextDigest } from "@/src/agent/workspace-context";
 import { budgetForProfile } from "@/src/agent/run-budget";
 import { compactReadFileForModel } from "@/src/agent/tools/model-output";
 import type { ProfilePromotionEvent } from "@/src/agent/profile-promotion";
+import { readComposerSkill } from "@/src/agent/skills";
+import { resolveInWorkspace } from "@/src/agent/sandbox";
 import {
   buildToolApprovalMetadata,
   commandPolicyModeForPermission,
@@ -125,12 +129,47 @@ import type {
   AntonRunStatus,
   AntonTodoItem,
   AntonTodoSnapshot,
+  AntonWorkspaceReferencePartData,
   AntonUIMessage,
 } from "@/src/lib/trace";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 const ACTIVE_RUN_STALE_AFTER_MS = 5 * 60 * 1000;
+const MAX_ATTACHMENT_COUNT = 10;
+const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+const MAX_ATTACHMENT_TOTAL_BYTES = 24 * 1024 * 1024;
+const MAX_WORKSPACE_REFERENCES = 50;
+const SUPPORTED_ATTACHMENT_MEDIA_TYPES = new Set([
+  "application/json",
+  "application/pdf",
+  "application/typescript",
+  "application/xml",
+  "application/yaml",
+  "application/x-yaml",
+  "application/x-javascript",
+  "application/javascript",
+  "text/css",
+  "text/csv",
+  "text/html",
+  "text/javascript",
+  "text/jsx",
+  "text/markdown",
+  "text/plain",
+  "text/tsx",
+  "text/typescript",
+  "text/x-markdown",
+  "text/x-yaml",
+  "text/xml",
+  "text/yaml",
+]);
+const SUPPORTED_ATTACHMENT_IMAGE_TYPES = new Set([
+  "image/avif",
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
 
 const bodySchema = z.object({
   sessionId: z.string().min(1),
@@ -288,6 +327,14 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
+  const workspaceReferenceError = validateWorkspaceReferences(uiMessages, project);
+  if (workspaceReferenceError) {
+    return Response.json({ error: workspaceReferenceError }, { status: 400 });
+  }
+  const attachmentError = validateAttachments(uiMessages);
+  if (attachmentError) {
+    return Response.json({ error: attachmentError }, { status: 400 });
+  }
 
   if (!existing) {
     createSession({
@@ -360,6 +407,10 @@ export async function POST(req: Request) {
 
   const isSegmentContinuation = isProfileHandoffContinuation;
   const userText = latestUserText(uiMessages);
+  const slashSkillContext = slashSkillContextFromUserText(
+    userText,
+    project?.localPath,
+  );
   const inheritedSingleFileTargetResolution =
     profile === "single-file-edit"
       ? singleFileTargetResolutionFromCostMetadata(
@@ -429,15 +480,24 @@ export async function POST(req: Request) {
         })
       : undefined;
   const baseModelContextText = isProfileHandoffContinuation
-    ? continuationContextMessageText(continuationNote)
+    ? combineModelContextText(
+        continuationContextMessageText(continuationNote),
+        slashSkillContext,
+      )
     : profile === "single-file-edit" &&
         singleFileTargetResolution &&
         "targetPath" in singleFileTargetResolution
-      ? singleFileTargetContext(singleFileTargetResolution)
-      : modelOnlyContextMessageText({
-          sessionContextDigest,
-          workspaceContextDigest,
-        });
+      ? combineModelContextText(
+          singleFileTargetContext(singleFileTargetResolution),
+          slashSkillContext,
+        )
+      : combineModelContextText(
+          modelOnlyContextMessageText({
+            sessionContextDigest,
+            workspaceContextDigest,
+          }),
+          slashSkillContext,
+        );
   let modelContextText = baseModelContextText;
   let contextDigestBytes = byteLength(modelContextText ?? "");
   const preservation = modelContextPreservation(
@@ -854,6 +914,196 @@ function isLikelyRepoPath(value: string): boolean {
   );
 }
 
+function validateWorkspaceReferences(
+  messages: AntonUIMessage[],
+  project: ReturnType<typeof getProject> | undefined,
+): string | undefined {
+  const parts = messages.flatMap((message) =>
+    message.parts.filter(isWorkspaceReferencePart),
+  );
+  if (parts.length === 0) return undefined;
+  if (!project || project.status !== "ready") {
+    return "workspace references require a ready project";
+  }
+
+  let referenceCount = 0;
+  for (const part of parts) {
+    if (!isWorkspaceReferenceData(part.data)) {
+      return "workspace reference part is invalid";
+    }
+    if (part.data.projectId !== project.id) {
+      return "workspace reference project does not match the active session project";
+    }
+    referenceCount += part.data.references.length;
+    if (referenceCount > MAX_WORKSPACE_REFERENCES) {
+      return `too many workspace references; maximum is ${MAX_WORKSPACE_REFERENCES}`;
+    }
+
+    for (const reference of part.data.references) {
+      let absolutePath: string;
+      try {
+        absolutePath = resolveInWorkspace(reference.path, project.localPath);
+      } catch (err) {
+        return errorMessage(err);
+      }
+
+      let stat: fs.Stats;
+      try {
+        stat = fs.statSync(absolutePath);
+      } catch {
+        return `workspace reference does not exist: ${reference.path}`;
+      }
+      if (reference.kind === "file" && !stat.isFile()) {
+        return `workspace reference is not a file: ${reference.path}`;
+      }
+      if (reference.kind === "directory" && !stat.isDirectory()) {
+        return `workspace reference is not a directory: ${reference.path}`;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function validateAttachments(messages: AntonUIMessage[]): string | undefined {
+  for (const message of messages) {
+    if (message.role !== "user") continue;
+    const fileParts = message.parts.filter((part) => part.type === "file");
+    if (fileParts.length > MAX_ATTACHMENT_COUNT) {
+      return `too many attachments; maximum is ${MAX_ATTACHMENT_COUNT}`;
+    }
+
+    let totalBytes = 0;
+    for (const part of fileParts) {
+      const record = part as Record<string, unknown>;
+      const mediaType = typeof record.mediaType === "string"
+        ? record.mediaType.toLowerCase()
+        : "";
+      const url = typeof record.url === "string" ? record.url : "";
+      if (!isSupportedAttachmentMediaType(mediaType)) {
+        return `unsupported attachment type: ${mediaType || "unknown"}`;
+      }
+      const bytes = attachmentDataUrlBytes(url);
+      if (bytes === undefined) {
+        return "attachments must be submitted as data URLs";
+      }
+      if (bytes > MAX_ATTACHMENT_BYTES) {
+        return `attachment is too large; maximum is ${formatBytes(MAX_ATTACHMENT_BYTES)}`;
+      }
+      totalBytes += bytes;
+      if (totalBytes > MAX_ATTACHMENT_TOTAL_BYTES) {
+        return `attachments are too large; total maximum is ${formatBytes(MAX_ATTACHMENT_TOTAL_BYTES)}`;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function formatBytes(bytes: number): string {
+  const mib = bytes / (1024 * 1024);
+  return `${mib.toFixed(mib >= 10 ? 0 : 1)} MiB`;
+}
+
+function isSupportedAttachmentMediaType(mediaType: string): boolean {
+  return (
+    SUPPORTED_ATTACHMENT_IMAGE_TYPES.has(mediaType) ||
+    SUPPORTED_ATTACHMENT_MEDIA_TYPES.has(mediaType)
+  );
+}
+
+function attachmentDataUrlBytes(url: string): number | undefined {
+  const match = /^data:([^;,]+)?(;base64)?,(.*)$/i.exec(url);
+  if (!match) return undefined;
+  const isBase64 = match[2] !== undefined;
+  const payload = match[3] ?? "";
+  if (isBase64) {
+    const normalized = payload.replace(/\s/g, "");
+    const padding = normalized.endsWith("==") ? 2 : normalized.endsWith("=") ? 1 : 0;
+    return Math.max(0, Math.floor((normalized.length * 3) / 4) - padding);
+  }
+  try {
+    return Buffer.byteLength(decodeURIComponent(payload), "utf8");
+  } catch {
+    return Buffer.byteLength(payload, "utf8");
+  }
+}
+
+function workspaceReferenceModelPart(
+  part: { type: string; data: unknown },
+): TextPart | undefined {
+  if (part.type !== "data-workspace-reference") return undefined;
+  if (!isWorkspaceReferenceData(part.data)) return undefined;
+  const lines = part.data.references.map((reference) =>
+    `- ${reference.kind}: ${reference.path}`,
+  );
+  if (lines.length === 0) return undefined;
+  return {
+    type: "text",
+    text: [
+      "User-selected workspace references (path-only; read them with tools if needed):",
+      ...lines,
+    ].join("\n"),
+  };
+}
+
+function isWorkspaceReferencePart(
+  part: AntonUIMessage["parts"][number],
+): part is Extract<AntonUIMessage["parts"][number], { type: "data-workspace-reference" }> {
+  return part.type === "data-workspace-reference";
+}
+
+function isWorkspaceReferenceData(
+  data: unknown,
+): data is AntonWorkspaceReferencePartData {
+  if (!isRecord(data)) return false;
+  if (typeof data.projectId !== "string" || data.projectId.length === 0) {
+    return false;
+  }
+  if (!Array.isArray(data.references) || data.references.length === 0) {
+    return false;
+  }
+  return data.references.every((reference) => {
+    if (!isRecord(reference)) return false;
+    return (
+      (reference.kind === "file" || reference.kind === "directory") &&
+      typeof reference.path === "string" &&
+      reference.path.length > 0 &&
+      !reference.path.includes("\\") &&
+      typeof reference.label === "string" &&
+      reference.label.length > 0
+    );
+  });
+}
+
+function slashSkillContextFromUserText(
+  text: string,
+  workspaceRoot: string | undefined,
+): string | undefined {
+  const command = leadingSlashCommand(text);
+  if (!command) return undefined;
+  try {
+    const skill = readComposerSkill(command, workspaceRoot);
+    return [
+      "Slash-selected skill context for this run:",
+      `Command: ${skill.command}`,
+      `Source: ${skill.source}`,
+      `Name: ${skill.name}`,
+      skill.description ? `Description: ${skill.description}` : undefined,
+      "",
+      "SKILL.md:",
+      skill.body,
+    ].filter((line): line is string => line !== undefined).join("\n");
+  } catch {
+    return undefined;
+  }
+}
+
+function leadingSlashCommand(text: string): string | undefined {
+  const match = /^\/([a-z0-9_-]+)(?:\s|$)/.exec(text.trimStart());
+  return match ? `/${match[1]}` : undefined;
+}
+
 async function convertMessagesForRun(
   messages: AntonUIMessage[],
   runId: string,
@@ -861,7 +1111,7 @@ async function convertMessagesForRun(
 ) {
   try {
     return await convertToModelMessages(messages, {
-      convertDataPart: () => undefined,
+      convertDataPart: (part) => workspaceReferenceModelPart(part),
     });
   } catch (err) {
     updateRun(runId, {

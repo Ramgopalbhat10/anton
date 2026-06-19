@@ -1,6 +1,12 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { resolveInWorkspace, SandboxError, workspaceRelative } from "./sandbox";
+import {
+  resolveInWorkspace,
+  SandboxError,
+  workspaceRelative,
+  workspaceRelativeTo,
+} from "./sandbox";
 
 const SKILLS_DIR = "skills";
 const SKILL_FILE = "SKILL.md";
@@ -21,6 +27,28 @@ export type SkillDocument = SkillSummary & {
 
 export type SkillList = {
   skills: SkillSummary[];
+  warnings: string[];
+};
+
+export type ComposerSkillSource = "local" | "global";
+
+export type ComposerSkillSummary = {
+  source: ComposerSkillSource;
+  slug: string;
+  name: string;
+  description: string;
+  command: string;
+  path: string;
+  updatedAt: string;
+};
+
+export type ComposerSkillDocument = SkillDocument & {
+  source: ComposerSkillSource;
+  command: string;
+};
+
+export type ComposerSkillList = {
+  skills: ComposerSkillSummary[];
   warnings: string[];
 };
 
@@ -61,6 +89,73 @@ export function listSkills(workspaceRoot?: string): SkillList {
   return { skills, warnings };
 }
 
+export function listComposerSkills(workspaceRoot?: string): ComposerSkillList {
+  const warnings: string[] = [];
+  const byCommand = new Map<string, ComposerSkillSummary>();
+
+  if (workspaceRoot) {
+    try {
+      const local = listSkills(workspaceRoot);
+      warnings.push(...local.warnings);
+      for (const skill of local.skills) {
+        const command = commandForSkillSlug(skill.slug);
+        byCommand.set(command, {
+          source: "local",
+          slug: skill.slug,
+          name: skill.name,
+          description: skill.description,
+          command,
+          path: skill.path,
+          updatedAt: skill.updatedAt,
+        });
+      }
+    } catch (err) {
+      warnings.push(errorMessage(err));
+    }
+  }
+
+  for (const root of globalSkillRoots()) {
+    const global = listGlobalSkills(root);
+    warnings.push(...global.warnings);
+    for (const skill of global.skills) {
+      if (byCommand.has(skill.command)) continue;
+      byCommand.set(skill.command, skill);
+    }
+  }
+
+  return {
+    skills: [...byCommand.values()].sort((left, right) => {
+      if (left.source !== right.source) {
+        return left.source === "local" ? -1 : 1;
+      }
+      return left.command.localeCompare(right.command);
+    }),
+    warnings,
+  };
+}
+
+export function readComposerSkill(
+  command: string,
+  workspaceRoot?: string,
+): ComposerSkillDocument {
+  const slug = normalizeCommandSlug(command);
+  if (workspaceRoot) {
+    try {
+      const local = readSkill(slug, workspaceRoot);
+      return { ...local, source: "local", command: commandForSkillSlug(local.slug) };
+    } catch {
+      // Fall through to installed global skills.
+    }
+  }
+
+  for (const root of globalSkillRoots()) {
+    const skill = readGlobalSkill(root, slug);
+    if (skill) return skill;
+  }
+
+  throw new SkillError(`composer skill not found: ${command}`);
+}
+
 export function readSkill(slug: string, workspaceRoot?: string): SkillDocument {
   validateSkillSlug(slug);
   const relPath = path.posix.join(SKILLS_DIR, slug, SKILL_FILE);
@@ -77,10 +172,118 @@ export function readSkill(slug: string, workspaceRoot?: string): SkillDocument {
 
   return parseSkill({
     slug,
-    path: workspaceRelative(abs).split(path.sep).join("/"),
+    path: skillDisplayPath(abs, workspaceRoot),
     raw: fs.readFileSync(abs, "utf8"),
     updatedAt: stat.mtime.toISOString(),
   });
+}
+
+function listGlobalSkills(root: GlobalSkillRoot): ComposerSkillList {
+  if (!fs.existsSync(root.path)) return { skills: [], warnings: [] };
+  let entries: fs.Dirent[];
+  try {
+    entries = fs
+      .readdirSync(root.path, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .sort((a, b) => a.name.localeCompare(b.name));
+  } catch (err) {
+    return { skills: [], warnings: [errorMessage(err)] };
+  }
+
+  const skills: ComposerSkillSummary[] = [];
+  const warnings: string[] = [];
+  for (const entry of entries) {
+    if (!isValidSkillSlug(entry.name)) {
+      warnings.push(`skipping invalid installed skill slug: ${entry.name}`);
+      continue;
+    }
+
+    const skillPath = path.join(root.path, entry.name, SKILL_FILE);
+    try {
+      const stat = fs.statSync(skillPath);
+      if (!stat.isFile()) continue;
+      if (stat.size > MAX_SKILL_BYTES) {
+        warnings.push(
+          `installed skill too large: ${root.label}/${entry.name}/${SKILL_FILE}`,
+        );
+        continue;
+      }
+      const skill = parseSkill({
+        slug: entry.name,
+        path: `${root.label}/${entry.name}/${SKILL_FILE}`,
+        raw: fs.readFileSync(skillPath, "utf8"),
+        updatedAt: stat.mtime.toISOString(),
+      });
+      skills.push({
+        source: "global",
+        slug: skill.slug,
+        name: skill.name,
+        description: skill.description,
+        command: commandForSkillSlug(skill.slug),
+        path: skill.path,
+        updatedAt: skill.updatedAt,
+      });
+    } catch (err) {
+      warnings.push(errorMessage(err));
+    }
+  }
+
+  return { skills, warnings };
+}
+
+function readGlobalSkill(
+  root: GlobalSkillRoot,
+  slug: string,
+): ComposerSkillDocument | undefined {
+  if (!isValidSkillSlug(slug)) return undefined;
+  const skillPath = path.join(root.path, slug, SKILL_FILE);
+  if (!fs.existsSync(skillPath)) return undefined;
+  const stat = fs.statSync(skillPath);
+  if (!stat.isFile()) return undefined;
+  if (stat.size > MAX_SKILL_BYTES) {
+    throw new SkillError(
+      `installed skill too large (${stat.size} bytes, cap ${MAX_SKILL_BYTES})`,
+    );
+  }
+  const skill = parseSkill({
+    slug,
+    path: `${root.label}/${slug}/${SKILL_FILE}`,
+    raw: fs.readFileSync(skillPath, "utf8"),
+    updatedAt: stat.mtime.toISOString(),
+  });
+  return {
+    ...skill,
+    source: "global",
+    command: commandForSkillSlug(skill.slug),
+  };
+}
+
+type GlobalSkillRoot = {
+  path: string;
+  label: string;
+};
+
+function globalSkillRoots(): GlobalSkillRoot[] {
+  const home = os.homedir();
+  return [
+    {
+      path: path.join(home, ".agents", "skills"),
+      label: "~/.agents/skills",
+    },
+    {
+      path: path.join(home, ".codex", "skills", ".system"),
+      label: "~/.codex/skills/.system",
+    },
+  ];
+}
+
+function commandForSkillSlug(slug: string): string {
+  return `/${slug}`;
+}
+
+function normalizeCommandSlug(command: string): string {
+  const trimmed = command.trim();
+  return trimmed.startsWith("/") ? trimmed.slice(1) : trimmed;
 }
 
 function parseSkill({
@@ -164,6 +367,13 @@ function validateSkillSlug(slug: string): void {
       "skill slug must contain only lowercase letters, numbers, underscores, and hyphens",
     );
   }
+}
+
+function skillDisplayPath(absPath: string, workspaceRoot?: string): string {
+  const relativePath = workspaceRoot
+    ? workspaceRelativeTo(workspaceRoot, absPath)
+    : workspaceRelative(absPath);
+  return relativePath.split(path.sep).join("/");
 }
 
 function isValidSkillSlug(slug: string): boolean {

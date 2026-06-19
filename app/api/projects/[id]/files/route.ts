@@ -21,6 +21,7 @@ const IGNORED_DIRECTORIES = [
   ".git",
   ".next",
   ".turbo",
+  ".vercel",
   "build",
   "coverage",
   "dist",
@@ -66,10 +67,12 @@ export async function GET(_req: Request, { params }: Ctx) {
 
 async function listProjectFiles(root: string): Promise<{
   paths: string[];
+  directories: string[];
   totalCount: number;
   truncated: boolean;
 }> {
   const paths: string[] = [];
+  const directories = new Set<string>();
   let totalCount = 0;
   let truncated = false;
 
@@ -94,6 +97,11 @@ async function listProjectFiles(root: string): Promise<{
 
       if (entry.isDirectory()) {
         if (ignoredDirectorySet.has(entry.name)) continue;
+        const relativeDirectory = path
+          .relative(root, absolutePath)
+          .split(path.sep)
+          .join("/");
+        if (relativeDirectory) directories.add(relativeDirectory);
         await walk(absolutePath);
         continue;
       }
@@ -109,7 +117,7 @@ async function listProjectFiles(root: string): Promise<{
   }
 
   await walk(root);
-  return { paths, totalCount, truncated };
+  return { paths, directories: [...directories].sort(), totalCount, truncated };
 }
 
 function readDirectoryEntries(directory: string) {
