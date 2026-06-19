@@ -11,16 +11,24 @@ export const DEFAULT_MODEL_ID = "opencode-go/deepseek-v4-flash";
 export const OPENCODE_GO_MODELS = [
   { slug: "deepseek-v4-flash", label: "DeepSeek V4 Flash" },
   { slug: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
+  { slug: "glm-5.2", label: "GLM 5.2" },
   { slug: "glm-5.1", label: "GLM 5.1" },
   { slug: "glm-5", label: "GLM 5" },
+  { slug: "kimi-k2.7-code", label: "Kimi K2.7 Code" },
   { slug: "kimi-k2.6", label: "Kimi K2.6" },
   { slug: "kimi-k2.5", label: "Kimi K2.5" },
+  { slug: "qwen3.7-max", label: "Qwen3.7 Max" },
+  { slug: "qwen3.7-plus", label: "Qwen3.7 Plus" },
   { slug: "qwen3.6-plus", label: "Qwen3.6 Plus" },
   { slug: "qwen3.5-plus", label: "Qwen3.5 Plus" },
+  { slug: "minimax-m3", label: "MiniMax M3" },
   { slug: "minimax-m2.7", label: "MiniMax M2.7" },
   { slug: "minimax-m2.5", label: "MiniMax M2.5" },
+  { slug: "mimo-v2-pro", label: "MiMo V2 Pro" },
+  { slug: "mimo-v2-omni", label: "MiMo V2 Omni" },
   { slug: "mimo-v2.5-pro", label: "MiMo V2.5 Pro" },
   { slug: "mimo-v2.5", label: "MiMo V2.5" },
+  { slug: "hy3-preview", label: "HY3 Preview" },
 ] as const;
 
 export const FALLBACK_OPENROUTER_MODELS = [
@@ -61,6 +69,13 @@ function normalizeModelId(modelId: string): ModelId | null {
     return opencodeId;
   }
 
+  if (modelId.startsWith("opencode-go/")) {
+    const providerModelId = modelId.slice("opencode-go/".length);
+    if (isOpenCodeGoModelSlug(providerModelId)) {
+      return modelId;
+    }
+  }
+
   if (modelId.startsWith("openrouter/")) {
     const providerModelId = modelId.slice("openrouter/".length);
     if (isOpenRouterModelSlug(providerModelId)) {
@@ -94,6 +109,7 @@ export function getProviderId(modelId: string): ProviderId {
   const resolved = resolveModelId(modelId);
   const entry = MODEL_CATALOG.find((model) => model.id === resolved);
   if (entry) return entry.provider;
+  if (resolved.startsWith("opencode-go/")) return "opencode-go";
   if (resolved.startsWith("openrouter/")) return "openrouter";
   return DEFAULT_PROVIDER_ID;
 }
@@ -102,6 +118,9 @@ export function getProviderModelId(modelId: string): string {
   const resolved = resolveModelId(modelId);
   const entry = MODEL_CATALOG.find((model) => model.id === resolved);
   if (entry) return entry.providerModelId;
+  if (resolved.startsWith("opencode-go/")) {
+    return resolved.slice("opencode-go/".length);
+  }
   if (resolved.startsWith("openrouter/")) {
     return resolved.slice("openrouter/".length);
   }
@@ -114,9 +133,12 @@ export function getModelsForProvider(provider: ProviderId): ModelCatalogEntry[] 
 
 export function getModelLabel(modelId: string): string {
   const resolved = resolveModelId(modelId);
-  return (
-    MODEL_CATALOG.find((model) => model.id === resolved)?.label ?? resolved
-  );
+  const catalogLabel = MODEL_CATALOG.find((model) => model.id === resolved)?.label;
+  if (catalogLabel) return catalogLabel;
+  if (resolved.startsWith("opencode-go/")) {
+    return labelFromSlug(resolved.slice("opencode-go/".length));
+  }
+  return resolved;
 }
 
 export function getDefaultModelForProvider(provider: ProviderId): ModelId {
@@ -143,4 +165,31 @@ function isOpenRouterModelSlug(value: string): boolean {
     !value.includes("..") &&
     !/\s/.test(value)
   );
+}
+
+export function isOpenCodeGoModelSlug(value: string): boolean {
+  return /^[a-z0-9][a-z0-9.-]*$/.test(value) && !value.includes("..");
+}
+
+function labelFromSlug(slug: string): string {
+  return slug
+    .split("-")
+    .filter(Boolean)
+    .map((part) => {
+      const lower = part.toLowerCase();
+      if (lower === "glm") return "GLM";
+      if (lower === "hy3") return "HY3";
+      if (lower === "mimo") return "MiMo";
+      if (lower === "minimax") return "MiniMax";
+      if (lower === "qwen3.7") return "Qwen3.7";
+      if (lower === "qwen3.6") return "Qwen3.6";
+      if (lower === "qwen3.5") return "Qwen3.5";
+      if (lower === "k2.7") return "K2.7";
+      if (lower === "k2.6") return "K2.6";
+      if (lower === "k2.5") return "K2.5";
+      if (lower === "v2.5") return "V2.5";
+      if (lower === "v2") return "V2";
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    })
+    .join(" ");
 }

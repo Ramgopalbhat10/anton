@@ -12,7 +12,10 @@ import {
   type ModelId,
   type ProviderId,
 } from "@/src/lib/models";
-import type { OpenRouterCatalogSummary } from "@/src/lib/api-types";
+import type {
+  OpenCodeGoCatalogSummary,
+  OpenRouterCatalogSummary,
+} from "@/src/lib/api-types";
 import { getJson } from "@/src/lib/client-fetch";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,6 +39,12 @@ type PickerModel = {
   contextLength?: number | null;
   promptPrice?: string | null;
   completionPrice?: string | null;
+};
+
+type ProviderCatalog = OpenCodeGoCatalogSummary | OpenRouterCatalogSummary;
+type CatalogByProvider = {
+  "opencode-go": OpenCodeGoCatalogSummary | null;
+  openrouter: OpenRouterCatalogSummary | null;
 };
 
 type ModelFilter =
@@ -108,82 +117,81 @@ export function ModelPicker({
   );
   const [query, setQuery] = useState("");
   const [modelFilter, setModelFilter] = useState<ModelFilter>("recommended");
-  const [catalog, setCatalog] = useState<OpenRouterCatalogSummary | null>(null);
-  const [catalogError, setCatalogError] = useState<string | null>(null);
-  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogs, setCatalogs] = useState<CatalogByProvider>({
+    "opencode-go": null,
+    openrouter: null,
+  });
+  const [catalogErrors, setCatalogErrors] = useState<Record<ProviderId, string | null>>({
+    "opencode-go": null,
+    openrouter: null,
+  });
+  const [catalogLoading, setCatalogLoading] = useState<ProviderId | null>(null);
 
-  const loadCatalog = useCallback(async ({ refresh = false } = {}) => {
-    if (!refresh && (catalog || catalogError)) return;
-    setCatalogLoading(true);
-    try {
-      const data = await getJson<{ catalog: OpenRouterCatalogSummary }>(
-        "/api/openrouter/catalog",
-      );
-      setCatalog(data.catalog);
-      setCatalogError(null);
-    } catch (err) {
-      setCatalogError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setCatalogLoading(false);
-    }
-  }, [catalog, catalogError]);
+  const loadCatalog = useCallback(
+    async (provider: ProviderId, { refresh = false } = {}) => {
+      if (!refresh && (catalogs[provider] || catalogErrors[provider])) return;
+      setCatalogLoading(provider);
+      try {
+        if (provider === "openrouter") {
+          const data = await getJson<{ catalog: OpenRouterCatalogSummary }>(
+            "/api/openrouter/catalog",
+          );
+          setCatalogs((current) => ({ ...current, openrouter: data.catalog }));
+        } else {
+          const data = await getJson<{ catalog: OpenCodeGoCatalogSummary }>(
+            "/api/opencode-go/catalog",
+          );
+          setCatalogs((current) => ({
+            ...current,
+            "opencode-go": data.catalog,
+          }));
+        }
+        setCatalogErrors((current) => ({ ...current, [provider]: null }));
+      } catch (err) {
+        setCatalogErrors((current) => ({
+          ...current,
+          [provider]: err instanceof Error ? err.message : String(err),
+        }));
+      } finally {
+        setCatalogLoading((current) => (current === provider ? null : current));
+      }
+    },
+    [catalogErrors, catalogs],
+  );
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (nextOpen) {
       const nextProvider = getProviderId(value);
       setActiveProvider(nextProvider);
-      if (nextProvider === "openrouter") void loadCatalog();
+      void loadCatalog(nextProvider);
     }
     setOpen(nextOpen);
   };
 
-  const openRouterModels = useMemo(() => {
-    const apiModels: PickerModel[] =
-      catalog?.models.map((model) => ({
-        id: `openrouter/${model.id}`,
-        label: model.name,
-        providerSlug: model.id.split("/")[0],
-        contextLength: model.contextLength,
-        promptPrice: model.promptPrice,
-        completionPrice: model.completionPrice,
-      })) ??
-      getModelsForProvider("openrouter").map((model) => ({
-        id: model.id,
-        label: model.label,
-        providerSlug: model.providerModelId.split("/")[0],
-        contextLength: null,
-        promptPrice: null,
-        completionPrice: null,
-      }));
-    const selectedProviderModelId =
-      getProviderId(value) === "openrouter" ? getProviderModelId(value) : null;
-    const withSelected =
-      selectedProviderModelId &&
-      !apiModels.some((model) => model.id === value)
-        ? [
-            {
-              id: value,
-              label: getModelLabel(value),
-              providerSlug: selectedProviderModelId.split("/")[0],
-            },
-            ...apiModels,
-          ]
-        : apiModels;
-    const needle = query.trim().toLowerCase();
-    const filtered = withSelected.filter(
-      (model) =>
-        matchesQuery(model.label, model.id, needle) &&
-        matchesModelFilter(model, modelFilter),
-    );
-    return sortModelResults(filtered, modelFilter).slice(0, 80);
-  }, [catalog, modelFilter, query, value]);
+  const modelsByProvider = useMemo(
+    () => ({
+      "opencode-go": buildCatalogModels({
+        catalog: catalogs["opencode-go"],
+        providerId: "opencode-go",
+        selectedValue: value,
+      }),
+      openrouter: buildCatalogModels({
+        catalog: catalogs.openrouter,
+        providerId: "openrouter",
+        selectedValue: value,
+      }),
+    }),
+    [catalogs, value],
+  );
 
+  const selectedProvider = getProviderId(value);
+  const selectedProviderModelId = getProviderModelId(value);
   const triggerLabel =
-    catalog?.models.find(
-      (model) =>
-        getProviderId(value) === "openrouter" &&
-        model.id === getProviderModelId(value),
+    catalogs[selectedProvider]?.models.find(
+      (model) => model.id === selectedProviderModelId,
     )?.name ?? getModelLabel(value);
+  const activeProviderLabel = providerLabel(activeProvider);
+  const activeCatalogLoading = catalogLoading === activeProvider;
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
@@ -209,8 +217,9 @@ export function ModelPicker({
         <Tabs
           value={activeProvider}
           onValueChange={(next) => {
-            setActiveProvider(next as ProviderId);
-            if (next === "openrouter") void loadCatalog();
+            const nextProvider = next as ProviderId;
+            setActiveProvider(nextProvider);
+            void loadCatalog(nextProvider);
           }}
           className="min-w-0 gap-0"
         >
@@ -237,39 +246,42 @@ export function ModelPicker({
                 className="min-w-0 flex-1 bg-transparent text-[12.5px] outline-none placeholder:text-muted-foreground/70"
                 aria-label="Search models"
               />
-              {activeProvider === "openrouter" ? (
-                <button
-                  type="button"
-                  onClick={() => void loadCatalog({ refresh: true })}
-                  disabled={catalogLoading}
-                  className="inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-60"
-                  aria-label="Refresh OpenRouter models"
-                  title="Refresh OpenRouter models"
-                >
-                  {catalogLoading ? (
-                    <Loader2 className="size-3 animate-spin" />
-                  ) : (
-                    <RefreshCw className="size-3" />
-                  )}
-                </button>
-              ) : null}
+              <button
+                type="button"
+                onClick={() => void loadCatalog(activeProvider, { refresh: true })}
+                disabled={activeCatalogLoading}
+                className="inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-60"
+                aria-label={`Refresh ${activeProviderLabel} models`}
+                title={`Refresh ${activeProviderLabel} models`}
+              >
+                {activeCatalogLoading ? (
+                  <Loader2 className="size-3 animate-spin" />
+                ) : (
+                  <RefreshCw className="size-3" />
+                )}
+              </button>
             </div>
-            {activeProvider === "openrouter" && catalogError ? (
+            {catalogErrors[activeProvider] ? (
               <p className="mt-1 text-[11px] text-muted-foreground">
                 Static fallback models shown.
               </p>
             ) : null}
           </div>
           {PROVIDERS.map((provider) => {
+            const providerModels = modelsByProvider[provider.id];
             const visibleModels: PickerModel[] =
               provider.id === "openrouter"
-                ? openRouterModels
-                : getModelsForProvider(provider.id).filter((model) =>
+                ? sortModelResults(
+                    providerModels.filter(
+                      (model) =>
+                        matchesQuery(model.label, model.id, query) &&
+                        matchesModelFilter(model, modelFilter),
+                    ),
+                    modelFilter,
+                  ).slice(0, 80)
+                : providerModels.filter((model) =>
                     matchesQuery(model.label, model.id, query),
-                  ).map((model) => ({
-                    id: model.id,
-                    label: model.label,
-                  }));
+                  );
             return (
               <TabsContent key={provider.id} value={provider.id} className="m-0">
                 <div className="max-h-96 overflow-y-auto p-1.5 pt-0">
@@ -289,7 +301,7 @@ export function ModelPicker({
                   />
                   {visibleModels.length === 0 ? (
                     <div className="px-2 py-3 text-center text-[11px] text-muted-foreground">
-                      {provider.id === "openrouter" && catalogLoading
+                      {catalogLoading === provider.id
                         ? "Loading models..."
                         : "No models found."}
                     </div>
@@ -352,6 +364,64 @@ export function ModelPicker({
         ) : null}
       </PopoverContent>
     </Popover>
+  );
+}
+
+function buildCatalogModels({
+  catalog,
+  providerId,
+  selectedValue,
+}: {
+  catalog: ProviderCatalog | null;
+  providerId: ProviderId;
+  selectedValue: ModelId;
+}): PickerModel[] {
+  const apiModels: PickerModel[] =
+    catalog?.models.map((model) => ({
+      id: `${providerId}/${model.id}`,
+      label: model.name,
+      providerSlug: providerId === "openrouter" ? model.id.split("/")[0] : undefined,
+      contextLength: model.contextLength,
+      promptPrice: model.promptPrice,
+      completionPrice: model.completionPrice,
+    })) ??
+    getModelsForProvider(providerId).map((model) => ({
+      id: model.id,
+      label: model.label,
+      providerSlug:
+        providerId === "openrouter" ? model.providerModelId.split("/")[0] : undefined,
+      contextLength: null,
+      promptPrice: null,
+      completionPrice: null,
+    }));
+
+  const selectedProviderModelId =
+    getProviderId(selectedValue) === providerId
+      ? getProviderModelId(selectedValue)
+      : null;
+  if (
+    !selectedProviderModelId ||
+    apiModels.some((model) => model.id === selectedValue)
+  ) {
+    return apiModels;
+  }
+
+  return [
+    {
+      id: selectedValue,
+      label: getModelLabel(selectedValue),
+      providerSlug:
+        providerId === "openrouter"
+          ? selectedProviderModelId.split("/")[0]
+          : undefined,
+    },
+    ...apiModels,
+  ];
+}
+
+function providerLabel(providerId: ProviderId): string {
+  return (
+    PROVIDERS.find((provider) => provider.id === providerId)?.label ?? providerId
   );
 }
 

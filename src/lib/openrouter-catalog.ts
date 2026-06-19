@@ -7,8 +7,8 @@ import type {
 } from "@/src/lib/api-types";
 import {
   FALLBACK_OPENROUTER_MODELS,
-  isStaticOpenCodeGoModelId,
 } from "@/src/lib/models";
+import { isSupportedOpenCodeGoModelId } from "@/src/lib/opencode-go-catalog";
 
 const OPENROUTER_API_BASE = "https://openrouter.ai";
 const CATALOG_TTL_MS = 10 * 60 * 1000;
@@ -98,7 +98,8 @@ export async function getOpenRouterModelEndpoints(
 }
 
 export async function isSupportedAgentModelId(modelId: string): Promise<boolean> {
-  if (isStaticOpenCodeGoModelId(modelId)) return true;
+  if (await isSupportedOpenCodeGoModelId(modelId)) return true;
+  if (modelId.startsWith("opencode-go/")) return false;
   const providerModelId = modelId.startsWith("openrouter/")
     ? modelId.slice("openrouter/".length)
     : modelId.includes("/")
