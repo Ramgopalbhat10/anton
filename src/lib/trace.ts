@@ -146,10 +146,22 @@ export type AntonTodoSnapshot = {
   updatedAt: number;
 };
 
+export type AntonWorkspaceReference = {
+  kind: "file" | "directory";
+  path: string;
+  label: string;
+};
+
+export type AntonWorkspaceReferencePartData = {
+  projectId: string;
+  references: AntonWorkspaceReference[];
+};
+
 export type AntonDataParts = {
   run: AntonRunData;
   activity: AntonActivityEvent;
   todos: AntonTodoSnapshot;
+  "workspace-reference": AntonWorkspaceReferencePartData;
 };
 
 export type AntonUIMessage = UIMessage<

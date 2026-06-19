@@ -1,10 +1,16 @@
 "use client";
 
 import {
+  useCallback,
+  useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
+  type ChangeEvent,
+  type ClipboardEvent,
   type ComponentType,
+  type DragEvent,
   type KeyboardEvent,
 } from "react";
 import {
@@ -45,15 +51,36 @@ import {
 import type { ModelId } from "@/src/lib/models";
 import type { ChatMode } from "@/src/lib/chat-modes";
 import type { PermissionMode } from "@/src/agent/permissions";
-import type { McpServerSummary, ProjectSummary } from "@/src/lib/api-types";
+import type {
+  ComposerSkillSummary,
+  McpServerSummary,
+  ProjectSummary,
+} from "@/src/lib/api-types";
 import type { SessionTokenUsage } from "@/src/lib/token-usage";
+import type { AntonWorkspaceReference } from "@/src/lib/trace";
+import { errorMessage, getJson } from "@/src/lib/client-fetch";
 import { BranchSwitcher } from "@/components/features/projects/branch-switcher";
 import { ProjectPicker } from "@/components/features/projects/project-picker";
+import { useProjectFileTree } from "@/components/features/projects/hooks";
 import { ModelPicker } from "./model-picker";
 import { SessionMetricsHoverCard } from "./metrics-hover-card";
+import {
+  appendAttachmentFiles,
+  ATTACHMENT_ACCEPT,
+  findComposerTrigger,
+  skillSuggestions,
+  workspaceSuggestions,
+  type ComposerSendPayload,
+  type ComposerSuggestion,
+} from "./composer-context";
+import {
+  AttachmentTray,
+  ComposerSuggestionPopover,
+  WorkspaceReferenceTray,
+} from "./composer-parts";
 
 interface ComposerProps {
-  onSend: (text: string) => boolean | Promise<boolean>;
+  onSend: (payload: ComposerSendPayload) => boolean | Promise<boolean>;
   onStop: () => void;
   disabled: boolean;
   streaming: boolean;
@@ -153,12 +180,87 @@ export function Composer({
   worklogOpen = false,
 }: ComposerProps) {
   const [input, setInput] = useState("");
+  const [workspaceReferences, setWorkspaceReferences] = useState<
+    AntonWorkspaceReference[]
+  >([]);
+  const [attachments, setAttachments] = useState<ComposerSendPayload["files"]>(
+    [],
+  );
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [skills, setSkills] = useState<ComposerSkillSummary[]>([]);
+  const [skillsError, setSkillsError] = useState<string | null>(null);
+  const [caret, setCaret] = useState(0);
+  const [suggestionIndex, setSuggestionIndex] = useState(0);
+  const [dragActive, setDragActive] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const hasSessionMetrics = tokenUsage.effectiveTokens > 0 || streaming;
   const variant = resolveComposerVariant(columnWidth, worklogOpen, hasSessionMetrics);
   const sendDisabled = disabled || (mode !== "chat" && !project);
+  const hasSendContent =
+    input.trim().length > 0 ||
+    workspaceReferences.length > 0 ||
+    attachments.length > 0;
   const iconOnly = variant !== "full";
   const compactContext = variant !== "full";
+  const readyProjectId = project?.status === "ready" ? project.id : null;
+  const fileTreeState = useProjectFileTree(readyProjectId);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadSkills = async () => {
+      const params = new URLSearchParams({ scope: "composer" });
+      if (readyProjectId) params.set("projectId", readyProjectId);
+      try {
+        const data = await getJson<{
+          skills: ComposerSkillSummary[];
+          warnings: string[];
+        }>(`/api/skills?${params.toString()}`);
+        if (cancelled) return;
+        setSkills(data.skills);
+        setSkillsError(null);
+      } catch (err) {
+        if (cancelled) return;
+        setSkills([]);
+        setSkillsError(errorMessage(err, "Failed to load skills"));
+      }
+    };
+    void loadSkills();
+    return () => {
+      cancelled = true;
+    };
+  }, [readyProjectId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) setWorkspaceReferences([]);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [readyProjectId]);
+
+  const trigger = useMemo(
+    () => findComposerTrigger(input, caret),
+    [caret, input],
+  );
+  const suggestions = useMemo(() => {
+    if (!trigger) return [];
+    if (trigger.kind === "slash") {
+      return skillSuggestions(skills, trigger.query);
+    }
+    return workspaceSuggestions(
+      fileTreeState.fileTree,
+      trigger.query,
+      workspaceReferences,
+    );
+  }, [fileTreeState.fileTree, skills, trigger, workspaceReferences]);
+  const suggestionsOpen = trigger !== null && suggestions.length > 0;
+  const activeSuggestionIndex =
+    suggestions.length === 0
+      ? 0
+      : Math.min(suggestionIndex, suggestions.length - 1);
 
   useLayoutEffect(() => {
     const el = textareaRef.current;
@@ -169,21 +271,156 @@ export function Composer({
     el.style.overflowY = el.scrollHeight > MAX_HEIGHT ? "auto" : "hidden";
   }, [input]);
 
+  const focusTextareaAt = useCallback((position: number) => {
+    window.requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(position, position);
+      setCaret(position);
+    });
+  }, []);
+
+  const addAttachments = useCallback(
+    async (files: FileList | File[]) => {
+      setAttachmentError(null);
+      try {
+        const result = await appendAttachmentFiles(attachments, files);
+        setAttachments(result.files);
+        setAttachmentError(result.error);
+      } catch (err) {
+        setAttachmentError(errorMessage(err, "Failed to add attachment"));
+      }
+    },
+    [attachments],
+  );
+
+  const selectSuggestion = useCallback(
+    (suggestion: ComposerSuggestion) => {
+      if (!trigger) return;
+      if (suggestion.kind === "slash") {
+        const replacement = `${suggestion.command} `;
+        const next =
+          input.slice(0, trigger.start) + replacement + input.slice(trigger.end);
+        setInput(next);
+        focusTextareaAt(trigger.start + replacement.length);
+        return;
+      }
+
+      const next = input.slice(0, trigger.start) + input.slice(trigger.end);
+      setInput(next);
+      setWorkspaceReferences((current) => {
+        if (
+          current.some(
+            (reference) =>
+              reference.kind === suggestion.reference.kind &&
+              reference.path === suggestion.reference.path,
+          )
+        ) {
+          return current;
+        }
+        return [...current, suggestion.reference];
+      });
+      focusTextareaAt(trigger.start);
+    },
+    [focusTextareaAt, input, trigger],
+  );
+
   const submit = () => {
-    const trimmed = input.trim();
-    if (!trimmed || sendDisabled) return;
-    void Promise.resolve(onSend(trimmed)).then((sent) => {
+    if (!hasSendContent || sendDisabled) return;
+    const payload: ComposerSendPayload = {
+      text: input.trim(),
+      references: workspaceReferences,
+      files: attachments,
+    };
+    void Promise.resolve(onSend(payload)).then((sent) => {
       if (sent) {
         setInput("");
+        setWorkspaceReferences([]);
+        setAttachments([]);
+        setAttachmentError(null);
+        setCaret(0);
       }
     });
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (suggestionsOpen) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSuggestionIndex((index) => (index + 1) % suggestions.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSuggestionIndex((index) =>
+          (index - 1 + suggestions.length) % suggestions.length,
+        );
+        return;
+      }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        selectSuggestion(suggestions[activeSuggestionIndex] ?? suggestions[0]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setCaret(-1);
+        return;
+      }
+    }
+
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       submit();
     }
+  };
+
+  const onInputChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(event.target.value);
+    setCaret(event.target.selectionStart);
+    setSuggestionIndex(0);
+  };
+
+  const onFileInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = event.currentTarget.files;
+    if (files) void addAttachments(files);
+    event.currentTarget.value = "";
+  };
+
+  const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    if (event.clipboardData.files.length === 0) return;
+    event.preventDefault();
+    void addAttachments(event.clipboardData.files);
+  };
+
+  const onDragEnter = (event: DragEvent<HTMLFormElement>) => {
+    if (!hasDraggedFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    setDragActive(true);
+  };
+
+  const onDragOver = (event: DragEvent<HTMLFormElement>) => {
+    if (!hasDraggedFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    setDragActive(true);
+  };
+
+  const onDragLeave = (event: DragEvent<HTMLFormElement>) => {
+    if (
+      event.relatedTarget instanceof Node &&
+      event.currentTarget.contains(event.relatedTarget)
+    ) {
+      return;
+    }
+    setDragActive(false);
+  };
+
+  const onDrop = (event: DragEvent<HTMLFormElement>) => {
+    if (!hasDraggedFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    setDragActive(false);
+    void addAttachments(event.dataTransfer.files);
   };
 
   const attachButton = (
@@ -193,7 +430,8 @@ export function Composer({
       size="icon-xs"
       className={cn(COMPOSER_ICON_BTN, "text-muted-foreground hover:text-foreground")}
       disabled={disabled}
-      aria-label="Add context"
+      aria-label="Attach files"
+      onClick={() => fileInputRef.current?.click()}
     >
       <Plus className="size-3.5" />
     </Button>
@@ -258,7 +496,7 @@ export function Composer({
     <Button
       type="submit"
       size="icon-xs"
-      disabled={sendDisabled || !input.trim()}
+      disabled={sendDisabled || !hasSendContent}
       className={COMPOSER_ICON_BTN}
       aria-label="Send message"
     >
@@ -272,21 +510,77 @@ export function Composer({
         e.preventDefault();
         submit();
       }}
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
       className="relative z-40 w-full max-w-full shrink-0 overflow-visible bg-background px-3 pb-2 pt-1 sm:px-4"
     >
       <div className="mx-auto w-full max-w-[calc(100vw-1.5rem)] min-w-0 sm:max-w-[720px]">
-        <div className="rounded-xl bg-card p-3 ring-1 ring-border">
-          <Textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onInput={(e) => setInput(e.currentTarget.value)}
-            onKeyDown={onKeyDown}
-            placeholder={placeholderForMode(mode)}
-            rows={1}
-            className="field-sizing-fixed min-h-0 min-w-0 resize-none rounded-none border-0 bg-transparent p-0 font-mono text-[13px] leading-5 shadow-none ring-0 placeholder:font-mono placeholder:text-(--accent-muted) focus-visible:ring-0 focus-visible:ring-offset-0 dark:bg-transparent md:text-[13px]"
-            style={{ minHeight: MIN_HEIGHT, maxHeight: MAX_HEIGHT }}
+        <div
+          className={cn(
+            "rounded-xl bg-card p-3 ring-1 ring-border",
+            dragActive && "ring-primary/60",
+          )}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept={ATTACHMENT_ACCEPT}
+            className="hidden"
+            tabIndex={-1}
+            onChange={onFileInputChange}
           />
+          <div className="relative min-w-0">
+            <ComposerSuggestionPopover
+              suggestions={suggestions}
+              activeIndex={activeSuggestionIndex}
+              onSelect={selectSuggestion}
+            />
+            <WorkspaceReferenceTray
+              references={workspaceReferences}
+              removable
+              onRemove={(reference) => {
+                setWorkspaceReferences((current) =>
+                  current.filter(
+                    (item) =>
+                      item.kind !== reference.kind || item.path !== reference.path,
+                  ),
+                );
+              }}
+              className="mb-2"
+            />
+            <AttachmentTray
+              files={attachments}
+              removable
+              onRemove={(_file, index) => {
+                setAttachments((current) =>
+                  current.filter((_item, itemIndex) => itemIndex !== index),
+                );
+                setAttachmentError(null);
+              }}
+              className={workspaceReferences.length > 0 ? "mb-2" : "mb-2"}
+            />
+            {attachmentError || skillsError || fileTreeState.error ? (
+              <div className="mb-2 rounded-md bg-destructive/10 px-2 py-1.5 text-[11.5px] text-destructive ring-1 ring-destructive/20">
+                {attachmentError ?? skillsError ?? fileTreeState.error}
+              </div>
+            ) : null}
+            <Textarea
+              ref={textareaRef}
+              value={input}
+              onChange={onInputChange}
+              onClick={(event) => setCaret(event.currentTarget.selectionStart)}
+              onKeyUp={(event) => setCaret(event.currentTarget.selectionStart)}
+              onKeyDown={onKeyDown}
+              onPaste={onPaste}
+              placeholder={placeholderForMode(mode)}
+              rows={1}
+              className="field-sizing-fixed min-h-0 min-w-0 resize-none rounded-none border-0 bg-transparent p-0 font-mono text-[13px] leading-5 shadow-none ring-0 placeholder:font-mono placeholder:text-(--accent-muted) focus-visible:ring-0 focus-visible:ring-offset-0 dark:bg-transparent md:text-[13px]"
+              style={{ minHeight: MIN_HEIGHT, maxHeight: MAX_HEIGHT }}
+            />
+          </div>
           {variant === "compact" ? (
             <div className="mt-3 flex flex-col gap-2">
               <div className="flex min-w-0 items-center gap-1.5">
@@ -440,6 +734,10 @@ function placeholderForMode(mode: ChatMode): string {
     case "agent":
       return "Ask Anton to change the code";
   }
+}
+
+function hasDraggedFiles(dataTransfer: DataTransfer): boolean {
+  return Array.from(dataTransfer.types).includes("Files");
 }
 
 function McpSelector({

@@ -143,6 +143,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 ## Phase 6: Developer Experience
 
 - [✔️] Add file tree and file search panel for the active project.
+- [✔️] Add composer slash commands, workspace `@` references, and attachment previews (#183).
 - [✔️] Add project status panel showing root path, git branch, dirty files, package manager, scripts, and last run.
 - [✔️] Add expandable run details for project last run.
 - [✔️] Add live terminal output streaming for long-running commands.

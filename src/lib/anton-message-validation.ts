@@ -97,6 +97,31 @@ const antonUIPartSchema = z
       return;
     }
 
+    if (type === "file") {
+      if (typeof part.mediaType !== "string" || part.mediaType.length === 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["mediaType"],
+          message: "file part requires string mediaType",
+        });
+      }
+      if (typeof part.url !== "string" || part.url.length === 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["url"],
+          message: "file part requires string url",
+        });
+      }
+      if (part.filename !== undefined && typeof part.filename !== "string") {
+        ctx.addIssue({
+          code: "custom",
+          path: ["filename"],
+          message: "file part filename must be a string when present",
+        });
+      }
+      return;
+    }
+
     if (KNOWN_STRUCTURAL_PARTS.has(type)) return;
 
     ctx.addIssue({

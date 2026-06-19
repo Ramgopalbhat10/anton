@@ -331,6 +331,7 @@ export type ProjectBranchesSummary = {
 export type ProjectFileTreeSummary = {
   projectId: string;
   paths: string[];
+  directories: string[];
   gitStatus: ProjectFileGitStatusEntry[];
   totalCount: number;
   truncated: boolean;
@@ -531,6 +532,16 @@ export type SkillSummary = {
 
 export type SkillDocument = SkillSummary & {
   body: string;
+};
+
+export type ComposerSkillSummary = {
+  source: "local" | "global";
+  slug: string;
+  name: string;
+  description: string;
+  command: string;
+  path: string;
+  updatedAt: string;
 };
 
 export type McpTransport = "stdio" | "http" | "sse";
