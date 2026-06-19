@@ -43,8 +43,11 @@ export const openrouter = createOpenRouter({
 });
 
 const ANTHROPIC_ENDPOINT_MODELS = new Set([
+  "minimax-m3",
   "minimax-m2.7",
   "minimax-m2.5",
+  "qwen3.7-max",
+  "qwen3.7-plus",
   "qwen3.6-plus",
   "qwen3.5-plus",
 ]);

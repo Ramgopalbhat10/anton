@@ -131,6 +131,9 @@ export function AgentSettingsPanel() {
     () => new Set(routingForSelectedModel.order),
     [routingForSelectedModel.order],
   );
+  const selectedPermissionMode =
+    PERMISSION_MODE_ITEMS.find((item) => item.value === permissionMode) ??
+    PERMISSION_MODE_ITEMS[1];
 
   useEffect(() => {
     if (!openRouterModelId) return;
@@ -406,7 +409,10 @@ export function AgentSettingsPanel() {
                 className={ROW_SELECT_TRIGGER_CLASS}
                 aria-label="Approval strictness"
               >
-                <SelectValue />
+                <span className="inline-flex min-w-0 items-center gap-1.5 leading-none">
+                  <selectedPermissionMode.Icon className="size-3.5 shrink-0 text-muted-foreground/80" />
+                  <SelectValue>{selectedPermissionMode.label}</SelectValue>
+                </span>
               </SelectTrigger>
               <SelectContent>
                 <SelectViewport>

@@ -45,6 +45,18 @@ export type OpenRouterCatalogSummary = {
   error: string | null;
 };
 
+export type OpenCodeGoModelSummary = {
+  id: string;
+  name: string;
+};
+
+export type OpenCodeGoCatalogSummary = {
+  models: OpenCodeGoModelSummary[];
+  source: "api" | "fallback";
+  fetchedAt: number;
+  error: string | null;
+};
+
 export type OpenRouterModelEndpointSummary = {
   tag: string;
   providerName: string;
