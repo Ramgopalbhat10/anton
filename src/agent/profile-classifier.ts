@@ -27,7 +27,7 @@ const IMPLEMENTATION_PATTERNS = [
   /\bhook up\b/,
   /\bintegrate\b/,
   /\bbuild\b/,
-  /\bcreate\b/,
+  /\bcreat(?:e|ing)\b/,
   /\benable\b/,
   /\bsupport\b/,
   /\bmake\b.+\bwork\b/,
@@ -91,7 +91,26 @@ export function isLocalizedImplementationRequest(text: string): boolean {
 export function isCommandRunRequest(latestText: string): boolean {
   return (
     /^(run|execute|rerun|use bash|use terminal)\b/.test(latestText) ||
-    /`(?:git|pnpm|npm|yarn|bun|cat|ls|rg|grep|find)\b[^`]*`/.test(latestText) ||
+    /`(?:git|gh|pnpm|npm|yarn|bun|cat|ls|rg|grep|find)\b[^`]*`/.test(latestText) ||
+    /\bgh\s+(?:pr|issue)\b/.test(latestText) ||
+    /^(?:commit|push|pull|fetch|checkout|switch|branch|merge|rebase)\b/.test(
+      latestText,
+    ) ||
+    /\b(?:can you|please|retry|try|go ahead|now)\b.*\b(?:commit|committing|push|pushing|pull|fetch|checkout|switch|branch|merge|rebase)\b/.test(
+      latestText,
+    ) ||
+    /\b(?:commit|committing)\b.*\b(?:push|pushing|pr|pull request)\b/.test(
+      latestText,
+    ) ||
+    /\b(?:push|pushing)\b.*\b(?:pr|pull request)\b/.test(
+      latestText,
+    ) ||
+    /\b(?:creat(?:e|ing)|open(?:ing)?|retry|rerun|try(?:ing)?)\b.*\b(?:pr|pull request|issue)\b/.test(
+      latestText,
+    ) ||
+    /\b(?:pr|pull request|issue)\b.*\b(?:creat(?:e|ing)|open(?:ing)?|retry|rerun|try(?:ing)?)\b/.test(
+      latestText,
+    ) ||
     /\b(?:discard|revert|restore)\b.*\b(?:changes|repo|repository|working tree|workspace)\b/.test(
       latestText,
     ) ||
@@ -129,6 +148,25 @@ export function classifyRunProfile(
   if (mode === "ask") return "ask";
   if (mode === "plan") return "plan";
   return classifyAgentProfile(latestUserText);
+}
+
+export function classifyRunProfileWithContext(
+  mode: AgentRunMode,
+  latestUserText: string,
+  recentContextText: string | undefined,
+): AgentRunProfile {
+  const profile = classifyRunProfile(mode, latestUserText);
+  if (
+    mode !== "agent" ||
+    profile !== "ask" ||
+    !recentContextText ||
+    !isRetryFollowUp(latestUserText)
+  ) {
+    return profile;
+  }
+
+  const retryProfile = classifyAgentProfile(`${recentContextText}\n${latestUserText}`);
+  return retryProfile === "ask" ? profile : retryProfile;
 }
 
 export function executionProfileFromCostMetadata(
@@ -188,6 +226,11 @@ function isAgentRunProfile(value: unknown): value is AgentRunProfile {
     value === "single-file-edit" ||
     value === "approval-continuation"
   );
+}
+
+function isRetryFollowUp(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  return /\b(?:again|now|retry|try|login|logged in|authenticated)\b/.test(normalized);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

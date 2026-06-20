@@ -24,7 +24,7 @@ import {
   type TokenAudit,
 } from "@/src/agent/loop";
 import {
-  classifyRunProfile,
+  classifyRunProfileWithContext,
   isBroadScopeRequest,
   isImplementationRequest,
   executionModelFromCostMetadata,
@@ -2365,7 +2365,7 @@ function resolveRunProfile({
   if (profileHandoffRun) {
     return (
       profileHandoffFromCostMetadata(profileHandoffRun.costMetadata)
-        .handoffToProfile ?? classifyRunProfile(mode, latestUserText(messages))
+        .handoffToProfile ?? classifyRunProfileFromMessages(mode, messages)
     );
   }
   if (approvalContinuation) {
@@ -2373,10 +2373,21 @@ function resolveRunProfile({
     const originatingRun = runId ? getRunById(runId) : undefined;
     return (
       executionProfileFromCostMetadata(originatingRun?.costMetadata) ??
-      classifyRunProfile(mode, latestUserText(messages))
+      classifyRunProfileFromMessages(mode, messages)
     );
   }
-  return classifyRunProfile(mode, latestUserText(messages));
+  return classifyRunProfileFromMessages(mode, messages);
+}
+
+function classifyRunProfileFromMessages(
+  mode: ChatMode,
+  messages: AntonUIMessage[],
+): AgentRunProfile {
+  return classifyRunProfileWithContext(
+    mode,
+    latestUserText(messages),
+    recentUserIntentText(messages),
+  );
 }
 
 function profileHandoffFromCostMetadata(costMetadata: unknown): {
@@ -2477,6 +2488,35 @@ function latestUserText(messages: AntonUIMessage[]): string {
     .filter((part) => part.type === "text")
     .map((part) => part.text)
     .join("\n");
+}
+
+const RECENT_RETRY_CONTEXT_USER_MESSAGES = 4;
+const RECENT_RETRY_CONTEXT_MAX_CHARS = 2_000;
+
+function recentUserIntentText(messages: AntonUIMessage[]): string | undefined {
+  const latestUserIndex = messages.findLastIndex(
+    (message) => message.role === "user",
+  );
+  if (latestUserIndex <= 0) return undefined;
+
+  const text = messages
+    .slice(0, latestUserIndex)
+    .filter((message) => message.role === "user")
+    .slice(-RECENT_RETRY_CONTEXT_USER_MESSAGES)
+    .map((message) =>
+      message.parts
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n")
+        .trim(),
+    )
+    .filter(Boolean)
+    .join("\n");
+
+  if (!text) return undefined;
+  return text.length > RECENT_RETRY_CONTEXT_MAX_CHARS
+    ? text.slice(-RECENT_RETRY_CONTEXT_MAX_CHARS)
+    : text;
 }
 
 function byteLength(value: string): number {
