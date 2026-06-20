@@ -2386,7 +2386,7 @@ function classifyRunProfileFromMessages(
   return classifyRunProfileWithContext(
     mode,
     latestUserText(messages),
-    previousUserText(messages),
+    recentUserIntentText(messages),
   );
 }
 
@@ -2490,15 +2490,33 @@ function latestUserText(messages: AntonUIMessage[]): string {
     .join("\n");
 }
 
-function previousUserText(messages: AntonUIMessage[]): string | undefined {
-  const users = messages.filter((message) => message.role === "user");
-  const previous = users.at(-2);
-  if (!previous) return undefined;
-  const text = previous.parts
-    .filter((part) => part.type === "text")
-    .map((part) => part.text)
+const RECENT_RETRY_CONTEXT_USER_MESSAGES = 4;
+const RECENT_RETRY_CONTEXT_MAX_CHARS = 2_000;
+
+function recentUserIntentText(messages: AntonUIMessage[]): string | undefined {
+  const latestUserIndex = messages.findLastIndex(
+    (message) => message.role === "user",
+  );
+  if (latestUserIndex <= 0) return undefined;
+
+  const text = messages
+    .slice(0, latestUserIndex)
+    .filter((message) => message.role === "user")
+    .slice(-RECENT_RETRY_CONTEXT_USER_MESSAGES)
+    .map((message) =>
+      message.parts
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n")
+        .trim(),
+    )
+    .filter(Boolean)
     .join("\n");
-  return text.trim() || undefined;
+
+  if (!text) return undefined;
+  return text.length > RECENT_RETRY_CONTEXT_MAX_CHARS
+    ? text.slice(-RECENT_RETRY_CONTEXT_MAX_CHARS)
+    : text;
 }
 
 function byteLength(value: string): number {

@@ -153,19 +153,19 @@ export function classifyRunProfile(
 export function classifyRunProfileWithContext(
   mode: AgentRunMode,
   latestUserText: string,
-  previousUserText: string | undefined,
+  recentContextText: string | undefined,
 ): AgentRunProfile {
   const profile = classifyRunProfile(mode, latestUserText);
   if (
     mode !== "agent" ||
     profile !== "ask" ||
-    !previousUserText ||
+    !recentContextText ||
     !isRetryFollowUp(latestUserText)
   ) {
     return profile;
   }
 
-  const retryProfile = classifyAgentProfile(`${previousUserText}\n${latestUserText}`);
+  const retryProfile = classifyAgentProfile(`${recentContextText}\n${latestUserText}`);
   return retryProfile === "ask" ? profile : retryProfile;
 }
 
