@@ -106,14 +106,29 @@ export async function isSupportedAgentModelId(modelId: string): Promise<boolean>
   if (getProviderId(modelId) === "opencode-go") {
     return isSupportedOpenCodeGoModelId(modelId);
   }
-  const providerModelId = modelId.startsWith("openrouter/")
-    ? modelId.slice("openrouter/".length)
-    : modelId.includes("/")
-      ? modelId
-      : "";
+  const providerModelId = openRouterProviderModelId(modelId);
   if (!providerModelId) return false;
   const catalog = await getOpenRouterCatalog();
   return catalog.models.some((model) => model.id === providerModelId);
+}
+
+export async function supportsAgentImageInputs(modelId: string): Promise<boolean> {
+  if (getProviderId(modelId) !== "openrouter") return false;
+  const providerModelId = openRouterProviderModelId(modelId);
+  if (!providerModelId) return false;
+  const catalog = await getOpenRouterCatalog();
+  return catalog.models.some(
+    (model) =>
+      model.id === providerModelId &&
+      model.inputModalities.includes("image"),
+  );
+}
+
+function openRouterProviderModelId(modelId: string): string | undefined {
+  if (modelId.startsWith("openrouter/")) {
+    return modelId.slice("openrouter/".length);
+  }
+  return modelId.includes("/") ? modelId : undefined;
 }
 
 function fallbackCatalog(
@@ -125,6 +140,7 @@ function fallbackCatalog(
     models: FALLBACK_OPENROUTER_MODELS.map((model) => ({
       id: model.slug,
       name: model.label,
+      inputModalities: ["text"],
       contextLength: null,
       promptPrice: null,
       completionPrice: null,
@@ -183,6 +199,7 @@ function parseModels(payload: unknown): OpenRouterModelSummary[] {
     const name = stringValue(item.name);
     const supportedParameters = stringArray(item.supported_parameters);
     const architecture = isRecord(item.architecture) ? item.architecture : {};
+    const inputModalities = stringArray(architecture.input_modalities);
     const outputModalities = stringArray(architecture.output_modalities);
     if (
       !id ||
@@ -198,6 +215,7 @@ function parseModels(payload: unknown): OpenRouterModelSummary[] {
       {
         id,
         name,
+        inputModalities,
         contextLength: numberValue(item.context_length) ?? null,
         promptPrice: stringValue(pricing.prompt) ?? null,
         completionPrice: stringValue(pricing.completion) ?? null,

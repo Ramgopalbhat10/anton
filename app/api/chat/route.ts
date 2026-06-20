@@ -95,7 +95,10 @@ import {
 import { registerActiveChatStream } from "@/src/lib/chat-stream-registry";
 import { DEFAULT_MODEL } from "@/src/lib/providers";
 import { getProviderId, resolveModelId } from "@/src/lib/models";
-import { isSupportedAgentModelId } from "@/src/lib/openrouter-catalog";
+import {
+  isSupportedAgentModelId,
+  supportsAgentImageInputs,
+} from "@/src/lib/openrouter-catalog";
 import {
   resolveOpenRouterRouting,
   type OpenRouterRoutingResolution,
@@ -390,6 +393,7 @@ export async function POST(req: Request) {
       redactValue(incomingHistory) as AntonUIMessage[],
     );
   }
+  const imageInputsSupported = await supportsAgentImageInputs(model);
 
   const permissionMode =
     (isProfileHandoffContinuation && profileHandoffRun
@@ -509,6 +513,7 @@ export async function POST(req: Request) {
     uiMessages,
     profile,
     isSegmentContinuation,
+    { imageInputsSupported },
   );
   let contextBudget = budgetMessagesForModel({
     messages: preparedMessages,
@@ -786,6 +791,7 @@ function prepareMessagesForModel(
   messages: AntonUIMessage[],
   profile: AgentRunProfile,
   segmentContinuation: boolean,
+  capabilities: ModelInputCapabilities,
   preservation = modelContextPreservation(messages, profile, segmentContinuation),
 ): AntonUIMessage[] {
   return messages.flatMap((message) => {
@@ -798,11 +804,43 @@ function prepareMessagesForModel(
       source.id === preservation.approvalContinuationMessageId,
       source.id === preservation.segmentContinuationMessageId,
     )
+      .flatMap((part) => adaptPartForModelCapabilities(part, capabilities))
       .filter(isModelContextPart)
       .map(stripProviderReplayMetadata);
     if (!parts.some(isSubstantiveModelContextPart)) return [];
     return [{ ...source, parts }];
   });
+}
+
+type ModelInputCapabilities = {
+  imageInputsSupported: boolean;
+};
+
+function adaptPartForModelCapabilities(
+  part: AntonUIMessage["parts"][number],
+  capabilities: ModelInputCapabilities,
+): AntonUIMessage["parts"] {
+  if (
+    part.type === "file" &&
+    !capabilities.imageInputsSupported &&
+    isImageMediaType(part.mediaType)
+  ) {
+    return [{
+      type: "text",
+      text: imageOmittedText(part),
+    }];
+  }
+  return [part];
+}
+
+function imageOmittedText(
+  part: Extract<AntonUIMessage["parts"][number], { type: "file" }>,
+): string {
+  const filename = part.filename?.trim() || "attached image";
+  return [
+    `[Image attachment omitted: ${filename} (${part.mediaType}).`,
+    "The selected model does not support image inputs, so Anton did not send this image to the provider.]",
+  ].join(" ");
 }
 
 function modelContextPreservation(
@@ -1007,9 +1045,13 @@ function formatBytes(bytes: number): string {
 
 function isSupportedAttachmentMediaType(mediaType: string): boolean {
   return (
-    SUPPORTED_ATTACHMENT_IMAGE_TYPES.has(mediaType) ||
+    isImageMediaType(mediaType) ||
     SUPPORTED_ATTACHMENT_MEDIA_TYPES.has(mediaType)
   );
+}
+
+function isImageMediaType(mediaType: string): boolean {
+  return SUPPORTED_ATTACHMENT_IMAGE_TYPES.has(mediaType.toLowerCase());
 }
 
 function attachmentDataUrlBytes(url: string): number | undefined {
