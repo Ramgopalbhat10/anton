@@ -137,7 +137,7 @@ export function classifyAgentProfile(latestUserText: string): AgentRunProfile {
   if (isBroadScopeRequest(normalized)) return "general-chat";
   if (isLocalizedImplementationRequest(normalized)) return "localized-edit";
   if (isImplementationRequest(normalized)) return "general-chat";
-  return "ask";
+  return "general-chat";
 }
 
 export function classifyRunProfile(

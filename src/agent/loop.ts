@@ -315,10 +315,10 @@ function runProfilePromptLines(
   profile: AgentRunProfile,
 ): string[] {
   const header = [
-    "Current run profile:",
-    `- Profile: \`${profile}\`. Only the tool schemas supplied to this run are available.`,
+    "Current run context:",
+    `- Selected mode: \`${mode}\`. Run strategy: \`${profile}\`. Only the tool schemas supplied to this run are available.`,
   ];
-  if (profile === "ask") {
+  if (mode === "ask") {
     return [
       ...header,
       "- You are in Ask mode. Answer questions about the selected project using read-only tools and prior run context when useful.",
@@ -549,6 +549,7 @@ export async function runAgent({
     tokenAudit: TokenAudit;
   }) => void;
 }) {
+  profile = normalizeProfileForMode(mode, profile);
   const isFastEditStart = profile === "localized-edit";
   const budget = budgetForProfile(isFastEditStart ? "localized-edit" : profile);
   const effectiveProfile: AgentRunProfile = profile;
@@ -979,6 +980,19 @@ export function profileForMode(mode: AgentRunMode): AgentRunProfile {
   if (mode === "ask") return "ask";
   if (mode === "plan") return "plan";
   return "general-chat";
+}
+
+export function normalizeProfileForMode(
+  mode: AgentRunMode,
+  profile: AgentRunProfile,
+): AgentRunProfile {
+  if (mode === "chat") return "pure-chat";
+  if (mode === "ask") return "ask";
+  if (mode === "plan") return "plan";
+  if (profile === "pure-chat" || profile === "ask" || profile === "plan") {
+    return "general-chat";
+  }
+  return profile;
 }
 
 export function profileAllowsMcp(profile: AgentRunProfile): boolean {

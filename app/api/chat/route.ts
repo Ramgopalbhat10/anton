@@ -18,6 +18,7 @@ import fs from "node:fs";
 import { z } from "zod";
 
 import {
+  normalizeProfileForMode,
   runAgent,
   type AgentRunMode,
   type AgentRunProfile,
@@ -226,6 +227,7 @@ export async function POST(req: Request) {
     approvalContinuation,
     profileHandoffRun,
   });
+  profile = normalizeProfileForMode(mode, profile);
   const needsProject = mode !== "chat";
   const requestBodyBytes = byteLength(JSON.stringify(json ?? {}));
   const workspaceSettings = getWorkspaceSettings();
