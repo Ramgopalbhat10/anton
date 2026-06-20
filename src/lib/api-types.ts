@@ -31,6 +31,7 @@ export type OpenRouterProviderSummary = {
 export type OpenRouterModelSummary = {
   id: string;
   name: string;
+  inputModalities: string[];
   contextLength: number | null;
   promptPrice: string | null;
   completionPrice: string | null;
