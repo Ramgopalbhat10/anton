@@ -419,26 +419,43 @@ function ChatSession({
     };
   }, [sessionId]);
 
-  useEffect(() => {
-    const controls: ComposerControlState = {
-      mode,
-      model,
-      permissionMode,
-      thinkingEnabled,
-      selectedMcpServerIds,
-    };
+  const persistComposerControls = useCallback((controls: ComposerControlState) => {
     composerControlStateBySession.set(sessionId, controls);
     if (!isDraftSession || persistedRef.current) {
       writeStoredComposerControlState(sessionId, controls);
     }
+  }, [isDraftSession, sessionId]);
+
+  const currentComposerControls = useCallback(
+    (nextMode: ChatMode = mode): ComposerControlState => ({
+      mode: nextMode,
+      model,
+      permissionMode,
+      thinkingEnabled,
+      selectedMcpServerIds,
+    }),
+    [
+      mode,
+      model,
+      permissionMode,
+      selectedMcpServerIds,
+      thinkingEnabled,
+    ],
+  );
+
+  const setModeAndPersist = useCallback(
+    (nextMode: ChatMode) => {
+      setMode(nextMode);
+      persistComposerControls(currentComposerControls(nextMode));
+    },
+    [currentComposerControls, persistComposerControls],
+  );
+
+  useEffect(() => {
+    persistComposerControls(currentComposerControls());
   }, [
-    isDraftSession,
-    mode,
-    model,
-    permissionMode,
-    selectedMcpServerIds,
-    sessionId,
-    thinkingEnabled,
+    currentComposerControls,
+    persistComposerControls,
   ]);
 
   const selectedEnabledMcpServerIds = useCallback(() => (
@@ -659,7 +676,7 @@ function ChatSession({
             streamingResponseMode={streaming ? streamingResponseMode : null}
             onApproval={approveTool}
             onAcceptPlan={() => {
-              setMode("agent");
+              setModeAndPersist("agent");
               void sendWithMcp(
                 { text: "Implement plan", references: [], files: [] },
                 "agent",
@@ -680,7 +697,7 @@ function ChatSession({
             disabled={streaming}
             streaming={streaming}
             mode={mode}
-            onModeChange={setMode}
+            onModeChange={setModeAndPersist}
             model={model}
             onModelChange={setModel}
             thinkingEnabled={thinkingEnabled}

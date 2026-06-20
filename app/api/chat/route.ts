@@ -24,7 +24,7 @@ import {
   type TokenAudit,
 } from "@/src/agent/loop";
 import {
-  classifyRunProfile,
+  classifyRunProfileWithContext,
   isBroadScopeRequest,
   isImplementationRequest,
   executionModelFromCostMetadata,
@@ -2365,7 +2365,7 @@ function resolveRunProfile({
   if (profileHandoffRun) {
     return (
       profileHandoffFromCostMetadata(profileHandoffRun.costMetadata)
-        .handoffToProfile ?? classifyRunProfile(mode, latestUserText(messages))
+        .handoffToProfile ?? classifyRunProfileFromMessages(mode, messages)
     );
   }
   if (approvalContinuation) {
@@ -2373,10 +2373,21 @@ function resolveRunProfile({
     const originatingRun = runId ? getRunById(runId) : undefined;
     return (
       executionProfileFromCostMetadata(originatingRun?.costMetadata) ??
-      classifyRunProfile(mode, latestUserText(messages))
+      classifyRunProfileFromMessages(mode, messages)
     );
   }
-  return classifyRunProfile(mode, latestUserText(messages));
+  return classifyRunProfileFromMessages(mode, messages);
+}
+
+function classifyRunProfileFromMessages(
+  mode: ChatMode,
+  messages: AntonUIMessage[],
+): AgentRunProfile {
+  return classifyRunProfileWithContext(
+    mode,
+    latestUserText(messages),
+    previousUserText(messages),
+  );
 }
 
 function profileHandoffFromCostMetadata(costMetadata: unknown): {
@@ -2477,6 +2488,17 @@ function latestUserText(messages: AntonUIMessage[]): string {
     .filter((part) => part.type === "text")
     .map((part) => part.text)
     .join("\n");
+}
+
+function previousUserText(messages: AntonUIMessage[]): string | undefined {
+  const users = messages.filter((message) => message.role === "user");
+  const previous = users.at(-2);
+  if (!previous) return undefined;
+  const text = previous.parts
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("\n");
+  return text.trim() || undefined;
 }
 
 function byteLength(value: string): number {
