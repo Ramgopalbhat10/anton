@@ -1177,12 +1177,19 @@ export function getActivityEvents(
 
 export function getToolTraceEntries(
   messages: AntonUIMessage[],
+  options: { toolCallIds?: ReadonlySet<string> } = {},
 ): ToolTraceEntry[] {
   const entriesById = new Map<string, ToolTraceEntry>();
   for (const message of messages) {
     const activityByToolCallId = new Map<string, AntonActivityEvent>();
     for (const activity of getActivityEvents(message)) {
       if (activity.kind === "tool" && activity.toolCallId) {
+        if (
+          options.toolCallIds &&
+          !options.toolCallIds.has(activity.toolCallId)
+        ) {
+          continue;
+        }
         activityByToolCallId.set(activity.toolCallId, activity);
       }
     }
@@ -1194,6 +1201,12 @@ export function getToolTraceEntries(
         "toolCallId" in part && typeof part.toolCallId === "string"
           ? part.toolCallId
           : undefined;
+      if (
+        options.toolCallIds &&
+        (!toolCallId || !options.toolCallIds.has(toolCallId))
+      ) {
+        return;
+      }
       const id = toolCallId ?? `${message.id}:${index}`;
       const entry = {
         id,

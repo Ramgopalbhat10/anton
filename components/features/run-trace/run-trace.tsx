@@ -14,7 +14,6 @@ import {
   getAssistantTextDisplay,
   getMessageRunDurationMs,
   getRunData,
-  hasPendingToolApproval,
   type AntonUIMessage,
   type AntonRunStatus,
 } from "@/src/lib/trace";
@@ -67,13 +66,10 @@ export function RunTraceAccordion({
   );
   const isRunning = runStatus === "running";
 
-  const pendingApproval = useMemo(
-    () => hasPendingToolApproval(message),
-    [message],
-  );
+  const pendingApproval = useMemo(() => messageHasPendingApproval(message), [message]);
   const hasFinalResponseText = useMemo(
-    () => getAssistantTextDisplay(message).finalText.length > 0,
-    [message],
+    () => !isRunning && getAssistantTextDisplay(message).finalText.length > 0,
+    [isRunning, message],
   );
 
   const forceOpen = pendingApproval;
@@ -200,6 +196,16 @@ function messageHasTracePayload(message: AntonUIMessage): boolean {
     }
     return "toolCallId" in part && typeof part.toolCallId === "string";
   });
+}
+
+function messageHasPendingApproval(message: AntonUIMessage): boolean {
+  return message.parts.some(
+    (part) =>
+      "state" in part &&
+      part.state === "approval-requested" &&
+      "toolCallId" in part &&
+      typeof part.toolCallId === "string",
+  );
 }
 
 function effectiveRunStatus(

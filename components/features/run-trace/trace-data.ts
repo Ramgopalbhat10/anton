@@ -112,6 +112,11 @@ export type SessionTimelineRunGroup = {
   steps: SessionTimelineStepGroup[];
 };
 
+export type SessionTimelineOptions = {
+  runningStepLimit?: number;
+  runningItemLimit?: number;
+};
+
 export function groupTimelineItemsByStep<T extends TimelineStepBoundaryItem>(
   items: readonly T[],
   options?: { tailLabel?: string; activityLabel?: string },
@@ -224,6 +229,7 @@ function stepDisplayDurationMs(
 
 export function getSessionTimelineRunGroups(
   messages: AntonUIMessage[],
+  options: SessionTimelineOptions = {},
 ): SessionTimelineRunGroup[] {
   const groups: SessionTimelineRunGroup[] = [];
 
@@ -232,7 +238,7 @@ export function getSessionTimelineRunGroups(
 
     const runs = getRunsForTimelineMessage(message);
     runs.forEach((run, index) => {
-      const items = buildRunTimelineItems(message, run);
+      const items = buildRunTimelineItems(message, run, options);
       if (items.length === 0) return;
       groups.push({
         runId: run.runId,
@@ -282,18 +288,10 @@ function getRunsForTimelineMessage(message: AntonUIMessage): AntonRunData[] {
 function buildRunTimelineItems(
   message: AntonUIMessage,
   run: AntonRunData,
+  options: SessionTimelineOptions = {},
 ): SessionTimelineItem[] {
   const runStatus = run.status;
-  const toolByCallId = new Map(
-    getToolTraceEntries([message])
-      .filter((tool) => tool.activity?.runId === run.runId)
-      .map((tool) => [tool.id, tool]),
-  );
-  const seenToolIds = new Set<string>();
-  const items: SessionTimelineItem[] = [];
-  const reasoningByEventId = buildReasoningTextByEventId(message);
-
-  const events = getActivityEvents(message)
+  const allEvents = getActivityEvents(message)
     .filter(
       (event) =>
         event.runId === run.runId &&
@@ -301,6 +299,34 @@ function buildRunTimelineItems(
         !isTokenBudgetActivity(event),
     )
     .sort(compareTimelineEvents);
+  const events = limitRunningTimelineEvents(allEvents, runStatus, options);
+  const limitedToolCallIds =
+    events === allEvents
+      ? undefined
+      : new Set(
+          events.flatMap((event) =>
+            event.kind === "tool" && event.toolCallId ? [event.toolCallId] : [],
+          ),
+        );
+  const toolByCallId = new Map(
+    getToolTraceEntries(
+      [message],
+      limitedToolCallIds ? { toolCallIds: limitedToolCallIds } : {},
+    )
+      .filter((tool) => tool.activity?.runId === run.runId)
+      .map((tool) => [tool.id, tool]),
+  );
+  const seenToolIds = new Set<string>();
+  const items: SessionTimelineItem[] = [];
+  const needsReasoningText = events.some(
+    (event) =>
+      event.kind === "reasoning" &&
+      !event.summary?.trim() &&
+      event.status !== "running",
+  );
+  const reasoningByEventId = needsReasoningText
+    ? buildReasoningTextByEventId(message)
+    : undefined;
 
   for (const event of events) {
     const base = {
@@ -404,6 +430,55 @@ function buildRunTimelineItems(
   }
 
   return items.sort(compareTimelineItems);
+}
+
+function limitRunningTimelineEvents(
+  events: AntonActivityEvent[],
+  runStatus: AntonRunStatus,
+  options: SessionTimelineOptions,
+): AntonActivityEvent[] {
+  const stepLimit = options.runningStepLimit;
+  const itemLimit = options.runningItemLimit;
+  if (
+    runStatus !== "running" ||
+    (stepLimit === undefined && itemLimit === undefined)
+  ) {
+    return events;
+  }
+
+  const stepEvents = events.filter((event) => event.kind === "step");
+  const nonStepEvents = events.filter((event) => event.kind !== "step");
+
+  if (stepEvents.length === 0) {
+    return (
+      itemLimit === undefined
+        ? events
+        : nonStepEvents.slice(-itemLimit)
+    ).sort(compareTimelineEvents);
+  }
+
+  const visibleSteps =
+    stepLimit === undefined ? stepEvents : stepEvents.slice(-stepLimit);
+  const visibleStepIds = new Set(visibleSteps.map((event) => event.id));
+  const visibleEvents: AntonActivityEvent[] = [];
+
+  for (const [index, step] of visibleSteps.entries()) {
+    visibleEvents.push(step);
+    const nextStepStart =
+      visibleSteps[index + 1]?.startedAt ?? Number.POSITIVE_INFINITY;
+    const stepItems = nonStepEvents.filter(
+      (event) =>
+        event.startedAt >= step.startedAt &&
+        event.startedAt < nextStepStart,
+    );
+    visibleEvents.push(
+      ...(itemLimit === undefined ? stepItems : stepItems.slice(-itemLimit)),
+    );
+  }
+
+  return visibleEvents
+    .filter((event) => event.kind !== "step" || visibleStepIds.has(event.id))
+    .sort(compareTimelineEvents);
 }
 
 export function activityDisplayDurationMs(

@@ -2,6 +2,7 @@
 
 import {
   useCallback,
+  useDeferredValue,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -521,7 +522,7 @@ function ChatSession({
     });
   }, [messages, requestBodyForMode, sendMessage, sessionId, status]);
 
-  const sendWithMcp = async (
+  const sendWithMcp = useCallback(async (
     payload: ComposerSendPayload,
     requestedMode: ChatMode = mode,
   ): Promise<boolean> => {
@@ -564,7 +565,13 @@ function ChatSession({
       },
     );
     return true;
-  };
+  }, [
+    effectiveProjectId,
+    mode,
+    requestBodyForMode,
+    selectedEnabledMcpServerIds,
+    sendMessage,
+  ]);
 
   const trustAndSend = async () => {
     if (!pendingMcpSend) return;
@@ -590,6 +597,8 @@ function ChatSession({
     fallback: messageDisplayOverride,
     streaming,
   });
+  const deferredDisplayMessages = useDeferredValue(displayMessages);
+  const worklogMessages = streaming ? deferredDisplayMessages : displayMessages;
   const projectLocked =
     initialProjectId !== null || displayMessages.length > 0;
   const recoveringMessages =
@@ -599,7 +608,15 @@ function ChatSession({
     sessions.find((s) => s.id === sessionId)?.tokensTotal ?? initialTokensTotal;
   const tokenUsage = sessionTokenUsage(displayMessages, persistedTokensTotal);
 
-  const toggleWorklog = () => {
+  const handleAcceptPlan = useCallback(() => {
+    setModeAndPersist("agent");
+    void sendWithMcp(
+      { text: "Implement plan", references: [], files: [] },
+      "agent",
+    );
+  }, [sendWithMcp, setModeAndPersist]);
+
+  const toggleWorklog = useCallback(() => {
     if (
       typeof window !== "undefined" &&
       window.matchMedia("(min-width: 1280px)").matches
@@ -608,9 +625,9 @@ function ChatSession({
     } else {
       setMobileWorklogOpen((open) => !open);
     }
-  };
+  }, [setWorklogOpen]);
 
-  const openProjectStatus = () => {
+  const openProjectStatus = useCallback(() => {
     if (
       typeof window !== "undefined" &&
       window.matchMedia("(min-width: 1280px)").matches
@@ -620,7 +637,17 @@ function ChatSession({
       setMobileWorklogOpen(true);
     }
     notifyOpenWorklogStatus();
-  };
+  }, [setWorklogOpen]);
+
+  const openWorklogFile = useCallback(() => {
+    sidebar.setOpen(false);
+    expandWorklog();
+    setWorklogOpen(true);
+  }, [expandWorklog, setWorklogOpen, sidebar]);
+
+  const closeMobileWorklogFile = useCallback(() => {
+    setMobileWorklogOpen(false);
+  }, []);
 
   return (
     <div className="flex min-w-0 max-w-full flex-1 flex-col overflow-hidden bg-background">
@@ -675,13 +702,7 @@ function ChatSession({
             recovering={recoveringMessages}
             streamingResponseMode={streaming ? streamingResponseMode : null}
             onApproval={approveTool}
-            onAcceptPlan={() => {
-              setModeAndPersist("agent");
-              void sendWithMcp(
-                { text: "Implement plan", references: [], files: [] },
-                "agent",
-              );
-            }}
+            onAcceptPlan={handleAcceptPlan}
             acceptPlanDisabled={streaming || !effectiveProjectId}
           />
 
@@ -748,17 +769,13 @@ function ChatSession({
               />
             ) : null}
             <Worklog
-              messages={displayMessages}
+              messages={worklogMessages}
               streaming={streaming}
               onApproval={approveTool}
               project={project}
               visible={worklogOpen}
               expanded={worklogExpanded}
-              onFileOpen={() => {
-                sidebar.setOpen(false);
-                expandWorklog();
-                setWorklogOpen(true);
-              }}
+              onFileOpen={openWorklogFile}
               onExpandToggle={toggleWorklogExpanded}
               className="h-full w-full min-w-0"
             />
@@ -775,14 +792,14 @@ function ChatSession({
             }}
           >
             <Worklog
-              messages={displayMessages}
+              messages={worklogMessages}
               streaming={streaming}
               onApproval={approveTool}
               project={project}
               visible
               className="ml-auto h-full w-[min(420px,100%)] border-l"
-              onClose={() => setMobileWorklogOpen(false)}
-              onFileOpen={() => setMobileWorklogOpen(false)}
+              onClose={closeMobileWorklogFile}
+              onFileOpen={closeMobileWorklogFile}
             />
           </div>
         )}

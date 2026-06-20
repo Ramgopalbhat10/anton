@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatAddToolApproveResponseFunction, FileUIPart } from "ai";
 import {
   Check,
@@ -15,7 +15,6 @@ import {
   getAssistantTextDisplay,
   getRunData,
   getToolTraceEntries,
-  hasPendingToolApproval,
   messageHadSuccessfulStateChangingEdit,
   messageIsLoopGuardIncomplete,
   messageIsUnverifiedEdit,
@@ -128,6 +127,7 @@ export function MessageList({
           <MessageEvent
             key={message.id}
             message={message}
+            messageSignature={messageRenderSignature(message)}
             status={
               message.id === activeAssistantMessageId ? status : "ready"
             }
@@ -153,23 +153,45 @@ export function emptyMessageListText(recovering: boolean): string {
     : "Start a session by asking Anton to inspect or change the selected workspace.";
 }
 
-function MessageEvent({
-  message,
-  status,
-  streamingResponseMode,
-  todoDisplay,
-  onApproval,
-  onAcceptPlan,
-  acceptPlanDisabled,
-}: {
+const MessageEvent = memo(MessageEventImpl, (previous, next) => {
+  if (previous.message !== next.message) return false;
+  if (previous.messageSignature !== next.messageSignature) return false;
+  if (previous.status !== next.status) return false;
+  if (previous.streamingResponseMode !== next.streamingResponseMode) return false;
+  if (previous.onApproval !== next.onApproval) return false;
+  if (previous.onAcceptPlan !== next.onAcceptPlan) return false;
+  if (previous.acceptPlanDisabled !== next.acceptPlanDisabled) return false;
+  if (
+    messageHasTodoDataPart(previous.message) &&
+    previous.todoDisplay !== next.todoDisplay
+  ) {
+    return false;
+  }
+  return true;
+});
+MessageEvent.displayName = "MessageEvent";
+
+type MessageEventProps = {
   message: AntonUIMessage;
+  messageSignature: string;
   status: "submitted" | "streaming" | "ready" | "error";
   streamingResponseMode: ChatMode | null;
   todoDisplay: ReturnType<typeof getTodoTraceDisplay>;
   onApproval: ChatAddToolApproveResponseFunction;
   onAcceptPlan: (plan: string) => void;
   acceptPlanDisabled: boolean;
-}) {
+};
+
+function MessageEventImpl(props: MessageEventProps) {
+  const {
+    message,
+    status,
+    streamingResponseMode,
+    todoDisplay,
+    onApproval,
+    onAcceptPlan,
+    acceptPlanDisabled,
+  } = props;
   const isUser = message.role === "user";
   const streaming = status === "submitted" || status === "streaming";
   const responseKind =
@@ -186,9 +208,10 @@ function MessageEvent({
           responseKind !== "plan" && streaming,
       }).finalText
     : "";
-  const pendingApproval = !isUser && hasPendingToolApproval(message);
-  const failedToolText = !isUser ? toolFailureFallbackText(message) : "";
   const assistantFinal = !isUser && isAssistantMessageFinal(message);
+  const pendingApproval = !isUser && messageHasPendingApproval(message);
+  const failedToolText =
+    !isUser && assistantFinal ? toolFailureFallbackText(message) : "";
   const fallbackText = !isUser &&
     assistantText.length === 0 &&
     failedToolText.length === 0 &&
@@ -197,8 +220,9 @@ function MessageEvent({
     ? toolResultFallbackText(message)
     : "";
   const responseText = isUser ? userText : assistantText || fallbackText;
-  const responseTime = !isUser ? messageDisplayTime(message) : undefined;
-  const metrics = !isUser ? messageMetrics(message) : undefined;
+  const responseTime =
+    !isUser && assistantFinal ? messageDisplayTime(message) : undefined;
+  const metrics = !isUser && assistantFinal ? messageMetrics(message) : undefined;
   const showActions =
     !isUser &&
     responseText.length > 0 &&
@@ -211,12 +235,14 @@ function MessageEvent({
     responseText.length > 0 &&
     assistantFinal &&
     !streaming;
+  const hadSuccessfulEdit =
+    !isUser && assistantFinal ? messageHadSuccessfulStateChangingEdit(message) : false;
   const incompleteWithoutEdits =
-    !isUser && messageIsLoopGuardIncomplete(message) && !messageHadSuccessfulStateChangingEdit(message);
+    !isUser && assistantFinal && messageIsLoopGuardIncomplete(message) && !hadSuccessfulEdit;
   const unverifiedWithEdits =
-    !isUser && messageIsUnverifiedEdit(message) && messageHadSuccessfulStateChangingEdit(message);
+    !isUser && assistantFinal && messageIsUnverifiedEdit(message) && hadSuccessfulEdit;
   const verificationFailedWithEdits =
-    !isUser && messageIsVerificationFailed(message) && messageHadSuccessfulStateChangingEdit(message);
+    !isUser && assistantFinal && messageIsVerificationFailed(message) && hadSuccessfulEdit;
   const showToolFailure =
     !isUser &&
     failedToolText.length > 0 &&
@@ -284,9 +310,13 @@ function MessageEvent({
               </div>
             ) : responseKind === "plan" ? null
             : responseText.length > 0 ? (
-              <Markdown className="text-[13.5px] leading-[1.65]">
-                {responseText}
-              </Markdown>
+              streaming ? (
+                <StreamingText text={responseText} />
+              ) : (
+                <Markdown className="text-[13.5px] leading-[1.65]">
+                  {responseText}
+                </Markdown>
+              )
             ) : null}
           </div>
         )}
@@ -300,6 +330,57 @@ function MessageEvent({
       )}
     </div>
   );
+}
+
+function StreamingText({ text }: { text: string }) {
+  return (
+    <div className="whitespace-pre-wrap text-[13.5px] leading-[1.65] text-foreground">
+      {text}
+    </div>
+  );
+}
+
+function messageHasPendingApproval(message: AntonUIMessage): boolean {
+  return message.parts.some(
+    (part) =>
+      "state" in part &&
+      part.state === "approval-requested" &&
+      "toolCallId" in part &&
+      typeof part.toolCallId === "string",
+  );
+}
+
+function messageHasTodoDataPart(message: AntonUIMessage): boolean {
+  return message.parts.some((part) => part.type === "data-todos");
+}
+
+function messageRenderSignature(message: AntonUIMessage): string {
+  const part = message.parts.at(-1);
+  const metadataStatus = message.metadata?.status ?? "";
+  const responseKind = message.metadata?.responseKind ?? "";
+  if (!part) return `${message.parts.length}:${metadataStatus}:${responseKind}`;
+
+  const base = `${message.parts.length}:${metadataStatus}:${responseKind}:${part.type}`;
+  if (part.type === "text" || part.type === "reasoning") {
+    return `${base}:${part.text.length}`;
+  }
+  if ("state" in part && typeof part.state === "string") {
+    const toolCallId =
+      "toolCallId" in part && typeof part.toolCallId === "string"
+        ? part.toolCallId
+        : "";
+    return `${base}:${part.state}:${toolCallId}`;
+  }
+  if (part.type === "data-run") {
+    return `${base}:${part.data.status}:${part.data.finishedAt ?? ""}:${part.data.totalTokens ?? ""}`;
+  }
+  if (part.type === "data-activity") {
+    return `${base}:${part.data.id}:${part.data.status}:${part.data.finishedAt ?? ""}:${part.data.durationMs ?? ""}`;
+  }
+  if (part.type === "data-todos") {
+    return `${base}:${part.data.updatedAt}:${part.data.items.map((item) => item.status).join(",")}`;
+  }
+  return base;
 }
 
 function UserMessageContent({ message }: { message: AntonUIMessage }) {

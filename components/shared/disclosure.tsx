@@ -5,7 +5,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 const DISCLOSURE_ANIMATION =
-  "overflow-hidden transition-[max-height,opacity] ease-in-out will-change-[max-height,opacity] motion-reduce:transition-none";
+  "overflow-hidden transition-[max-height,opacity] ease-in-out motion-reduce:transition-none";
 
 type DisclosureChildren = ReactNode | ((state: { open: boolean }) => ReactNode);
 
@@ -59,7 +59,7 @@ export function Disclosure({
       observer.disconnect();
       window.removeEventListener("resize", updateHeight);
     };
-  }, [children, renderContent]);
+  }, [renderContent]);
 
   if (disabled) {
     return <div className={className}>{trigger({ open: false })}</div>;
