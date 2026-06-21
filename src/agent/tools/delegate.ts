@@ -14,7 +14,10 @@ import {
   resolveOpenRouterRouting,
 } from "@/src/lib/openrouter-routing";
 import { listMemories } from "@/src/db/queries";
-import { listSkills } from "../skills";
+import {
+  workspaceInstructionPromptLines,
+  workspaceSkillPromptLines,
+} from "../workspace-instructions";
 import {
   ensureWorkspaceRoot,
   ensureWorkspaceRootAt,
@@ -113,9 +116,11 @@ function childSystemPrompt(workspaceRoot?: string): string {
     "- `list_skills()`",
     "- `read_skill(slug)`",
     "",
+    ...workspaceInstructionPromptLines(workspaceRoot),
+    "",
     ...projectMemoryPromptLines(),
     "",
-    ...projectSkillPromptLines(workspaceRoot),
+    ...workspaceSkillPromptLines(workspaceRoot),
     "",
     "Return only the useful findings, including file paths or identifiers when they matter.",
   ].join("\n");
@@ -130,31 +135,6 @@ function projectMemoryPromptLines(): string[] {
     "Project memory:",
     ...memories.map((memory) => `- [${memory.id}] ${memory.content}`),
   ];
-}
-
-function projectSkillPromptLines(workspaceRoot?: string): string[] {
-  try {
-    const { skills, warnings } = listSkills(workspaceRoot);
-    const lines = ["Project skills:"];
-    if (skills.length === 0) {
-      lines.push("- No workspace skills found.");
-    } else {
-      lines.push(
-        ...skills.map((skill) =>
-          `- ${skill.slug}: ${skill.name}${skill.description ? ` - ${skill.description}` : ""}`,
-        ),
-      );
-    }
-    if (warnings.length > 0) {
-      lines.push(`- Skill load warnings: ${warnings.length}`);
-    }
-    return lines;
-  } catch (err) {
-    return [
-      "Project skills:",
-      `- Skill discovery failed: ${errorMessage(err)}`,
-    ];
-  }
 }
 
 function errorMessage(err: unknown): string {

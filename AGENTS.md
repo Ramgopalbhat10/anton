@@ -62,6 +62,7 @@ lib/
   utils.ts                   # cn() (clsx + tailwind-merge)
 workspace/                   # default WORKSPACE_ROOT - agent-writable, gitignored
   skills/<slug>/SKILL.md     # optional project-local skills (Phase 5)
+  .agents/skills/<slug>/SKILL.md # optional Agent Skills-compatible project skills
 ```
 
 Path aliases: `@/*` → project root, so `@/components/...`, `@/lib/utils`, `@/src/db/schema`.

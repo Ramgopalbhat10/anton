@@ -618,7 +618,9 @@ function buildNativeToolApprovalMetadata(
         title: "List workspace skills",
         summary: metadata.summary,
         riskCategories: metadata.categories,
-        details: ["Lists skills under skills/<slug>/SKILL.md in the active workspace."],
+        details: [
+          "Lists skills under skills/<slug>/SKILL.md or .agents/skills/<slug>/SKILL.md in the active workspace.",
+        ],
       };
     case "read_skill":
       return {
@@ -628,7 +630,7 @@ function buildNativeToolApprovalMetadata(
         target: stringValue(record.slug),
         details: [
           `Skill slug: ${stringValue(record.slug) ?? "(missing)"}`,
-          "Reads skills/<slug>/SKILL.md from the active workspace.",
+          "Reads skills/<slug>/SKILL.md or .agents/skills/<slug>/SKILL.md from the active workspace.",
         ],
       };
     case "delegate_task":
