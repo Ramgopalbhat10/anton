@@ -4,8 +4,10 @@
   "private": true,
   "packageManager": "pnpm@10.13.1",
   "scripts": {
+    "predev": "tsx src/db/migrate.ts",
     "dev": "next dev",
     "build": "next build",
+    "prestart": "tsx src/db/migrate.ts",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
