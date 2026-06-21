@@ -115,8 +115,21 @@ export type ProjectSummary = {
   localPath: string;
   status: "cloning" | "ready" | "error";
   lastError: string | null;
+  environmentEnabled: boolean;
   createdAt: number;
   updatedAt: number;
+};
+
+export type ProjectEnvironmentVariableSummary = {
+  key: string;
+  type: "raw_secret";
+};
+
+export type ProjectEnvironmentSummary = {
+  projectId: string;
+  enabled: boolean;
+  envFile: string;
+  variables: ProjectEnvironmentVariableSummary[];
 };
 
 export type ProjectGitStatusSummary = {

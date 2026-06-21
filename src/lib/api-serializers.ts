@@ -33,6 +33,7 @@ export function serializeProject(project: Project): ProjectSummary {
     localPath: project.localPath,
     status: project.status,
     lastError: project.lastError,
+    environmentEnabled: project.environmentEnabled,
     createdAt: project.createdAt.getTime(),
     updatedAt: project.updatedAt.getTime(),
   };

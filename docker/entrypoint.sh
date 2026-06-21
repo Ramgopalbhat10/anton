@@ -24,7 +24,11 @@ fi
 if command -v gh >/dev/null 2>&1; then
   GH_AUTH_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-${GITHUB_PAT:-}}}"
   if [ -n "$GH_AUTH_TOKEN" ]; then
-    if [ ! -s "$GH_CONFIG_DIR/hosts.yml" ]; then
+    if ! gh auth status --hostname github.com >/dev/null 2>&1; then
+      if [ -s "$GH_CONFIG_DIR/hosts.yml" ]; then
+        echo "[entrypoint] repairing stale gh auth state"
+        rm -f "$GH_CONFIG_DIR/hosts.yml"
+      fi
       if ! printf '%s' "$GH_AUTH_TOKEN" | gh auth login --hostname github.com --with-token >/dev/null; then
         echo "[entrypoint] warning: gh auth login failed"
       fi

@@ -458,6 +458,7 @@ export function upsertProject(input: {
     localPath: input.localPath,
     status: input.status,
     lastError: input.lastError ?? null,
+    environmentEnabled: false,
     createdAt: now,
     updatedAt: now,
   };
@@ -490,6 +491,7 @@ export function createLocalProject(input: {
     localPath: input.localPath,
     status: "ready",
     lastError: null,
+    environmentEnabled: false,
     createdAt: now,
     updatedAt: now,
   };
@@ -505,6 +507,18 @@ export function updateProjectStatus(
   db
     .update(projects)
     .set({ status, lastError, updatedAt: new Date() })
+    .where(eq(projects.id, id))
+    .run();
+  return getProject(id);
+}
+
+export function updateProjectEnvironmentEnabled(
+  id: string,
+  enabled: boolean,
+): Project | undefined {
+  db
+    .update(projects)
+    .set({ environmentEnabled: enabled, updatedAt: new Date() })
     .where(eq(projects.id, id))
     .run();
   return getProject(id);

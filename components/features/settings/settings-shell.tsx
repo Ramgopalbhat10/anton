@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   Brain,
   FolderGit2,
+  KeyRound,
   Plug,
   SlidersHorizontal,
   Sparkles,
@@ -16,7 +17,13 @@ import { SearchField } from "@/components/shared/search-field";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
-export type SettingsSection = "workspaces" | "agent" | "mcp" | "memories" | "skills";
+export type SettingsSection =
+  | "workspaces"
+  | "agent"
+  | "environment"
+  | "mcp"
+  | "memories"
+  | "skills";
 
 export function SettingsShell({
   section,
@@ -68,6 +75,13 @@ export function SettingsShell({
                 icon={<SlidersHorizontal />}
               >
                 Agent defaults
+              </SettingsNavButton>
+              <SettingsNavButton
+                active={section === "environment"}
+                onClick={() => onSectionChange("environment")}
+                icon={<KeyRound />}
+              >
+                Environment
               </SettingsNavButton>
             </SettingsGroup>
             <SettingsGroup title="Project context">
@@ -128,6 +142,7 @@ export function SettingsShell({
             <TabsList size="sm">
               <TabsTrigger value="workspaces">Workspaces</TabsTrigger>
               <TabsTrigger value="agent">Agent</TabsTrigger>
+              <TabsTrigger value="environment">Environment</TabsTrigger>
               <TabsTrigger value="mcp">MCP</TabsTrigger>
               <TabsTrigger value="memories">Memories</TabsTrigger>
               <TabsTrigger value="skills">Skills</TabsTrigger>
@@ -248,6 +263,8 @@ function sectionTitle(section: SettingsSection): string {
       return "Workspaces";
     case "agent":
       return "Agent defaults";
+    case "environment":
+      return "Environment";
     case "mcp":
       return "MCP";
     case "memories":

@@ -148,6 +148,8 @@ const MAX_ATTACHMENT_COUNT = 10;
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 const MAX_ATTACHMENT_TOTAL_BYTES = 24 * 1024 * 1024;
 const MAX_WORKSPACE_REFERENCES = 50;
+const MAX_REASONING_SUMMARY_CHARS = 4_000;
+const REASONING_SUMMARY_TRUNCATED_SUFFIX = "\n...[reasoning summary truncated]";
 const SUPPORTED_ATTACHMENT_MEDIA_TYPES = new Set([
   "application/json",
   "application/pdf",
@@ -734,7 +736,7 @@ export async function POST(req: Request) {
 
         writer.merge(
           result.toUIMessageStream<AntonUIMessage>({
-            sendReasoning: true,
+            sendReasoning: false,
             sendStart: false,
             sendFinish: false,
           }),
@@ -1370,6 +1372,7 @@ function createTraceWriter({
   const effectiveProfile: AgentRunProfile = profile;
   const events = new Map<string, AntonActivityEvent>();
   const reasoningBuffers = new Map<string, string>();
+  const truncatedReasoningBuffers = new Set<string>();
   const activeReasoningEventIds = new Map<string, string>();
   const reasoningOccurrences = new Map<string, number>();
 
@@ -2079,10 +2082,10 @@ function createTraceWriter({
       if (part.type === "reasoning-delta") {
         const eventId = activeReasoningEventIds.get(part.id);
         const bufferId = eventId ?? `${runId}:reasoning:${part.id}`;
-        reasoningBuffers.set(
-          bufferId,
-          `${reasoningBuffers.get(bufferId) ?? ""}${part.text}`,
-        );
+        const current = reasoningBuffers.get(bufferId) ?? "";
+        const next = appendCappedReasoningBuffer(current, part.text);
+        reasoningBuffers.set(bufferId, next.text);
+        if (next.truncated) truncatedReasoningBuffers.add(bufferId);
       }
       if (part.type === "reasoning-start") {
         const occurrence = (reasoningOccurrences.get(part.id) ?? 0) + 1;
@@ -2103,8 +2106,12 @@ function createTraceWriter({
         const eventId =
           activeReasoningEventIds.get(part.id) ??
           `${runId}:reasoning:${part.id}`;
-        const summary = reasoningBuffers.get(eventId)?.trim();
+        const summary = reasoningSummaryFromBuffer(
+          reasoningBuffers.get(eventId),
+          truncatedReasoningBuffers.has(eventId),
+        );
         reasoningBuffers.delete(eventId);
+        truncatedReasoningBuffers.delete(eventId);
         activeReasoningEventIds.delete(part.id);
         finishEvent(eventId, {
           status: "completed",
@@ -2134,6 +2141,32 @@ function createTraceWriter({
     },
     finalize,
   };
+}
+
+function appendCappedReasoningBuffer(
+  current: string,
+  delta: string,
+): { text: string; truncated: boolean } {
+  if (current.length >= MAX_REASONING_SUMMARY_CHARS) {
+    return { text: current, truncated: delta.length > 0 };
+  }
+  const remaining = MAX_REASONING_SUMMARY_CHARS - current.length;
+  if (delta.length <= remaining) {
+    return { text: `${current}${delta}`, truncated: false };
+  }
+  return {
+    text: `${current}${delta.slice(0, remaining)}`,
+    truncated: true,
+  };
+}
+
+function reasoningSummaryFromBuffer(
+  value: string | undefined,
+  truncated: boolean,
+): string | undefined {
+  const summary = value?.trim();
+  if (!summary) return undefined;
+  return truncated ? `${summary}${REASONING_SUMMARY_TRUNCATED_SUFFIX}` : summary;
 }
 
 function todoItemsFromToolOutput(
