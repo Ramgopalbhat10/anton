@@ -55,6 +55,10 @@ import {
   type RunContextStatus,
 } from "@/src/agent/context";
 import { buildWorkspaceContextDigest } from "@/src/agent/workspace-context";
+import {
+  workspacePromptContextSummary,
+  type WorkspacePromptContextSummary,
+} from "@/src/agent/workspace-instructions";
 import { budgetForProfile } from "@/src/agent/run-budget";
 import { compactReadFileForModel } from "@/src/agent/tools/model-output";
 import type { ProfilePromotionEvent } from "@/src/agent/profile-promotion";
@@ -417,6 +421,11 @@ export async function POST(req: Request) {
     userText,
     project?.localPath,
   );
+  profile = refineAcceptedPlanProfile({
+    profile,
+    messages: incomingHistory,
+    workspaceRoot: project?.localPath,
+  });
   const inheritedSingleFileTargetResolution =
     profile === "single-file-edit"
       ? singleFileTargetResolutionFromCostMetadata(
@@ -444,6 +453,8 @@ export async function POST(req: Request) {
   }
 
   const budget = budgetForProfile(profile);
+  const workspacePromptContext =
+    mode === "chat" ? undefined : workspacePromptContextSummary(project?.localPath);
   const continuationAssistant = isProfileHandoffContinuation
     ? incomingHistory.findLast((message) => message.role === "assistant")
     : undefined;
@@ -623,6 +634,7 @@ export async function POST(req: Request) {
       });
       trace.writeRun("running");
       trace.noteContextBudget(contextBudget.report);
+      trace.noteWorkspacePromptContext(workspacePromptContext);
       if (modelSelectionNote) {
         trace.noteModelSelection(modelSelectionNote);
       }
@@ -1750,6 +1762,50 @@ function createTraceWriter({
         summary,
       });
     },
+    noteWorkspacePromptContext(
+      context: WorkspacePromptContextSummary | undefined,
+    ) {
+      if (!context) return;
+      const instructionNames = context.instructionFiles.map((file) =>
+        file.truncated ? `${file.path} (truncated)` : file.path,
+      );
+      const skillNames = context.skills.map((skill) => skill.slug);
+      const summaryParts = [
+        instructionNames.length > 0
+          ? `Loaded ${instructionNames.join(", ")}`
+          : "No root instruction file found",
+        skillNames.length > 0
+          ? `advertised ${skillNames.slice(0, 8).join(", ")}${skillNames.length > 8 ? ` and ${skillNames.length - 8} more` : ""}`
+          : "no project skills advertised",
+      ];
+      if (context.skillWarnings.length > 0) {
+        summaryParts.push(
+          `${context.skillWarnings.length} skill warning${context.skillWarnings.length === 1 ? "" : "s"}`,
+        );
+      }
+      if (context.error) {
+        summaryParts.push(`context warning: ${context.error}`);
+      }
+      startEvent({
+        id: `${runId}:workspace-prompt-context:${sequence + 1}`,
+        kind: "progress",
+        status: context.error ? "error" : "completed",
+        label: "Workspace instructions seeded",
+        summary: summaryParts.join("; "),
+        details: {
+          workspacePromptContext: {
+            instructionFiles: context.instructionFiles,
+            skills: context.skills.map((skill) => ({
+              slug: skill.slug,
+              description: skill.description,
+              path: skill.path,
+            })),
+            skillWarnings: context.skillWarnings.slice(0, 20),
+            ...(context.error ? { error: context.error } : {}),
+          },
+        },
+      });
+    },
     noteMcpWarnings(warnings: readonly string[]) {
       if (warnings.length === 0) return;
       startEvent({
@@ -2421,6 +2477,81 @@ function resolveRunProfile({
     );
   }
   return classifyRunProfileFromMessages(mode, messages);
+}
+
+function refineAcceptedPlanProfile({
+  profile,
+  messages,
+  workspaceRoot,
+}: {
+  profile: AgentRunProfile;
+  messages: AntonUIMessage[];
+  workspaceRoot?: string;
+}): AgentRunProfile {
+  if (profile !== "accepted-plan-simple") return profile;
+  const planText = latestAcceptedPlanText(messages);
+  if (!planText) return profile;
+  return acceptedPlanNeedsFullTools(planText, workspaceRoot)
+    ? "accepted-plan-general"
+    : profile;
+}
+
+function latestAcceptedPlanText(messages: AntonUIMessage[]): string | undefined {
+  const message = messages.findLast(isPlanAssistantMessage);
+  if (!message) return undefined;
+  const text = message.parts
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("\n\n")
+    .trim();
+  return text || undefined;
+}
+
+function acceptedPlanNeedsFullTools(
+  planText: string,
+  workspaceRoot: string | undefined,
+): boolean {
+  const normalized = planText.replace(/\r\n/g, "\n");
+  const targetFiles = Array.from(
+    new Set(extractPlanCodeSpans(normalized).filter(isLikelyRepoPath)),
+  );
+
+  if (targetFiles.some((file) => !workspacePathExists(file, workspaceRoot))) {
+    return true;
+  }
+
+  const lines = normalized.split("\n");
+  if (
+    lines.some((line) => {
+      const lineTargets = extractPlanCodeSpans(line).filter(isLikelyRepoPath);
+      return lineTargets.length > 0 && /\b(new|create|add)\b/i.test(line);
+    })
+  ) {
+    return true;
+  }
+
+  if (
+    /\b(?:new|create|add)\s+(?:a\s+|an\s+|the\s+)?(?:file|component|route|module|wrapper)s?\b/i.test(
+      normalized,
+    ) ||
+    /\b(?:files?\s+touched|summary)\b[\s\S]{0,400}\bnew\b/i.test(normalized)
+  ) {
+    return true;
+  }
+
+  return targetFiles.length > 3;
+}
+
+function workspacePathExists(
+  relPath: string,
+  workspaceRoot: string | undefined,
+): boolean {
+  if (!workspaceRoot) return true;
+  try {
+    return fs.existsSync(resolveInWorkspace(relPath, workspaceRoot));
+  } catch {
+    return true;
+  }
 }
 
 function classifyRunProfileFromMessages(
