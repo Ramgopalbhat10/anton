@@ -11,6 +11,7 @@ import {
   type SettingsSection,
 } from "./settings-shell";
 import { AgentSettingsPanel } from "./agent-settings-panel";
+import { EnvironmentSettingsPanel } from "./environment-settings-panel";
 import { McpSettingsPanel } from "./mcp-settings-panel";
 import { WorkspaceSettingsPanel } from "./workspace-settings-panel";
 
@@ -52,6 +53,7 @@ export function SettingsDialog({
     >
       {section === "workspaces" && <WorkspaceSettingsPanel />}
       {section === "agent" && <AgentSettingsPanel />}
+      {section === "environment" && <EnvironmentSettingsPanel />}
       {section === "mcp" && <McpSettingsPanel />}
       {section === "memories" && (
         <SettingsPageShell

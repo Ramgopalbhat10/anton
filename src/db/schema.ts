@@ -58,6 +58,9 @@ export const projects = sqliteTable(
       enum: ["cloning", "ready", "error"],
     }).notNull(),
     lastError: text("last_error"),
+    environmentEnabled: integer("environment_enabled", { mode: "boolean" })
+      .notNull()
+      .default(false),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
       .default(sql`(unixepoch('now') * 1000)`),
