@@ -11,12 +11,14 @@ interface MarkdownProps {
   className?: string;
 }
 
+const REMARK_PLUGINS = [remarkGfm];
+
 function MarkdownImpl({ children, className }: MarkdownProps) {
   const normalized = normalizeGithubMarkdown(children);
 
   return (
     <div className={cn("anton-md space-y-1.5 leading-relaxed", className)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={COMPONENTS}>
+      <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={COMPONENTS}>
         {normalized}
       </ReactMarkdown>
     </div>

@@ -92,7 +92,13 @@ export function WorklogTimeline({
     [stableTimelineKey],
   );
   const liveGroups = useMemo(
-    () => (liveMessage ? getSessionTimelineRunGroups([liveMessage]) : []),
+    () =>
+      liveMessage
+        ? getSessionTimelineRunGroups([liveMessage], {
+            runningStepLimit: LIVE_WORKLOG_STEP_LIMIT,
+            runningItemLimit: LIVE_WORKLOG_ITEM_LIMIT,
+          })
+        : [],
     [liveMessage],
   );
   const groups = useMemo(
