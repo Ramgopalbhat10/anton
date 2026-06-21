@@ -8,10 +8,14 @@ import {
   workspaceRelativeTo,
 } from "./sandbox";
 
-const SKILLS_DIR = "skills";
 const SKILL_FILE = "SKILL.md";
 const MAX_SKILL_BYTES = 128 * 1024;
 const SKILL_SLUG_RE = /^[a-z0-9_-]+$/;
+
+const LOCAL_SKILL_DIRS = [
+  "skills",
+  ".agents/skills",
+] as const;
 
 export type SkillSummary = {
   slug: string;
@@ -60,33 +64,46 @@ export class SkillError extends Error {
 }
 
 export function listSkills(workspaceRoot?: string): SkillList {
-  const root = resolveInWorkspace(SKILLS_DIR, workspaceRoot);
-  if (!fs.existsSync(root)) return { skills: [], warnings: [] };
-  const stat = fs.statSync(root);
-  if (!stat.isDirectory()) {
-    throw new SkillError(`${SKILLS_DIR} exists but is not a directory`);
-  }
-
-  const skills: SkillSummary[] = [];
+  const skillsBySlug = new Map<string, SkillSummary>();
   const warnings: string[] = [];
-  const entries = fs
-    .readdirSync(root, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .sort((a, b) => a.name.localeCompare(b.name));
 
-  for (const entry of entries) {
-    if (!isValidSkillSlug(entry.name)) {
-      warnings.push(`skipping invalid skill slug: ${entry.name}`);
+  for (const dir of LOCAL_SKILL_DIRS) {
+    const root = resolveInWorkspace(dir, workspaceRoot);
+    if (!fs.existsSync(root)) continue;
+    const stat = fs.statSync(root);
+    if (!stat.isDirectory()) {
+      warnings.push(`${dir} exists but is not a directory`);
       continue;
     }
-    try {
-      skills.push(summarizeSkill(readSkill(entry.name, workspaceRoot)));
-    } catch (err) {
-      warnings.push(errorMessage(err));
+
+    const entries = fs
+      .readdirSync(root, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    for (const entry of entries) {
+      if (!isValidSkillSlug(entry.name)) {
+        warnings.push(`skipping invalid skill slug: ${dir}/${entry.name}`);
+        continue;
+      }
+      if (skillsBySlug.has(entry.name)) continue;
+      try {
+        skillsBySlug.set(
+          entry.name,
+          summarizeSkill(readSkill(entry.name, workspaceRoot)),
+        );
+      } catch (err) {
+        warnings.push(errorMessage(err));
+      }
     }
   }
 
-  return { skills, warnings };
+  return {
+    skills: [...skillsBySlug.values()].sort((left, right) =>
+      left.slug.localeCompare(right.slug),
+    ),
+    warnings,
+  };
 }
 
 export function listComposerSkills(workspaceRoot?: string): ComposerSkillList {
@@ -158,8 +175,27 @@ export function readComposerSkill(
 
 export function readSkill(slug: string, workspaceRoot?: string): SkillDocument {
   validateSkillSlug(slug);
-  const relPath = path.posix.join(SKILLS_DIR, slug, SKILL_FILE);
-  const abs = resolveInWorkspace(relPath, workspaceRoot);
+  for (const dir of LOCAL_SKILL_DIRS) {
+    const relPath = path.posix.join(dir, slug, SKILL_FILE);
+    const abs = resolveInWorkspace(relPath, workspaceRoot);
+    if (!fs.existsSync(abs)) continue;
+    return readSkillFile({ slug, relPath, abs, workspaceRoot });
+  }
+
+  throw new SkillError(`skill not found: ${slug}`);
+}
+
+function readSkillFile({
+  slug,
+  relPath,
+  abs,
+  workspaceRoot,
+}: {
+  slug: string;
+  relPath: string;
+  abs: string;
+  workspaceRoot?: string;
+}): SkillDocument {
   const stat = fs.statSync(abs);
   if (!stat.isFile()) {
     throw new SkillError(`not a skill file: ${relPath}`);

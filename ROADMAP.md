@@ -19,7 +19,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [✔️] Diff display for `write_file` tool output.
 - [✔️] Token counter displayed in the chat composer/header UI.
 - [✔️] Project memories with create, list, update, delete support.
-- [✔️] Workspace-local skills discovery and reading from `skills/<slug>/SKILL.md`.
+- [✔️] Workspace-local skills discovery and reading from `skills/<slug>/SKILL.md` and `.agents/skills/<slug>/SKILL.md`.
 - [✔️] Read-only delegate sub-agent for bounded investigation.
 - [✔️] MCP tool loading from workspace `.mcp.json`.
 
