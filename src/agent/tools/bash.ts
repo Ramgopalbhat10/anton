@@ -101,8 +101,10 @@ function compactBashModelOutput(output: unknown): JSONValue {
   const failedReason =
     typeof output.failedReason === "string" ? output.failedReason : undefined;
   const stderr = stringValue(output.stderr);
+  const stdout = stringValue(output.stdout);
   const ok = output.ok === true && exitCode === 0 && failedReason === undefined;
   const failureCode = bashFailureCode(output, exitCode, failedReason);
+  const firstError = ok ? undefined : firstErrorBlock(stderr, stdout);
   return modelVisibleToolOutput({
     ok,
     exitCode,
@@ -110,8 +112,9 @@ function compactBashModelOutput(output: unknown): JSONValue {
     killed: booleanValue(output.killed),
     commandPolicyMode: commandPolicyModeValue(output.commandPolicyMode),
     failedReason: failedReason ?? null,
-    stdoutTail: tail(stringValue(output.stdout), 4_000),
+    stdoutTail: tail(stdout, 4_000),
     stderrTail: tail(stderr, 4_000),
+    ...(firstError ? { firstErrorBlock: firstError } : {}),
     error:
       typeof output.error === "string"
         ? output.error
@@ -317,6 +320,29 @@ function tail(value: string, maxLength: number): string {
   return value.slice(value.length - maxLength);
 }
 
+const ERROR_LINE_RE =
+  /\b(error|err:|failed|failure|fatal|exception|traceback|panic|panicked|cannot find|not found|no such|permission denied|command not found|enoent|eacces|syntaxerror|typeerror|referenceerror)\b/i;
+
+function firstErrorBlock(...sources: string[]): string | undefined {
+  const MAX_BLOCK_CHARS = 1_200;
+  for (const source of sources) {
+    if (!source) continue;
+    const lines = source.split(/\r?\n/);
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index] ?? "";
+      if (!ERROR_LINE_RE.test(line)) continue;
+      const start = Math.max(0, index - 1);
+      const end = Math.min(lines.length, index + 7);
+      const block = lines.slice(start, end).join("\n").trim();
+      if (!block) continue;
+      return block.length > MAX_BLOCK_CHARS
+        ? `${block.slice(0, MAX_BLOCK_CHARS).trimEnd()}\n...[first error block truncated]`
+        : block;
+    }
+  }
+  return undefined;
+}
+
 function bashFailureCode(
   output: Record<string, unknown>,
   exitCode: number | null,
@@ -351,7 +377,7 @@ function recommendedNextForBashFailure(
     return "Run a narrower command or request a longer timeout within the tool cap.";
   }
   if (code === "BASH_NONZERO_EXIT") {
-    return "Inspect stderr/stdout, fix the underlying issue, then retry if needed.";
+    return "Inspect firstErrorBlock (or stderr/stdout tails), fix the underlying issue, then retry if needed.";
   }
   if (code === "BASH_OUTPUT_TRUNCATED") {
     return "Rerun with narrower output or use a purpose-built read/search tool.";

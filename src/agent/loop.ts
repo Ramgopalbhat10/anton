@@ -775,20 +775,45 @@ export async function runAgent({
         ];
       }
 
+      const intendedForcedTool =
+        profile === "single-file-edit" && steps.length === 0
+          ? ("read_file" as const)
+          : profile === "single-file-edit" &&
+              toolPolicy.needsVerify &&
+              !toolPolicy.needsVerifyFix()
+            ? ("verify" as const)
+            : undefined;
+      // Providers that do not support forced tool choice (e.g. DeepSeek) would
+      // silently drop the forced read_file/verify step. Emit a soft text nudge so
+      // the model still performs the required action instead of skipping it.
+      let forcedToolNudge = false;
+      if (!canForceToolChoice && intendedForcedTool) {
+        const needsVerifyNudge =
+          intendedForcedTool === "verify" && !verifyReminder;
+        if (intendedForcedTool === "read_file" || needsVerifyNudge) {
+          forcedToolNudge = true;
+          nextMessages = [
+            ...nextMessages,
+            {
+              role: "assistant" as const,
+              content:
+                intendedForcedTool === "verify"
+                  ? "Required next step: call the verify tool now to check the latest edits before writing the final answer."
+                  : "Required next step: call read_file on the resolved single-file target before editing it.",
+            },
+          ];
+        }
+      }
+
       const duplicateReplay = messagesHaveDuplicateToolReplay(nextMessages);
       const compacted = duplicateReplay
         ? dedupeToolReplayMessages(nextMessages)
         : nextMessages;
       const forceFinalReason = toolPolicy.shouldForceFinal() ?? forceFinalAnswerReason(steps);
       const forcedToolChoice =
-        canForceToolChoice && profile === "single-file-edit" && steps.length === 0
-          ? ({ type: "tool" as const, toolName: "read_file" as const })
-          : canForceToolChoice &&
-              profile === "single-file-edit" &&
-              toolPolicy.needsVerify &&
-              !toolPolicy.needsVerifyFix()
-            ? ({ type: "tool" as const, toolName: "verify" as const })
-            : undefined;
+        canForceToolChoice && intendedForcedTool
+          ? ({ type: "tool" as const, toolName: intendedForcedTool })
+          : undefined;
       if (forceFinalReason && toolPolicy.shouldEmitLoopGuardEvent(forceFinalReason)) {
         onLoopGuard?.({
           reason: forceFinalReason,
@@ -809,7 +834,8 @@ export async function runAgent({
         !verifyFixNote &&
         !staleReadNote &&
         !activeToolsDifferFromInitial &&
-        !forcedToolChoice
+        !forcedToolChoice &&
+        !forcedToolNudge
       ) {
         return undefined;
       }
@@ -817,7 +843,7 @@ export async function runAgent({
         ...(forcedToolChoice ? { toolChoice: forcedToolChoice } : {}),
         ...(duplicateReplay && compacted !== nextMessages
           ? { messages: compacted }
-          : verifyReminder || verifyFixNote || staleReadNote
+          : verifyReminder || verifyFixNote || staleReadNote || forcedToolNudge
             ? { messages: compacted }
           : {}),
         activeTools: currentActiveToolNames,

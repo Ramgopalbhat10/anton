@@ -9,7 +9,7 @@ import {
   sha256,
 } from "./edit-utils";
 import { assertGuardAllowed } from "./file-guardrails";
-import { findPreview, nearMatchesForFind } from "./edit-diagnostics";
+import { findPreview, matchLocationsForFind, nearMatchesForFind } from "./edit-diagnostics";
 import { applyTextEditsToContent, buildDisplayDiff } from "./text-edits";
 import { lintEditedFile } from "./post-edit-lint";
 import { modelVisibleToolOutput } from "./model-output";
@@ -197,7 +197,12 @@ function structuredError(input: {
           findPreview: findPreview(input.find),
           nearMatches: nearMatchesForFind(input.content, input.find),
         }
-      : {};
+      : input.code === "FIND_NOT_UNIQUE" && input.find && input.content
+        ? {
+            findPreview: findPreview(input.find),
+            matchLocations: matchLocationsForFind(input.content, input.find),
+          }
+        : {};
   return {
     ok: false as const,
     code: input.code,
@@ -251,7 +256,27 @@ function compactEditTextModelOutput(output: unknown): JSONValue {
         ? { findPreview: stringValue(output.findPreview) }
         : {}),
       ...(Array.isArray(output.nearMatches)
-        ? { nearMatches: output.nearMatches.slice(0, 5) }
+        ? {
+            nearMatches: output.nearMatches.slice(0, 5).map((match) => {
+              if (!isRecord(match)) return match;
+              const line = numberValue(match.line);
+              const text = stringValue(match.text);
+              const divergence = stringValue(match.divergence);
+              return {
+                line,
+                text,
+                ...(divergence ? { divergence } : {}),
+              };
+            }),
+          }
+        : {}),
+      ...(Array.isArray(output.matchLocations)
+        ? {
+            matchLocations: output.matchLocations.slice(0, 5).map((location) => {
+              if (!isRecord(location)) return location;
+              return { line: numberValue(location.line), text: stringValue(location.text) };
+            }),
+          }
         : {}),
       ...(stringValue(output.lintSummary)
         ? { lintSummary: stringValue(output.lintSummary) }
@@ -323,10 +348,10 @@ function numberValue(value: unknown): number {
 
 function recommendedNextForEditTextFailure(code: string): string {
   if (code === "FIND_NOT_FOUND") {
-    return "Use nearMatches or re-read the relevant range, then retry with current text.";
+    return "Use nearMatches (with divergence hints) or re-read the relevant range, then retry with current text.";
   }
   if (code === "FIND_NOT_UNIQUE") {
-    return "Include more surrounding context or use replace_lines.";
+    return "Use matchLocations to see every occurrence, then include more surrounding context or use replace_lines.";
   }
   if (code === "GUARD_REJECTED") {
     return "Use exact text or replace_lines; automatic recovery is disabled for guarded files.";

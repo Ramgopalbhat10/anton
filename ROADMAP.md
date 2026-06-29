@@ -193,6 +193,10 @@ Token, context, and prompt-cache improvements to the agent harness, informed by 
 - [✔️] Cap MCP tool outputs to a bounded preview when they exceed the model-visible budget.
 - [✔️] Make `budgetMessagesForModel` skip-and-continue past oversized messages instead of evicting everything older than the first fat message.
 - [✔️] Cache `inspect_project` per project root so repeated calls on an unchanged project return a compact digest instead of the full payload.
+- [✔️] Surface `edit_text` anchor mismatches with divergent-line hints: `FIND_NOT_FOUND` near matches carry a `divergence` hint, and `FIND_NOT_UNIQUE` reports `matchLocations` so the model can disambiguate in one step.
+- [✔️] Return a `firstErrorBlock` (first error-looking line + context) alongside stdout/stderr tails on failing `bash` runs so the actual error is not lost in a long tail.
+- [✔️] Emit a soft text nudge for forced `read_file`/`verify` steps on providers that do not support forced tool choice (e.g. DeepSeek), so the required step is not silently dropped.
+- [✔️] Surface MCP tool result-errors (`isError`/`ok:false`) as structured failures with a `code` (`MCP_TOOL_FAILED` / `MCP_INPUT_INVALID`) instead of marking them `ok:true`.
 
 ## Known Implementation Risks
 
