@@ -25,6 +25,8 @@ import {
 
 import { isFailedToolOutput, previewToolInput } from "./tool-display";
 
+type ReasoningTextMap = ReadonlyMap<string, string> | null | undefined;
+
 export type StepGroup = {
   stepNumber: number;
   order: number;
@@ -325,8 +327,8 @@ function buildRunTimelineItems(
       event.status !== "running",
   );
   const reasoningByEventId = needsReasoningText
-    ? buildReasoningTextByEventId(message)
-    : undefined;
+    ? buildReasoningTextMapIfAvailable(message)
+    : null;
 
   for (const event of events) {
     const base = {
@@ -521,13 +523,22 @@ function compareTimelineItems(
 function reasoningTextForEvent(
   message: AntonUIMessage,
   event: AntonActivityEvent,
-  reasoningByEventId?: ReadonlyMap<string, string>,
+  reasoningByEventId?: ReasoningTextMap,
 ): string | undefined {
   const summary = event.summary?.trim();
   if (summary) return summary;
   if (event.status === "running") return undefined;
+  if (reasoningByEventId === null) return undefined;
   const map = reasoningByEventId ?? buildReasoningTextByEventId(message);
   return map.get(event.id);
+}
+
+function buildReasoningTextMapIfAvailable(
+  message: AntonUIMessage,
+): ReadonlyMap<string, string> | null {
+  return message.parts.some(isReasoningPart)
+    ? buildReasoningTextByEventId(message)
+    : null;
 }
 
 function todoSnapshotFromEventDetails(
@@ -832,7 +843,7 @@ export function getTraceRows(
   const reasoningActivities = activities.filter(
     (event) => event.kind === "reasoning",
   );
-  const reasoningByEventId = buildReasoningTextByEventId(message);
+  const reasoningByEventId = buildReasoningTextMapIfAvailable(message);
   const toolEntries = getToolTraceEntries([message]);
   const partSequenceMarkers = buildPartSequenceMarkers(
     message,

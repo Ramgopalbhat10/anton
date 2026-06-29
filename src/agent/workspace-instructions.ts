@@ -18,6 +18,20 @@ type PromptDoc = {
   truncated: boolean;
 };
 
+export type WorkspacePromptContextSummary = {
+  instructionFiles: {
+    path: string;
+    truncated: boolean;
+  }[];
+  skills: {
+    slug: string;
+    description: string;
+    path: string;
+  }[];
+  skillWarnings: string[];
+  error?: string;
+};
+
 export function workspaceInstructionPromptLines(
   workspaceRoot?: string,
 ): string[] {
@@ -79,6 +93,34 @@ export function workspaceSkillPromptLines(workspaceRoot?: string): string[] {
     lines.push(`- Skill load warnings: ${warnings.length}`);
   }
   return lines;
+}
+
+export function workspacePromptContextSummary(
+  workspaceRoot?: string,
+): WorkspacePromptContextSummary {
+  try {
+    const instructionFiles = readInstructionDocs(workspaceRoot).map((doc) => ({
+      path: doc.path,
+      truncated: doc.truncated,
+    }));
+    const { skills, warnings } = listSkills(workspaceRoot);
+    return {
+      instructionFiles,
+      skills: skills.map((skill) => ({
+        slug: skill.slug,
+        description: skill.description,
+        path: skill.path,
+      })),
+      skillWarnings: warnings,
+    };
+  } catch (err) {
+    return {
+      instructionFiles: [],
+      skills: [],
+      skillWarnings: [],
+      error: errorMessage(err),
+    };
+  }
 }
 
 function readInstructionDocs(workspaceRoot?: string): PromptDoc[] {

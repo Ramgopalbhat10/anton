@@ -15,16 +15,15 @@ A mini AI coding agent harness - built as a learning project to understand how p
 ```bash
 pnpm install
 cp .env.example .env.local          # then edit OPENROUTER_API_KEY
-pnpm db:migrate                     # apply Drizzle migrations
-pnpm dev                            # http://localhost:3000
+pnpm dev                            # applies migrations, then serves http://localhost:3000
 ```
 
 ## Scripts
 
 | Script | Purpose |
 |---|---|
-| `pnpm dev` | Start dev server (Turbopack) |
-| `pnpm build` / `pnpm start` | Production build + start |
+| `pnpm dev` | Apply pending migrations, then start dev server (Turbopack) |
+| `pnpm build` / `pnpm start` | Production build / apply pending migrations, then start |
 | `pnpm lint` | ESLint |
 | `pnpm typecheck` | `tsc --noEmit` |
 | `pnpm db:generate` | Generate Drizzle migration from schema |

@@ -55,6 +55,10 @@ import {
   type RunContextStatus,
 } from "@/src/agent/context";
 import { buildWorkspaceContextDigest } from "@/src/agent/workspace-context";
+import {
+  workspacePromptContextSummary,
+  type WorkspacePromptContextSummary,
+} from "@/src/agent/workspace-instructions";
 import { budgetForProfile } from "@/src/agent/run-budget";
 import { compactReadFileForModel } from "@/src/agent/tools/model-output";
 import type { ProfilePromotionEvent } from "@/src/agent/profile-promotion";
@@ -144,6 +148,8 @@ const MAX_ATTACHMENT_COUNT = 10;
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 const MAX_ATTACHMENT_TOTAL_BYTES = 24 * 1024 * 1024;
 const MAX_WORKSPACE_REFERENCES = 50;
+const MAX_REASONING_SUMMARY_CHARS = 4_000;
+const REASONING_SUMMARY_TRUNCATED_SUFFIX = "\n...[reasoning summary truncated]";
 const SUPPORTED_ATTACHMENT_MEDIA_TYPES = new Set([
   "application/json",
   "application/pdf",
@@ -417,6 +423,11 @@ export async function POST(req: Request) {
     userText,
     project?.localPath,
   );
+  profile = refineAcceptedPlanProfile({
+    profile,
+    messages: incomingHistory,
+    workspaceRoot: project?.localPath,
+  });
   const inheritedSingleFileTargetResolution =
     profile === "single-file-edit"
       ? singleFileTargetResolutionFromCostMetadata(
@@ -444,6 +455,8 @@ export async function POST(req: Request) {
   }
 
   const budget = budgetForProfile(profile);
+  const workspacePromptContext =
+    mode === "chat" ? undefined : workspacePromptContextSummary(project?.localPath);
   const continuationAssistant = isProfileHandoffContinuation
     ? incomingHistory.findLast((message) => message.role === "assistant")
     : undefined;
@@ -619,6 +632,7 @@ export async function POST(req: Request) {
       });
       trace.writeRun("running");
       trace.noteContextBudget(contextBudget.report);
+      trace.noteWorkspacePromptContext(workspacePromptContext);
       if (modelSelectionNote) {
         trace.noteModelSelection(modelSelectionNote);
       }
@@ -719,7 +733,7 @@ export async function POST(req: Request) {
 
         writer.merge(
           result.toUIMessageStream<AntonUIMessage>({
-            sendReasoning: true,
+            sendReasoning: false,
             sendStart: false,
             sendFinish: false,
           }),
@@ -1363,6 +1377,7 @@ function createTraceWriter({
   const effectiveProfile: AgentRunProfile = profile;
   const events = new Map<string, AntonActivityEvent>();
   const reasoningBuffers = new Map<string, string>();
+  const truncatedReasoningBuffers = new Set<string>();
   const activeReasoningEventIds = new Map<string, string>();
   const reasoningOccurrences = new Map<string, number>();
 
@@ -1755,6 +1770,50 @@ function createTraceWriter({
         summary,
       });
     },
+    noteWorkspacePromptContext(
+      context: WorkspacePromptContextSummary | undefined,
+    ) {
+      if (!context) return;
+      const instructionNames = context.instructionFiles.map((file) =>
+        file.truncated ? `${file.path} (truncated)` : file.path,
+      );
+      const skillNames = context.skills.map((skill) => skill.slug);
+      const summaryParts = [
+        instructionNames.length > 0
+          ? `Loaded ${instructionNames.join(", ")}`
+          : "No root instruction file found",
+        skillNames.length > 0
+          ? `advertised ${skillNames.slice(0, 8).join(", ")}${skillNames.length > 8 ? ` and ${skillNames.length - 8} more` : ""}`
+          : "no project skills advertised",
+      ];
+      if (context.skillWarnings.length > 0) {
+        summaryParts.push(
+          `${context.skillWarnings.length} skill warning${context.skillWarnings.length === 1 ? "" : "s"}`,
+        );
+      }
+      if (context.error) {
+        summaryParts.push(`context warning: ${context.error}`);
+      }
+      startEvent({
+        id: `${runId}:workspace-prompt-context:${sequence + 1}`,
+        kind: "progress",
+        status: context.error ? "error" : "completed",
+        label: "Workspace instructions seeded",
+        summary: summaryParts.join("; "),
+        details: {
+          workspacePromptContext: {
+            instructionFiles: context.instructionFiles,
+            skills: context.skills.map((skill) => ({
+              slug: skill.slug,
+              description: skill.description,
+              path: skill.path,
+            })),
+            skillWarnings: context.skillWarnings.slice(0, 20),
+            ...(context.error ? { error: context.error } : {}),
+          },
+        },
+      });
+    },
     noteMcpWarnings(warnings: readonly string[]) {
       if (warnings.length === 0) return;
       startEvent({
@@ -2028,10 +2087,10 @@ function createTraceWriter({
       if (part.type === "reasoning-delta") {
         const eventId = activeReasoningEventIds.get(part.id);
         const bufferId = eventId ?? `${runId}:reasoning:${part.id}`;
-        reasoningBuffers.set(
-          bufferId,
-          `${reasoningBuffers.get(bufferId) ?? ""}${part.text}`,
-        );
+        const current = reasoningBuffers.get(bufferId) ?? "";
+        const next = appendCappedReasoningBuffer(current, part.text);
+        reasoningBuffers.set(bufferId, next.text);
+        if (next.truncated) truncatedReasoningBuffers.add(bufferId);
       }
       if (part.type === "reasoning-start") {
         const occurrence = (reasoningOccurrences.get(part.id) ?? 0) + 1;
@@ -2052,8 +2111,12 @@ function createTraceWriter({
         const eventId =
           activeReasoningEventIds.get(part.id) ??
           `${runId}:reasoning:${part.id}`;
-        const summary = reasoningBuffers.get(eventId)?.trim();
+        const summary = reasoningSummaryFromBuffer(
+          reasoningBuffers.get(eventId),
+          truncatedReasoningBuffers.has(eventId),
+        );
         reasoningBuffers.delete(eventId);
+        truncatedReasoningBuffers.delete(eventId);
         activeReasoningEventIds.delete(part.id);
         finishEvent(eventId, {
           status: "completed",
@@ -2083,6 +2146,32 @@ function createTraceWriter({
     },
     finalize,
   };
+}
+
+function appendCappedReasoningBuffer(
+  current: string,
+  delta: string,
+): { text: string; truncated: boolean } {
+  if (current.length >= MAX_REASONING_SUMMARY_CHARS) {
+    return { text: current, truncated: delta.length > 0 };
+  }
+  const remaining = MAX_REASONING_SUMMARY_CHARS - current.length;
+  if (delta.length <= remaining) {
+    return { text: `${current}${delta}`, truncated: false };
+  }
+  return {
+    text: `${current}${delta.slice(0, remaining)}`,
+    truncated: true,
+  };
+}
+
+function reasoningSummaryFromBuffer(
+  value: string | undefined,
+  truncated: boolean,
+): string | undefined {
+  const summary = value?.trim();
+  if (!summary) return undefined;
+  return truncated ? `${summary}${REASONING_SUMMARY_TRUNCATED_SUFFIX}` : summary;
 }
 
 function todoItemsFromToolOutput(
@@ -2426,6 +2515,81 @@ function resolveRunProfile({
     );
   }
   return classifyRunProfileFromMessages(mode, messages);
+}
+
+function refineAcceptedPlanProfile({
+  profile,
+  messages,
+  workspaceRoot,
+}: {
+  profile: AgentRunProfile;
+  messages: AntonUIMessage[];
+  workspaceRoot?: string;
+}): AgentRunProfile {
+  if (profile !== "accepted-plan-simple") return profile;
+  const planText = latestAcceptedPlanText(messages);
+  if (!planText) return profile;
+  return acceptedPlanNeedsFullTools(planText, workspaceRoot)
+    ? "accepted-plan-general"
+    : profile;
+}
+
+function latestAcceptedPlanText(messages: AntonUIMessage[]): string | undefined {
+  const message = messages.findLast(isPlanAssistantMessage);
+  if (!message) return undefined;
+  const text = message.parts
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("\n\n")
+    .trim();
+  return text || undefined;
+}
+
+function acceptedPlanNeedsFullTools(
+  planText: string,
+  workspaceRoot: string | undefined,
+): boolean {
+  const normalized = planText.replace(/\r\n/g, "\n");
+  const targetFiles = Array.from(
+    new Set(extractPlanCodeSpans(normalized).filter(isLikelyRepoPath)),
+  );
+
+  if (targetFiles.some((file) => !workspacePathExists(file, workspaceRoot))) {
+    return true;
+  }
+
+  const lines = normalized.split("\n");
+  if (
+    lines.some((line) => {
+      const lineTargets = extractPlanCodeSpans(line).filter(isLikelyRepoPath);
+      return lineTargets.length > 0 && /\b(new|create|add)\b/i.test(line);
+    })
+  ) {
+    return true;
+  }
+
+  if (
+    /\b(?:new|create|add)\s+(?:a\s+|an\s+|the\s+)?(?:file|component|route|module|wrapper)s?\b/i.test(
+      normalized,
+    ) ||
+    /\b(?:files?\s+touched|summary)\b[\s\S]{0,400}\bnew\b/i.test(normalized)
+  ) {
+    return true;
+  }
+
+  return targetFiles.length > 3;
+}
+
+function workspacePathExists(
+  relPath: string,
+  workspaceRoot: string | undefined,
+): boolean {
+  if (!workspaceRoot) return true;
+  try {
+    return fs.existsSync(resolveInWorkspace(relPath, workspaceRoot));
+  } catch {
+    return true;
+  }
 }
 
 function classifyRunProfileFromMessages(

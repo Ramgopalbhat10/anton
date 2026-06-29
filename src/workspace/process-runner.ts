@@ -2,6 +2,7 @@ import { execa, type ResultPromise } from "execa";
 
 import { buildBashEnvironment } from "@/src/agent/command-policy";
 import { redactText } from "@/src/lib/redaction";
+import { loadProjectEnvironmentForProcess } from "@/src/workspace/project-env";
 
 const DEFAULT_OUTPUT_CAP_BYTES = 64 * 1024;
 
@@ -76,9 +77,11 @@ export function startWorkspaceProcess(
   const outputCapBytes = options.outputCapBytes ?? DEFAULT_OUTPUT_CAP_BYTES;
   const stdoutChunks: string[] = [];
   const stderrChunks: string[] = [];
+  const projectEnv = loadProjectEnvironmentForProcess(cwd);
+  const env = buildWorkspaceProcessEnvironment(cwd, projectEnv);
   const subprocess = execa(file, [...args], {
     cwd,
-    env: buildBashEnvironment(),
+    env,
     extendEnv: false,
     timeout: options.timeoutMs,
     reject: false,
@@ -93,13 +96,13 @@ export function startWorkspaceProcess(
   });
 
   subprocess.stdout?.on("data", (chunk: Buffer) => {
-    const text = redactText(chunk.toString("utf8"));
+    const text = redactProcessOutput(chunk.toString("utf8"), projectEnv);
     stdoutChunks.push(text);
     options.onStdout?.(text);
   });
 
   subprocess.stderr?.on("data", (chunk: Buffer) => {
-    const text = redactText(chunk.toString("utf8"));
+    const text = redactProcessOutput(chunk.toString("utf8"), projectEnv);
     stderrChunks.push(text);
     options.onStderr?.(text);
   });
@@ -128,6 +131,16 @@ export function startWorkspaceProcess(
     stderrChunks,
     result,
     boundary: getWorkspaceExecutionBoundary(),
+  };
+}
+
+export function buildWorkspaceProcessEnvironment(
+  cwd: string,
+  projectEnv: Record<string, string> = loadProjectEnvironmentForProcess(cwd),
+): Record<string, string> {
+  return {
+    ...buildBashEnvironment(),
+    ...projectEnv,
   };
 }
 
@@ -264,4 +277,16 @@ function asProcessRecord(value: unknown): {
   isMaxBuffer?: unknown;
 } {
   return typeof value === "object" && value !== null ? value : {};
+}
+
+function redactProcessOutput(
+  value: string,
+  env: Record<string, string>,
+): string {
+  let redacted = redactText(value);
+  for (const secret of Object.values(env)) {
+    if (secret.length < 4) continue;
+    redacted = redacted.split(secret).join("[redacted]");
+  }
+  return redacted;
 }

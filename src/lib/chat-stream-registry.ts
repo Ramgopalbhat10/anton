@@ -1,7 +1,6 @@
 import type { UIMessageChunk } from "ai";
 
 const CLEANUP_AFTER_MS = 60_000;
-const MAX_REPLAY_CHUNKS = 10_000;
 
 type ActiveChatStream = {
   chunks: UIMessageChunk[];
@@ -92,9 +91,6 @@ async function pumpActiveStream(
       const { done, value } = await reader.read();
       if (done) break;
       active.chunks.push(value);
-      if (active.chunks.length > MAX_REPLAY_CHUNKS) {
-        active.chunks.shift();
-      }
       for (const subscriber of active.subscribers) {
         subscriber.enqueue(value);
       }

@@ -2,6 +2,10 @@ import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 
+import { loadDatabaseEnvFiles } from "./env";
+
+loadDatabaseEnvFiles();
+
 const dbPath = process.env.DATABASE_URL ?? "./anton.db";
 const sqlite = new Database(dbPath);
 sqlite.pragma("journal_mode = WAL");
