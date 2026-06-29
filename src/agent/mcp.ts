@@ -23,7 +23,7 @@ import {
   ensureWorkspaceRootAt,
   resolveInWorkspace,
 } from "./sandbox";
-import { modelVisibleToolOutput } from "./tools/model-output";
+import { modelVisibleToolOutput, capMcpToolOutputForModel } from "./tools/model-output";
 
 const MCP_CONFIG_FILE = ".mcp.json";
 const MAX_MCP_CONFIG_BYTES = 256 * 1024;
@@ -286,7 +286,7 @@ function wrapMcpTool(
     needsApproval: true,
     toModelOutput: ({ output }: { output: unknown }) => ({
       type: "json",
-      value: modelVisibleToolOutput(output, {
+      value: modelVisibleToolOutput(capMcpToolOutputForModel(output), {
         successCode: "MCP_TOOL_OK",
         failureCode: "MCP_TOOL_FAILED",
         successSummary: `MCP tool ${serverName}/${toolName} completed.`,

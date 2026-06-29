@@ -98,7 +98,9 @@ export function budgetMessagesForModel({
     if (selectedIndexes.has(index)) continue;
     const nextBytes = messageBytes(messages[index]);
     if (selectedBytes + nextBytes + contextDigestBytes > budget.maxInputBytes) {
-      break;
+      // Skip this oversized message but keep scanning older, smaller messages
+      // instead of bailing out and evicting everything older than the fat one.
+      continue;
     }
     selectedIndexes.add(index);
     selectedBytes += nextBytes;

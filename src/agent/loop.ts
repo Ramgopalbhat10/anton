@@ -561,6 +561,7 @@ export async function runAgent({
     priorTokensUsed: number;
     priorCostUsd: number;
     loopGuardIncomplete?: boolean;
+    stepLimitReached?: boolean;
     unverifiedEdit?: boolean;
     verificationFailed?: boolean;
     profileHandoffRequired?: boolean;
@@ -598,6 +599,8 @@ export async function runAgent({
 
   const selectedModel = resolveModelId(model ?? DEFAULT_MODEL);
   let observedStepCount = 0;
+  let stepLimitReached = false;
+  let lastStepHadToolCalls = false;
   const stepUsage: StepUsageAudit[] = [];
   const stepProviderMetadata: ProviderMetadata[] = [];
   const executionCache = new Map<string, Promise<unknown>>();
@@ -734,7 +737,7 @@ export async function runAgent({
     tools,
     activeTools: currentActiveToolNames,
     ...(openRouterOptions ? { providerOptions: openRouterOptions } : {}),
-    stopWhen: [profileHandoffStopCondition, stepCountIs(1_000_000)],
+    stopWhen: [profileHandoffStopCondition, stepCountIs(budget.maxSteps)],
     prepareStep: ({ messages: stepMessages, steps }) => {
       toolPolicy.observeSteps(steps);
       let nextMessages = stepMessages;
@@ -856,6 +859,7 @@ export async function runAgent({
       providerMetadata,
     }) => {
       if (providerMetadata) stepProviderMetadata.push(providerMetadata);
+      lastStepHadToolCalls = finishReason === "tool-calls";
       stepUsage.push({
         stepNumber,
         finishReason,
@@ -928,6 +932,10 @@ export async function runAgent({
       }
     },
     onFinish: async ({ totalUsage, finishReason, providerMetadata }) => {
+      stepLimitReached =
+        !profileHandoff &&
+        observedStepCount >= budget.maxSteps &&
+        lastStepHadToolCalls;
       const tokenUsage = buildTokenUsageMetrics({
         usage: totalUsage,
         providerMetadata,
@@ -983,7 +991,9 @@ export async function runAgent({
             ? false
             : toolPolicy.endedWithoutStateChange ||
               toolPolicy.endedUnverified ||
-              toolPolicy.endedWithFailedVerification,
+              toolPolicy.endedWithFailedVerification ||
+              stepLimitReached,
+        stepLimitReached: profileHandoff ? false : stepLimitReached,
         unverifiedEdit: profileHandoff ? false : toolPolicy.endedUnverified,
         verificationFailed: profileHandoff
           ? false

@@ -44,7 +44,7 @@ export function createGitDiffTool(
 ) {
   return tool({
     description:
-      "Show a scoped git diff and return a SHA-256 hash of the patch for later revert confirmation. Read-only.",
+      "Show a scoped git diff and return a SHA-256 hash of the full patch for later revert confirmation. Returns a compact per-file stat and caps the patch text for large diffs; re-run with narrower paths to see more. Read-only.",
     inputSchema: z.object({
       paths: optionalPathListSchema,
       staged: z.boolean().optional().describe("Show staged changes with --cached."),
@@ -64,12 +64,22 @@ export function createGitDiffTool(
             ...checkpoint,
           };
         }
+        const fullPatch = result.stdout;
+        const stat = parseDiffStat(fullPatch);
+        const patchBytes = Buffer.byteLength(fullPatch, "utf8");
+        const patchTruncated = fullPatch.length > GIT_DIFF_MODEL_MAX_CHARS;
+        const patch = patchTruncated
+          ? `${fullPatch.slice(0, GIT_DIFF_MODEL_MAX_CHARS).trimEnd()}\n...[truncated: ${patchBytes} bytes total; re-run with narrower paths to see the rest]`
+          : fullPatch;
         return {
           ok: true as const,
           staged,
           paths: scopedPaths,
-          patch: result.stdout,
-          diffHash: sha256(result.stdout),
+          stat,
+          patch,
+          patchBytes,
+          patchTruncated,
+          diffHash: sha256(fullPatch),
           ...checkpoint,
         };
       } catch (err) {
@@ -77,6 +87,51 @@ export function createGitDiffTool(
       }
     },
   });
+}
+
+const GIT_DIFF_MODEL_MAX_CHARS = 12_000;
+
+type DiffStatFile = {
+  path: string;
+  insertions: number;
+  deletions: number;
+  hunks: number;
+};
+
+type DiffStat = {
+  files: DiffStatFile[];
+  totalInsertions: number;
+  totalDeletions: number;
+};
+
+function parseDiffStat(patch: string): DiffStat {
+  if (!patch) {
+    return { files: [], totalInsertions: 0, totalDeletions: 0 };
+  }
+  const files: DiffStatFile[] = [];
+  let current: DiffStatFile | null = null;
+  let totalInsertions = 0;
+  let totalDeletions = 0;
+  for (const line of patch.split("\n")) {
+    if (line.startsWith("diff --git ")) {
+      if (current) files.push(current);
+      const match = line.match(/^diff --git a\/(.*) b\/(.*)$/);
+      const filePath = match ? match[2] : line.slice("diff --git ".length).trim();
+      current = { path: filePath, insertions: 0, deletions: 0, hunks: 0 };
+    } else if (current) {
+      if (line.startsWith("@@")) {
+        current.hunks += 1;
+      } else if (line.startsWith("+") && !line.startsWith("+++")) {
+        current.insertions += 1;
+        totalInsertions += 1;
+      } else if (line.startsWith("-") && !line.startsWith("---")) {
+        current.deletions += 1;
+        totalDeletions += 1;
+      }
+    }
+  }
+  if (current) files.push(current);
+  return { files, totalInsertions, totalDeletions };
 }
 
 export function createGitShowTool(workspaceRoot?: string) {
