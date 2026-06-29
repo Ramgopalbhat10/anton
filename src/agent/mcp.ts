@@ -299,12 +299,69 @@ function wrapMcpTool(
     execute: async (input: unknown, options: unknown) => {
       try {
         const output = await mcpTool.execute?.(input, options);
+        if (isMcpErrorResult(output)) {
+          const message = extractMcpResultError(output);
+          return {
+            ok: false as const,
+            code: mcpFailureCode(message),
+            error: message,
+          };
+        }
         return { ok: true as const, output };
       } catch (err) {
-        return { ok: false as const, error: errorMessage(err) };
+        const message = errorMessage(err);
+        return {
+          ok: false as const,
+          code: mcpFailureCode(message),
+          error: message,
+        };
       }
     },
   } as unknown as ToolSet[string];
+}
+
+function isMcpErrorResult(output: unknown): output is Record<string, unknown> {
+  if (!isRecord(output)) return false;
+  if (output.isError === true) return true;
+  if (output.ok === false) return true;
+  return false;
+}
+
+function extractMcpResultError(output: Record<string, unknown>): string {
+  if (typeof output.error === "string" && output.error.trim()) {
+    return output.error;
+  }
+  if (typeof output.message === "string" && output.message.trim()) {
+    return output.message;
+  }
+  if (Array.isArray(output.content)) {
+    const text = output.content
+      .filter((part) => isRecord(part) && typeof part.text === "string")
+      .map((part) => (part as Record<string, unknown>).text as string)
+      .join("\n")
+      .trim();
+    if (text) return text;
+  }
+  return "MCP tool returned an error result.";
+}
+
+function mcpFailureCode(message: string): string {
+  const lower = message.toLowerCase();
+  if (
+    lower.includes("validation") ||
+    lower.includes("schema") ||
+    lower.includes("invalid") ||
+    lower.includes("required") ||
+    lower.includes("expected") ||
+    lower.includes("enum")
+  ) {
+    return "MCP_INPUT_INVALID";
+  }
+  return "MCP_TOOL_FAILED";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function globalMcpServerSpecs(
