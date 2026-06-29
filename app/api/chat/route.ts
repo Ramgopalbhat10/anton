@@ -498,26 +498,25 @@ export async function POST(req: Request) {
           budgetChars: budget.workspaceContextChars,
         })
       : undefined;
-  const baseModelContextText = isProfileHandoffContinuation
-    ? combineModelContextText(
-        continuationContextMessageText(continuationNote),
-        slashSkillContext,
-      )
+  const stablePrimaryContextText = isProfileHandoffContinuation
+    ? continuationContextMessageText(continuationNote)
     : profile === "single-file-edit" &&
         singleFileTargetResolution &&
         "targetPath" in singleFileTargetResolution
-      ? combineModelContextText(
-          singleFileTargetContext(singleFileTargetResolution),
-          slashSkillContext,
-        )
-      : combineModelContextText(
-          modelOnlyContextMessageText({
-            sessionContextDigest,
-            workspaceContextDigest,
-          }),
-          slashSkillContext,
-        );
-  let modelContextText = baseModelContextText;
+      ? singleFileTargetContext(singleFileTargetResolution)
+      : undefined;
+  // Run-stable context (slash skill, single-file target, continuation note) is
+  // hoisted into the system prompt so it joins the cached prefix instead of the
+  // cache-write-never-hit model-only message tail.
+  const runStableContextText = combineModelContextText(
+    stablePrimaryContextText,
+    slashSkillContext,
+  );
+  // Only the per-turn-volatile digest stays in the model-only assistant message.
+  let modelContextText = modelOnlyContextMessageText({
+    sessionContextDigest,
+    workspaceContextDigest,
+  });
   let contextDigestBytes = byteLength(modelContextText ?? "");
   const preservation = modelContextPreservation(
     uiMessages,
@@ -541,14 +540,11 @@ export async function POST(req: Request) {
     const droppedHistoryDigest = buildDroppedHistoryDigest(
       contextBudget.droppedMessages,
     );
-    const nextModelContextText =
-      isProfileHandoffContinuation || profile === "single-file-edit"
-        ? combineModelContextText(baseModelContextText, droppedHistoryDigest)
-        : modelOnlyContextMessageText({
-            sessionContextDigest,
-            workspaceContextDigest,
-            droppedHistoryDigest,
-          });
+    const nextModelContextText = modelOnlyContextMessageText({
+      sessionContextDigest,
+      workspaceContextDigest,
+      droppedHistoryDigest,
+    });
     if (nextModelContextText !== modelContextText) {
       modelContextText = nextModelContextText;
       contextDigestBytes = byteLength(modelContextText ?? "");
@@ -665,6 +661,7 @@ export async function POST(req: Request) {
             singleFileTargetResolution?.targetResolution,
           singleFileTargetResolutionReason:
             singleFileTargetResolution?.targetResolutionReason,
+          runStableContextText,
           permissionMode,
           enabledMcpServerIds: parsed.data.enabledMcpServerIds,
           openRouterRouting,
@@ -1142,6 +1139,7 @@ function slashSkillContextFromUserText(
   if (!command) return undefined;
   try {
     const skill = readComposerSkill(command, workspaceRoot);
+    const body = capSkillBody(skill.body);
     return [
       "Slash-selected skill context for this run:",
       `Command: ${skill.command}`,
@@ -1150,11 +1148,18 @@ function slashSkillContextFromUserText(
       skill.description ? `Description: ${skill.description}` : undefined,
       "",
       "SKILL.md:",
-      skill.body,
+      body,
     ].filter((line): line is string => line !== undefined).join("\n");
   } catch {
     return undefined;
   }
+}
+
+const SLASH_SKILL_BODY_MAX_CHARS = 8_000;
+
+function capSkillBody(body: string): string {
+  if (body.length <= SLASH_SKILL_BODY_MAX_CHARS) return body;
+  return `${body.slice(0, SLASH_SKILL_BODY_MAX_CHARS).trimEnd()}\n...[truncated, call read_skill for the full body]`;
 }
 
 function leadingSlashCommand(text: string): string | undefined {

@@ -384,6 +384,7 @@ function contextCompositionFromTokenAudit(
 
   const sections = {
     systemPromptTokens: finiteNumber(composition.systemPromptTokens),
+    stableContextTokens: finiteNumber(composition.stableContextTokens),
     toolDefinitionsTokens: finiteNumber(composition.toolDefinitionsTokens),
     memoryTokens: finiteNumber(composition.memoryTokens),
     skillsTokens: finiteNumber(composition.skillsTokens),
@@ -403,6 +404,7 @@ function contextCompositionFromTokenAudit(
 
   return {
     systemPromptTokens: sections.systemPromptTokens ?? 0,
+    stableContextTokens: sections.stableContextTokens ?? 0,
     toolDefinitionsTokens: sections.toolDefinitionsTokens ?? 0,
     memoryTokens: sections.memoryTokens ?? 0,
     skillsTokens: sections.skillsTokens ?? 0,

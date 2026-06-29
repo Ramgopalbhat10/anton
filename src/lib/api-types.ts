@@ -173,6 +173,7 @@ export type ProjectLastRunSummary = {
 
 export type ProjectRunDetailsContextComposition = {
   systemPromptTokens: number;
+  stableContextTokens: number;
   toolDefinitionsTokens: number;
   memoryTokens: number;
   skillsTokens: number;

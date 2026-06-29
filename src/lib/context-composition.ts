@@ -4,6 +4,7 @@ export const CONTEXT_BYTES_PER_TOKEN = 4;
 
 export type ContextCompositionAudit = {
   systemPromptTokens: number;
+  stableContextTokens: number;
   toolDefinitionsTokens: number;
   memoryTokens: number;
   skillsTokens: number;
@@ -43,6 +44,11 @@ export function contextCompositionSections(
 ): ContextCompositionSection[] {
   return [
     { key: "system", label: "System prompt", tokens: composition.systemPromptTokens },
+    {
+      key: "stable",
+      label: "Stable run context",
+      tokens: composition.stableContextTokens,
+    },
     {
       key: "tools",
       label: "Tool definitions",
