@@ -332,8 +332,27 @@ export function buildSessionContextDigest({
   blocks.push(header);
   remaining -= header.length;
 
+  // Durable findings (package manager, scripts, deps, git branch, etc.) are
+  // hoisted into one deduplicated block drawn from the full summary window so
+  // they survive even when their originating run falls out of the recency
+  // window, and so they are not repeated in every per-run block.
+  const durableFacts = establishedFindings(summaries);
+  const emittedFacts = new Set(durableFacts);
+  if (durableFacts.length > 0) {
+    const findingsBlock = compactBlock(
+      ["Established findings:", ...durableFacts.map((fact) => `- ${fact}`)].join(
+        "\n",
+      ),
+      MAX_DIGEST_BLOCK_CHARS,
+    );
+    if (findingsBlock.trim()) {
+      blocks.push(findingsBlock);
+      remaining -= findingsBlock.length;
+    }
+  }
+
   for (const summary of selected) {
-    const block = contextBlock(summary);
+    const block = contextBlock(summary, emittedFacts);
     if (block.length > remaining) {
       const truncated = truncate(block, Math.max(0, remaining - 32));
       if (truncated.trim()) blocks.push(`${truncated}\n...[context truncated]`);
@@ -468,7 +487,10 @@ function selectSummaries(
   return [...recent, ...relevantOlder];
 }
 
-function contextBlock(summary: RunContextSummary): string {
+function contextBlock(
+  summary: RunContextSummary,
+  emittedFacts: Set<string>,
+): string {
   const parts = [`Run ${summary.createdAt.toISOString()}:`];
   const tools = toolArray(summary.tools);
   const blockers = tools.flatMap((tool) => (tool.blocker ? [tool.blocker] : []));
@@ -511,11 +533,38 @@ function contextBlock(summary: RunContextSummary): string {
     );
   }
 
-  const facts = stringArray(summary.facts).slice(0, 8);
+  // Durable facts are hoisted into the Established findings block; emit only
+  // not-yet-emitted facts here and dedupe across runs.
+  const facts = stringArray(summary.facts)
+    .filter((fact) => !emittedFacts.has(fact))
+    .slice(0, 8);
+  for (const fact of facts) emittedFacts.add(fact);
   if (facts.length > 0) parts.push(`Facts: ${facts.join("; ")}`);
 
   parts.push(compactBlock(summary.summary, MAX_DIGEST_BLOCK_CHARS));
   return compactBlock(parts.join("\n"), MAX_DIGEST_BLOCK_CHARS);
+}
+
+const MAX_ESTABLISHED_FINDINGS = 12;
+const DURABLE_FACT_RE =
+  /^(Package manager|Scripts:|Key dependencies|Git branch|Dirty files|Runtime dependencies|Dev dependencies|Package manager field)\b/;
+
+function isDurableFact(fact: string): boolean {
+  return DURABLE_FACT_RE.test(fact);
+}
+
+function establishedFindings(summaries: RunContextSummary[]): string[] {
+  const seen = new Set<string>();
+  const durable: string[] = [];
+  for (const summary of summaries) {
+    for (const fact of stringArray(summary.facts)) {
+      if (!isDurableFact(fact) || seen.has(fact)) continue;
+      seen.add(fact);
+      durable.push(fact);
+      if (durable.length >= MAX_ESTABLISHED_FINDINGS) return durable;
+    }
+  }
+  return durable;
 }
 
 function searchableText(summary: RunContextSummary): string {
