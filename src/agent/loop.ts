@@ -227,6 +227,7 @@ const PROFILE_NATIVE_TOOLS = {
 type SystemPromptParts = {
   base: string;
   instructions: string;
+  stable: string;
   mcp: string;
   memory: string;
   skills: string;
@@ -238,6 +239,7 @@ function buildSystemPromptParts(
   workspaceRoot: string | undefined,
   mode: AgentRunMode,
   profile: AgentRunProfile,
+  runStableContextText?: string,
 ): SystemPromptParts {
   const root = workspaceRoot
     ? ensureWorkspaceRootAt(workspaceRoot)
@@ -271,12 +273,14 @@ function buildSystemPromptParts(
     "- MCP tools come from globally configured or workspace MCP servers, run outside Anton's native sandbox, and always require tool-call approval.",
     "- When you finish, report changed files, verification results, and unresolved risks or skipped checks. If the run reaches the max step limit, stop and say what remains instead of implying completion.",
     "- Do not guess file contents - read them first.",
-    "- Model-only prior run context may appear as an assistant message before the latest user request. Use it for continuity, but re-read files or rerun commands when exact current state matters.",
+    "- Run-stable context for this turn (such as a slash-selected skill body, a resolved single-file target, or an accepted-plan/continuation handoff) is included in this system prompt. Use it as authoritative for this run.",
+    "- A shorter model-only digest of prior-run and workspace context may appear as an assistant message before the latest user request. Use it for continuity, but re-read files or rerun commands when exact current state matters.",
   ].join("\n");
 
   return {
     base,
     instructions: workspaceInstructionPromptLines(workspaceRoot).join("\n"),
+    stable: runStableContextText?.trim() ?? "",
     mcp: mcpToolPromptLines(mcpTools).join("\n"),
     memory: projectMemoryPromptLines().join("\n"),
     skills: workspaceSkillPromptLines(workspaceRoot).join("\n"),
@@ -299,6 +303,7 @@ function buildContextCompositionAudit({
     systemPromptTokens: estimateTokensFromText(
       [systemParts.base, systemParts.instructions].join("\n\n"),
     ),
+    stableContextTokens: estimateTokensFromText(systemParts.stable),
     toolDefinitionsTokens: estimateToolDefinitionsTokens(tools),
     memoryTokens: estimateTokensFromText(systemParts.memory),
     skillsTokens: estimateTokensFromText(systemParts.skills),
@@ -387,7 +392,7 @@ function runProfilePromptLines(
   if (profile === "single-file-edit") {
     return [
       ...header,
-      "- This is a deterministic single-file edit run. A resolved target path appears in model-only context after the stable prompt prefix.",
+      "- This is a deterministic single-file edit run. A resolved target path is included in the run-stable context section of this system prompt.",
       "- First call `read_file` on that exact target path. Do not read or edit any other path.",
       "- Use `edit_text` for the change. If text anchors are missing or ambiguous, you may make one targeted `read_file` retry on the same target before trying `edit_text` again.",
       "- Run `verify` after a successful edit before writing the final answer.",
@@ -449,6 +454,7 @@ export async function runAgent({
   singleFileTargetPath,
   singleFileTargetResolution,
   singleFileTargetResolutionReason,
+  runStableContextText,
   onStepStart,
   onStepFinish,
   onStepUsageUpdate,
@@ -481,6 +487,7 @@ export async function runAgent({
   singleFileTargetPath?: string;
   singleFileTargetResolution?: "exact" | "unique_search" | "unresolved" | "ambiguous";
   singleFileTargetResolutionReason?: string;
+  runStableContextText?: string;
   onStepStart?: (event: { stepNumber: number }) => void;
   onStepFinish?: (event: { stepNumber: number }) => void;
   onStepUsageUpdate?: (steps: StepUsageAudit[]) => void;
@@ -592,23 +599,27 @@ export async function runAgent({
       ? {
           base: pureChatSystemPrompt(),
           instructions: "",
+          stable: "",
           mcp: "",
           memory: "",
           skills: "",
           profile: "",
         }
-      : buildSystemPromptParts(mcpTools, workspaceRoot, mode, profile);
+      : buildSystemPromptParts(mcpTools, workspaceRoot, mode, profile, runStableContextText);
   const system =
     profile === "pure-chat"
       ? systemParts.base
       : [
           systemParts.base,
           systemParts.instructions,
+          systemParts.stable,
           systemParts.mcp,
           systemParts.memory,
           systemParts.skills,
           systemParts.profile,
-        ].join("\n\n");
+        ]
+          .filter((part) => part.length > 0)
+          .join("\n\n");
   const messageBytes = utf8Bytes(stableJson(messages));
   const contextComposition = buildContextCompositionAudit({
     systemParts,
