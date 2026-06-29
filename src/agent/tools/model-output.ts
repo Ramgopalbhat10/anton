@@ -10,6 +10,7 @@ export const GREP_MODEL_MAX_MATCHES = 30;
 export const GREP_MODEL_MAX_MATCH_CHARS = 220;
 export const GLOB_MODEL_MAX_PATHS = 80;
 export const VERIFY_MODEL_OUTPUT_TAIL_CHARS = 1_200;
+export const MCP_MODEL_OUTPUT_MAX_CHARS = 12_000;
 
 export type ModelVisibleToolOutput = {
   ok: boolean;
@@ -486,6 +487,31 @@ export type VerifyToolDefaults = {
   targets?: readonly ("typecheck" | "lint" | "build")[];
   timeoutMs: number;
 };
+
+export function capMcpToolOutputForModel(wrapperOutput: unknown): unknown {
+  if (!isRecord(wrapperOutput)) return wrapperOutput;
+  const inner = wrapperOutput.output;
+  if (inner === undefined) return wrapperOutput;
+  const text = serializeForCap(inner);
+  if (text.length <= MCP_MODEL_OUTPUT_MAX_CHARS) return wrapperOutput;
+  return {
+    ...wrapperOutput,
+    output: {
+      truncated: true,
+      originalBytes: Buffer.byteLength(text, "utf8"),
+      preview: `${text.slice(0, MCP_MODEL_OUTPUT_MAX_CHARS).trimEnd()}\n...[truncated: MCP output exceeded ${MCP_MODEL_OUTPUT_MAX_CHARS} chars; narrow the tool input or page the result]`,
+    },
+  };
+}
+
+function serializeForCap(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
 
 export function readFileDefaultMaxLines(profile: AgentRunProfile): number {
   return profile === "localized-edit" || profile === "single-file-edit"

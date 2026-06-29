@@ -182,6 +182,18 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [] Add contributor guide for turning roadmap items into GitHub issues.
 - [] Add security notes covering tool execution, workspace trust, MCP trust, and secrets handling.
 
+## Phase 9: Harness Optimization
+
+Token, context, and prompt-cache improvements to the agent harness, informed by open-source coding-agent best practices.
+
+- [✔️] Hoist run-stable context (slash-skill body, resolved single-file target, accepted-plan/continuation handoff) into the cached system-prompt prefix instead of the cache-write-never-hit model-only message tail; cap slash-skill body size (#204).
+- [✔️] Enforce `budget.maxSteps` in `stopWhen` instead of the 1,000,000 safety net, and surface step-limit cutoffs as incomplete runs so the model cannot imply completion when cut off.
+- [✔️] Compact `git_diff` output: return a per-file stat and cap the patch text for large diffs (diffHash still covers the full patch for revert).
+- [✔️] Cap `read_dir` entries (default 200, hard cap 500) with truncation reporting; point the model at glob/grep for large directories.
+- [✔️] Cap MCP tool outputs to a bounded preview when they exceed the model-visible budget.
+- [✔️] Make `budgetMessagesForModel` skip-and-continue past oversized messages instead of evicting everything older than the first fat message.
+- [✔️] Cache `inspect_project` per project root so repeated calls on an unchanged project return a compact digest instead of the full payload.
+
 ## Known Implementation Risks
 
 - [✔️] Chat message input is still validated as `z.array(z.unknown())` before casting to `AntonUIMessage[]`.

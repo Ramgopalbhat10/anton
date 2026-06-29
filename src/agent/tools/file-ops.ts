@@ -26,20 +26,32 @@ const allowGuardedSchema = z
     "Set true only when intentionally mutating a guarded target such as a lockfile, migration, generated file, binary file, or large file.",
   );
 
+const READ_DIR_DEFAULT_MAX_ENTRIES = 200;
+const READ_DIR_HARD_MAX_ENTRIES = 500;
+
 export function createReadDirTool(workspaceRoot?: string) {
   return tool({
     description:
-      "Read a workspace directory and return child names with basic metadata. Paths are relative to WORKSPACE_ROOT and must stay inside it.",
+      "Read a workspace directory and return child names with basic metadata. Caps the number of entries (default 200, hard cap 500) and reports truncation; narrow the path or use glob/grep for large directories. Paths are relative to WORKSPACE_ROOT and must stay inside it.",
     inputSchema: z.object({
       path: z
         .string()
         .optional()
         .describe("Directory path relative to the workspace root. Defaults to the workspace root."),
+      maxEntries: z
+        .number()
+        .int()
+        .positive()
+        .max(READ_DIR_HARD_MAX_ENTRIES)
+        .optional()
+        .describe(`Maximum entries to return. Defaults to ${READ_DIR_DEFAULT_MAX_ENTRIES}; hard cap ${READ_DIR_HARD_MAX_ENTRIES}.`),
     }),
-    execute: async ({ path: relPath = "." }) => {
+    execute: async ({ path: relPath = ".", maxEntries }) => {
       try {
         const abs = resolveInWorkspace(relPath, workspaceRoot);
         const entries = await fs.readdir(abs, { withFileTypes: true });
+        const limit = clampMaxEntries(maxEntries);
+        const totalEntries = entries.length;
         const rows = await Promise.all(
           entries.map(async (entry) => {
             const childAbs = path.join(abs, entry.name);
@@ -47,7 +59,7 @@ export function createReadDirTool(workspaceRoot?: string) {
             const childRel = normalizeRelPath(path.join(normalizeInputPath(relPath), entry.name));
             return {
               name: entry.name,
-              path: normalizeRelPath(path.join(normalizeInputPath(relPath), entry.name)),
+              path: childRel,
               kind: entryKind(entry),
               sizeBytes: stat.size,
               modifiedAt: stat.mtime.toISOString(),
@@ -55,17 +67,31 @@ export function createReadDirTool(workspaceRoot?: string) {
             };
           }),
         );
+        rows.sort((a, b) => a.name.localeCompare(b.name));
+        const truncated = rows.length > limit;
+        const visibleRows = truncated ? rows.slice(0, limit) : rows;
 
         return {
           ok: true as const,
           path: normalizeInputPath(relPath),
-          entries: rows.sort((a, b) => a.name.localeCompare(b.name)),
+          totalEntries,
+          ...(truncated
+            ? { truncated: true as const, droppedEntries: rows.length - limit, maxEntries: limit }
+            : {}),
+          entries: visibleRows,
         };
       } catch (err) {
         return { ok: false as const, error: errorMessage(err) };
       }
     },
   });
+}
+
+function clampMaxEntries(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return READ_DIR_DEFAULT_MAX_ENTRIES;
+  }
+  return Math.min(Math.floor(value), READ_DIR_HARD_MAX_ENTRIES);
 }
 
 export function createStatTool(workspaceRoot?: string) {
