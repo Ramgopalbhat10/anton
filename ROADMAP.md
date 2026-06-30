@@ -197,6 +197,7 @@ Token, context, and prompt-cache improvements to the agent harness, informed by 
 - [✔️] Return a `firstErrorBlock` (first error-looking line + context) alongside stdout/stderr tails on failing `bash` runs so the actual error is not lost in a long tail.
 - [✔️] Emit a soft text nudge for forced `read_file`/`verify` steps on providers that do not support forced tool choice (e.g. DeepSeek), so the required step is not silently dropped.
 - [✔️] Surface MCP tool result-errors (`isError`/`ok:false`) as structured failures with a `code` (`MCP_TOOL_FAILED` / `MCP_INPUT_INVALID`) instead of marking them `ok:true`.
+- [✔️] Hoist durable findings (package manager, scripts, deps, git branch, etc.) into a deduplicated "Established findings" block in the prior-run context digest, drawn from the full summary window so they survive beyond the recency window and are not repeated in every per-run block. (Cross-run findings digest and profile-handoff auto-continue were already in place.)
 
 ## Known Implementation Risks
 
