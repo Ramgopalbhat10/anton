@@ -12,6 +12,7 @@ import type {
   McpServer,
   Project,
 } from "@/src/db/schema";
+import { isGitRepositoryAt } from "@/src/workspace/git-detect";
 import type {
   BackgroundCommandSessionSummary,
   McpServerSummary,
@@ -34,6 +35,7 @@ export function serializeProject(project: Project): ProjectSummary {
     status: project.status,
     lastError: project.lastError,
     environmentEnabled: project.environmentEnabled,
+    isGitRepository: isGitRepositoryAt(project.localPath),
     createdAt: project.createdAt.getTime(),
     updatedAt: project.updatedAt.getTime(),
   };

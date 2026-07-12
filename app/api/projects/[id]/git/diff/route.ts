@@ -8,6 +8,7 @@ import type {
   ProjectPullRequestFileSummary,
 } from "@/src/lib/api-types";
 import { redactText } from "@/src/lib/redaction";
+import { isGitRepositoryAt } from "@/src/workspace/git-detect";
 
 export const runtime = "nodejs";
 
@@ -35,6 +36,13 @@ export async function GET(_req: Request, { params }: Ctx) {
 
   try {
     const root = ensureWorkspaceRootAt(project.localPath);
+    if (!isGitRepositoryAt(root)) {
+      const empty: ProjectLocalDiffSummary = {
+        projectId: project.id,
+        files: [],
+      };
+      return Response.json({ diff: empty });
+    }
     const summary: ProjectLocalDiffSummary = {
       projectId: project.id,
       files: await localDiffFiles(root),

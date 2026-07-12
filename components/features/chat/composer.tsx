@@ -628,13 +628,15 @@ export function Composer({
             className="max-w-[20rem]"
             contentAlign="start"
           />
-          <BranchSwitcher
-            project={project}
-            currentBranch={projectBranch}
-            showProjectName={false}
-            className="max-w-[20rem]"
-            contentAlign="start"
-          />
+          {project?.isGitRepository ? (
+            <BranchSwitcher
+              project={project}
+              currentBranch={projectBranch}
+              showProjectName={false}
+              className="max-w-[20rem]"
+              contentAlign="start"
+            />
+          ) : null}
           {runningCommandCount > 0 ? (
             <Button
               type="button"

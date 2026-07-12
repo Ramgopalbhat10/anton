@@ -6,8 +6,13 @@ import {
   listAssistantTurnRunIds,
 } from "@/src/db/queries";
 import { serializeProject } from "@/src/lib/api-serializers";
-import type { ProjectLastRunSummary, ProjectStatusSummary } from "@/src/lib/api-types";
+import type {
+  ProjectGitStatusSummary,
+  ProjectLastRunSummary,
+  ProjectStatusSummary,
+} from "@/src/lib/api-types";
 import { redactText } from "@/src/lib/redaction";
+import { isGitRepositoryAt } from "@/src/workspace/git-detect";
 import { buildProjectGitStatusSummary, listDirtyFiles } from "@/src/workspace/git-status";
 import { inspectProjectAtPath } from "@/src/workspace/project-inspect";
 import type { Run } from "@/src/db/schema";
@@ -28,11 +33,12 @@ export async function GET(_req: Request, { params }: Ctx) {
 
   try {
     const root = ensureWorkspaceRootAt(project.localPath);
-    const [inspect, git, dirtyFiles] = await Promise.all([
-      Promise.resolve(inspectProjectAtPath(root)),
-      buildProjectGitStatusSummary(project, root),
-      listDirtyFiles(root, 50),
-    ]);
+    const inspect = inspectProjectAtPath(root);
+    const isGit = isGitRepositoryAt(root);
+    const git = isGit
+      ? await buildProjectGitStatusSummary(project, root)
+      : emptyGitStatus(project.id, project.defaultBranch);
+    const dirtyFiles = isGit ? await listDirtyFiles(root, 50) : [];
     const lastRun = serializeLastRun(getLastRunForProject(project.id));
     const status: ProjectStatusSummary = {
       project: serializeProject(project),
@@ -51,6 +57,25 @@ export async function GET(_req: Request, { params }: Ctx) {
       { status: 500 },
     );
   }
+}
+
+function emptyGitStatus(
+  projectId: string,
+  defaultBranch: string,
+): ProjectGitStatusSummary {
+  return {
+    projectId,
+    branch: null,
+    defaultBranch,
+    isDefaultBranch: false,
+    dirtyCount: 0,
+    ahead: null,
+    behind: null,
+    upstreamAhead: null,
+    upstreamBehind: null,
+    upstream: null,
+    remoteUrl: null,
+  };
 }
 
 function serializeLastRun(run: Run | undefined): ProjectLastRunSummary | null {

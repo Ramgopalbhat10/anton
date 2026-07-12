@@ -3,6 +3,7 @@
 import { useState } from "react";
 import {
   ArrowRight,
+  ArrowUp,
   BookMarked,
   Check,
   Download,
@@ -51,7 +52,10 @@ export function WorkspaceSettingsPanel() {
     rootDraft,
     setRootDraft,
     localPathDraft,
-    setLocalPathDraft,
+    browse,
+    browseLoading,
+    browseError,
+    loadBrowse,
     installations,
     installationFilter,
     setInstallationFilter,
@@ -90,7 +94,7 @@ export function WorkspaceSettingsPanel() {
   return (
     <SettingsPageShell
       title="Workspaces"
-      description="Manage where Anton stores cloned repositories and import existing local projects."
+      description="Manage where Anton stores cloned repositories and import existing local folders."
     >
       {error && <ErrorBanner message={error} />}
 
@@ -156,20 +160,85 @@ export function WorkspaceSettingsPanel() {
       <section className="rounded-[10px] border border-border bg-card">
         <div className="flex flex-col gap-4 p-5">
           <div className="space-y-1">
-            <h3 className="text-sm font-semibold">Import local repository</h3>
+            <h3 className="text-sm font-semibold">Import local folder</h3>
             <p className="text-[13px] leading-relaxed text-muted-foreground">
-              Add an existing Git repository to Anton without copying or
-              deleting files.
+              Browse your system and add any folder to Anton without copying or
+              deleting files. Git and GitHub features appear only when the folder
+              supports them.
             </p>
           </div>
+
+          <div className="overflow-hidden rounded-lg border border-border bg-input">
+            <div className="flex items-center gap-2 border-b border-layout-border px-3 py-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-7 shrink-0"
+                disabled={browseLoading || !browse?.currentPath}
+                onClick={() => void loadBrowse(browse?.parentPath ?? null)}
+                aria-label="Go up one folder"
+              >
+                <ArrowUp className="size-3.5" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-7 shrink-0"
+                disabled={browseLoading}
+                onClick={() => void loadBrowse(null)}
+                aria-label="Show roots"
+              >
+                <Folder className="size-3.5" />
+              </Button>
+              <p className="min-w-0 flex-1 truncate font-mono text-[12px] text-muted-foreground">
+                {browse?.currentPath ?? "Select a drive or folder"}
+              </p>
+              {browseLoading && (
+                <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+              )}
+            </div>
+
+            <div className="max-h-56 overflow-y-auto">
+              {browseError ? (
+                <p className="px-3 py-4 text-[13px] text-destructive">{browseError}</p>
+              ) : !browse || browse.entries.length === 0 ? (
+                <p className="px-3 py-4 text-[13px] text-muted-foreground">
+                  {browseLoading ? "Loading folders…" : "No subfolders here."}
+                </p>
+              ) : (
+                <ul className="divide-y divide-layout-border">
+                  {browse.entries.map((entry) => (
+                    <li key={entry.path}>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] transition-colors hover:bg-secondary"
+                        onClick={() => void loadBrowse(entry.path)}
+                      >
+                        <Folder className="size-3.5 shrink-0 text-muted-foreground" />
+                        <span className="min-w-0 truncate">{entry.name}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            {browse?.truncated ? (
+              <p className="border-t border-layout-border px-3 py-1.5 text-[11px] text-muted-foreground">
+                Showing first {browse.entries.length} folders.
+              </p>
+            ) : null}
+          </div>
+
           <div className="flex items-center gap-2">
             <label className="flex h-[34px] min-w-0 flex-1 items-center gap-2 rounded-lg border border-border bg-input px-3 transition-colors focus-within:border-ring">
-              <FolderGit2 className="size-3.5 shrink-0 text-muted-foreground/70" />
+              <Folder className="size-3.5 shrink-0 text-muted-foreground/70" />
               <input
                 value={localPathDraft}
-                onChange={(event) => setLocalPathDraft(event.target.value)}
-                placeholder="M:\Projects\example-repo"
-                aria-label="Local repository path"
+                readOnly
+                placeholder="Select a folder above"
+                aria-label="Selected local folder path"
                 className="min-w-0 flex-1 bg-transparent font-mono text-[13px] outline-none placeholder:text-muted-foreground/70"
               />
             </label>
@@ -219,32 +288,44 @@ export function WorkspaceSettingsPanel() {
                     className="flex items-center gap-3 px-4 py-3.5"
                   >
                     <span className="grid size-[34px] shrink-0 place-items-center rounded-lg border border-border bg-secondary">
-                      <FolderGit2 className="size-[15px] text-muted-foreground" />
+                      {project.isGitRepository ? (
+                        <FolderGit2 className="size-[15px] text-muted-foreground" />
+                      ) : (
+                        <Folder className="size-[15px] text-muted-foreground" />
+                      )}
                     </span>
                     <div className="min-w-0 flex-1 space-y-1">
                       <div className="flex min-w-0 items-center gap-2">
                         <span className="truncate text-[13px] font-semibold">
                           {project.fullName}
                         </span>
-                        <span className="inline-flex shrink-0 items-center gap-1 rounded-[5px] border border-border bg-input px-1.5 py-0.5">
-                          <GitBranch className="size-2.5 text-primary" />
-                          <span className="max-w-44 truncate font-mono text-[11px] text-primary">
-                            {currentBranch}
+                        {project.isGitRepository ? (
+                          <span className="inline-flex shrink-0 items-center gap-1 rounded-[5px] border border-border bg-input px-1.5 py-0.5">
+                            <GitBranch className="size-2.5 text-primary" />
+                            <span className="max-w-44 truncate font-mono text-[11px] text-primary">
+                              {currentBranch}
+                            </span>
                           </span>
-                        </span>
+                        ) : (
+                          <span className="inline-flex shrink-0 items-center rounded-[5px] border border-border bg-input px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                            Folder
+                          </span>
+                        )}
                       </div>
                       <p className="truncate font-mono text-[11px] text-muted-foreground/80">
                         {project.localPath}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
-                      <BranchSwitcher
-                        project={project}
-                        currentBranch={currentBranch}
-                        iconOnly
-                        contentAlign="end"
-                        onBranchChanged={() => void refresh()}
-                      />
+                      {project.isGitRepository ? (
+                        <BranchSwitcher
+                          project={project}
+                          currentBranch={currentBranch}
+                          iconOnly
+                          contentAlign="end"
+                          onBranchChanged={() => void refresh()}
+                        />
+                      ) : null}
                       <Button
                         type="button"
                         size="icon"

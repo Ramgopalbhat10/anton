@@ -129,6 +129,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 ## Phase 5: GitHub And Project Workflow
 
 - [✔️] Support importing existing local repositories without cloning from GitHub.
+- [✔️] Support importing non-Git local folders via an in-app directory browser, with Branch/Diff gated on Git and PR/Issues gated on GitHub (#208).
 - [✔️] Support refreshing project metadata from GitHub.
 - [✔️] Support multiple installations and account filtering in the UI.
 - [✔️] Add project removal/archive behavior without deleting local files by default.
