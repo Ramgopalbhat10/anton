@@ -7,6 +7,7 @@ import { getProject } from "@/src/db/queries";
 import { createGitHubAccessToken } from "@/src/github/app";
 import type { ProjectBranchesSummary } from "@/src/lib/api-types";
 import { redactText } from "@/src/lib/redaction";
+import { isGitRepositoryAt } from "@/src/workspace/git-detect";
 
 export const runtime = "nodejs";
 
@@ -29,6 +30,13 @@ const mutationSchema = z.discriminatedUnion("action", [
 export async function GET(req: Request, { params }: Ctx) {
   const project = await readyProject(params);
   if ("error" in project) return project.error;
+
+  if (!isGitRepositoryAt(project.root)) {
+    return Response.json({
+      branches: emptyBranchSummary(project.project.id, project.project.defaultBranch),
+      refreshError: null,
+    });
+  }
 
   try {
     const refresh = new URL(req.url).searchParams.get("refresh") === "1";
@@ -55,6 +63,13 @@ export async function GET(req: Request, { params }: Ctx) {
 export async function POST(req: Request, { params }: Ctx) {
   const project = await readyProject(params);
   if ("error" in project) return project.error;
+
+  if (!isGitRepositoryAt(project.root)) {
+    return Response.json(
+      { error: "project is not a Git repository" },
+      { status: 400 },
+    );
+  }
 
   const body = await req.json().catch(() => null);
   const parsed = mutationSchema.safeParse(body);
@@ -109,6 +124,18 @@ async function readyProject(params: Promise<{ id: string }>): Promise<
     return { error: Response.json({ error: "project is not ready" }, { status: 400 }) };
   }
   return { project, root: ensureWorkspaceRootAt(project.localPath) };
+}
+
+function emptyBranchSummary(
+  projectId: string,
+  defaultBranch: string,
+): ProjectBranchesSummary {
+  return {
+    projectId,
+    currentBranch: null,
+    defaultBranch,
+    branches: [],
+  };
 }
 
 async function branchSummary(

@@ -93,6 +93,7 @@ export function Worklog({
     poll: visible && activeTab === "pr",
   });
   const hasGithubProject = project?.provider === "github" && project.status === "ready";
+  const hasGitProject = Boolean(project?.isGitRepository && project.status === "ready");
 
   const addTab = (tab: SidebarTab) => {
     setTabs((current) => (current.includes(tab) ? current : [...current, tab]));
@@ -133,10 +134,19 @@ export function Worklog({
     });
   }, [hasGithubProject]);
 
+  useEffect(() => {
+    if (hasGitProject) return;
+    queueMicrotask(() => {
+      setTabs((current) => current.filter((tab) => tab !== "diff"));
+      setActiveTab((current) => (current === "diff" ? "worklog" : current));
+    });
+  }, [hasGitProject]);
+
   const availableTabs = SIDEBAR_TABS.filter(
     (tab) =>
       !tabs.includes(tab.id) &&
-      (tab.id !== "pr" || hasGithubProject),
+      (tab.id !== "pr" || hasGithubProject) &&
+      (tab.id !== "diff" || hasGitProject),
   );
 
   if (!visible) {

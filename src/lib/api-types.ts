@@ -116,8 +116,22 @@ export type ProjectSummary = {
   status: "cloning" | "ready" | "error";
   lastError: string | null;
   environmentEnabled: boolean;
+  /** True when localPath is currently a Git work tree. */
+  isGitRepository: boolean;
   createdAt: number;
   updatedAt: number;
+};
+
+export type FilesystemBrowseEntry = {
+  name: string;
+  path: string;
+};
+
+export type FilesystemBrowseResult = {
+  currentPath: string | null;
+  parentPath: string | null;
+  entries: FilesystemBrowseEntry[];
+  truncated: boolean;
 };
 
 export type ProjectEnvironmentVariableSummary = {

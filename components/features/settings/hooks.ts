@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import type {
+  FilesystemBrowseResult,
   GitHubInstallationSummary,
   GitHubRepositorySummary,
   ProjectGitStatusSummary,
@@ -29,6 +30,9 @@ export function useWorkspaceSettings() {
     Record<string, ProjectGitStatusSummary>
   >({});
   const [localPathDraft, setLocalPathDraft] = useState("");
+  const [browse, setBrowse] = useState<FilesystemBrowseResult | null>(null);
+  const [browseLoading, setBrowseLoading] = useState(false);
+  const [browseError, setBrowseError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [cloningRepoId, setCloningRepoId] = useState<number | null>(null);
@@ -38,6 +42,28 @@ export function useWorkspaceSettings() {
     null,
   );
   const [error, setError] = useState<string | null>(null);
+
+  const loadBrowse = useCallback(async (path?: string | null) => {
+    setBrowseLoading(true);
+    setBrowseError(null);
+    try {
+      const query =
+        path && path.trim().length > 0
+          ? `?path=${encodeURIComponent(path.trim())}`
+          : "";
+      const data = await getJson<{ browse: FilesystemBrowseResult }>(
+        `/api/filesystem/browse${query}`,
+      );
+      setBrowse(data.browse);
+      if (data.browse.currentPath) {
+        setLocalPathDraft(data.browse.currentPath);
+      }
+    } catch (err) {
+      setBrowseError(errorMessage(err, "Failed to browse folders"));
+    } finally {
+      setBrowseLoading(false);
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -62,7 +88,9 @@ export function useWorkspaceSettings() {
       setProjects(projectsData.projects);
       const gitStatuses = await Promise.all(
         projectsData.projects
-          .filter((project) => project.status === "ready")
+          .filter(
+            (project) => project.status === "ready" && project.isGitRepository,
+          )
           .map((project) =>
             getJson<{ status: ProjectGitStatusSummary }>(
               `/api/projects/${project.id}/git/status`,
@@ -101,7 +129,8 @@ export function useWorkspaceSettings() {
     // Initial panel hydration updates state after async requests settle.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void refresh();
-  }, [refresh]);
+    void loadBrowse(null);
+  }, [refresh, loadBrowse]);
 
   const saveRoot = async () => {
     setSaving(true);
@@ -154,7 +183,6 @@ export function useWorkspaceSettings() {
         headers: jsonHeaders(),
         body: JSON.stringify({ source: "local", localPath }),
       });
-      setLocalPathDraft("");
       await refresh();
     } catch (err) {
       setError(errorMessage(err, "Import failed"));
@@ -210,6 +238,10 @@ export function useWorkspaceSettings() {
     setRootDraft,
     localPathDraft,
     setLocalPathDraft,
+    browse,
+    browseLoading,
+    browseError,
+    loadBrowse,
     installations,
     installationFilter,
     setInstallationFilter,

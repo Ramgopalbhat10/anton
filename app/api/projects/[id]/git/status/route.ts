@@ -1,6 +1,8 @@
 import { ensureWorkspaceRootAt } from "@/src/agent/sandbox";
 import { getProject } from "@/src/db/queries";
+import type { ProjectGitStatusSummary } from "@/src/lib/api-types";
 import { redactText } from "@/src/lib/redaction";
+import { isGitRepositoryAt } from "@/src/workspace/git-detect";
 import { buildProjectGitStatusSummary } from "@/src/workspace/git-status";
 
 export const runtime = "nodejs";
@@ -19,6 +21,22 @@ export async function GET(_req: Request, { params }: Ctx) {
 
   try {
     const root = ensureWorkspaceRootAt(project.localPath);
+    if (!isGitRepositoryAt(root)) {
+      const empty: ProjectGitStatusSummary = {
+        projectId: project.id,
+        branch: null,
+        defaultBranch: project.defaultBranch,
+        isDefaultBranch: false,
+        dirtyCount: 0,
+        ahead: null,
+        behind: null,
+        upstreamAhead: null,
+        upstreamBehind: null,
+        upstream: null,
+        remoteUrl: null,
+      };
+      return Response.json({ status: empty });
+    }
     const summary = await buildProjectGitStatusSummary(project, root);
     return Response.json({ status: summary });
   } catch (err) {

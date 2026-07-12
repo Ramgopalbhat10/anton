@@ -186,7 +186,11 @@ export function ProjectPicker({
                           {project.fullName}
                         </span>
                         <span className="block truncate font-mono text-[10.5px] text-muted-foreground/80">
-                          {project.provider === "local" ? "Local" : "GitHub"}
+                          {project.provider === "github"
+                            ? "GitHub"
+                            : project.isGitRepository
+                              ? "Local Git"
+                              : "Local folder"}
                         </span>
                       </span>
                       {selected ? (

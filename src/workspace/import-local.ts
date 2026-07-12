@@ -16,29 +16,35 @@ export async function importLocalRepository(input: { localPath: string }) {
     throw new LocalImportError("Local project path must be an existing directory.");
   }
 
-  const topLevel = await gitOutput(requestedPath, [
+  const gitTopLevel = await gitOutput(requestedPath, [
     "rev-parse",
     "--show-toplevel",
   ]).catch(() => null);
-  if (!topLevel) {
-    throw new LocalImportError("Local project path must be inside a Git repository.");
-  }
+
+  const candidatePath = gitTopLevel || requestedPath;
 
   let localPath: string;
   try {
-    localPath = ensureWorkspaceRootAt(topLevel);
+    localPath = ensureWorkspaceRootAt(candidatePath);
   } catch (err) {
     throw new LocalImportError(errorMessage(err));
   }
+
   const name = path.basename(localPath);
   const owner = path.basename(path.dirname(localPath)) || "local";
-  const defaultBranch =
-    (await gitOutput(localPath, ["branch", "--show-current"]).catch(() => "")) ||
-    "main";
-  const cloneUrl =
-    (await gitOutput(localPath, ["config", "--get", "remote.origin.url"]).catch(
-      () => "",
-    )) || null;
+
+  let defaultBranch = "main";
+  let cloneUrl: string | null = null;
+
+  if (gitTopLevel) {
+    defaultBranch =
+      (await gitOutput(localPath, ["branch", "--show-current"]).catch(() => "")) ||
+      "main";
+    cloneUrl =
+      (await gitOutput(localPath, ["config", "--get", "remote.origin.url"]).catch(
+        () => "",
+      )) || null;
+  }
 
   const project = createLocalProject({
     owner,
@@ -49,7 +55,9 @@ export async function importLocalRepository(input: { localPath: string }) {
     localPath,
   });
 
-  await attemptLinkLocalProject(project.id).catch(() => null);
+  if (gitTopLevel) {
+    await attemptLinkLocalProject(project.id).catch(() => null);
+  }
 
   return getProject(project.id) || project;
 }
