@@ -152,6 +152,7 @@ This roadmap is the working backlog for turning Anton from a learning harness in
 - [] Add command history with rerun support.
 - [✔️] Add settings for default model, max steps, approval strictness, and workspace root.
 - [✔️] Add per-project Environment settings that write project `.env`, inject enabled variables into workspace processes, and repair stale Docker `gh` auth (#202).
+- [✔️] Add sidebar Recent/Projects toggle, project-grouped chats (5 + More), and session metadata hover card (#210).
 - [] Add mobile-friendly workspace and worklog controls.
 - [] Add accessible keyboard navigation for settings, sessions, worklog, approvals, and message actions.
 - [✔️] Split chat UI components into feature-oriented folders.
