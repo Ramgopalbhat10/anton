@@ -30,6 +30,10 @@ pnpm dev                            # applies migrations, then serves http://loc
 | `pnpm db:migrate` | Apply pending migrations |
 | `pnpm db:studio` | Drizzle Studio |
 
+## Docs
+
+- [`docs/harness-comparison.md`](docs/harness-comparison.md) — how Anton's harness (loop, profiles, tool policy, permissions, sandbox, persistence) compares to Claude Code, Codex CLI, OpenCode, and Aider.
+
 ## Roadmap
 
 See [`ROADMAP.md`](ROADMAP.md) for shipped capabilities, known implementation risks, and the ongoing backlog. New implementation work should start from a roadmap checklist item and a matching GitHub issue.
