@@ -31,6 +31,8 @@ Browser (useChat) ── SSE ──▶ /api/chat
                     SQLite (sessions, messages, tool_calls)
 ```
 
+For a part-by-part breakdown of the harness and how it compares to Claude Code, Codex CLI, OpenCode, and Aider, see [`docs/harness-comparison.md`](docs/harness-comparison.md).
+
 Every tool argument that is a path MUST go through `resolveInWorkspace(...)` in `src/agent/sandbox.ts`. Paths escaping `WORKSPACE_ROOT` (via `..`, absolute paths, or symlinks) are rejected before `execute` runs. `bash` uses `execa` with `cwd: WORKSPACE_ROOT`, a timeout, and an output cap. **No `sudo`. The agent never writes to the project source itself.**
 
 ## Layout
